@@ -1,0 +1,10 @@
+.ipynb_checkpoints/
+.vscode/
+gradcam/
+logs/
+weights/
+datasets/
+
+*.pyc
+
+temp.py
