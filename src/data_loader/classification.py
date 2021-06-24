@@ -3,12 +3,12 @@
 # external module
 import cv2
 import numpy as np
-from tensorflow.keras.utils import to_categorical
 from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
 from .utils import imread, get_parent_dir_name
-from .base_loader import BaseDataGetter, BaseDataLoader
+from .base_loader import BaseDataGetter, BaseDataLoader, \
+    ResizePolicy, PreprocessPolicy, CategorizePolicy
 
 """
 Expect Data Path Structure
@@ -23,6 +23,9 @@ train - non_tumor
 label_dict = {"non_tumor":0, "tumor":1}
 """
 
+"""
+Test needed(class cache Working?)
+"""
 
 class ClassifyDataGetter(BaseDataGetter):
 
@@ -32,7 +35,10 @@ class ClassifyDataGetter(BaseDataGetter):
                  preprocess_input,
                  target_size,
                  interpolation,
-                 class_mode):
+                 class_mode,
+                 dtype):
+        super().__init__()
+
         self.image_path_list = image_path_list
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
@@ -41,38 +47,39 @@ class ClassifyDataGetter(BaseDataGetter):
         self.interpolation = interpolation
         self.class_mode = class_mode
 
+        self.categorize_method = CategorizePolicy(class_mode, self.num_classes)
+        self.preprocess_method = PreprocessPolicy(preprocess_input)
+        self.resize_method = ResizePolicy(target_size, interpolation)
+
+        self.cached_class_no = 0
+        self.is_class_cached = False
+        self.data_index = -1 * np.ones((len(self), ), dtype="int32")
+
+        self.classes = np.zeros((len(self), ), dtype=dtype)
+        self.classes = self.categorize_method(self.classes)
+
     def __getitem__(self, i):
         image_path = self.image_path_list[i]
-        image_dir_name = get_parent_dir_name(image_path)
 
         image_array = imread(image_path, channel="rgb")
-        if self.interpolation == "bilinear":
-            image_array = cv2.resize(
-                image_array, self.target_size, cv2.INTER_LINEAR)
+        image_array = self.resize_method(image_array)
+        image_array = self.preprocess_method(image_array)
 
-        if self.preprocess_input:
-            image_array = self.preprocess_input(image_array)
+        if self.is_class_cached:
+            label = self.classes[i]
         else:
-            image_array = (image_array / 127.5) - 1
-
-        label = self.label_to_index_dict[image_dir_name]
-        if self.class_mode == "binary":
-            label = to_categorical(label, num_classes=self.num_classes)
+            image_dir_name = get_parent_dir_name(image_path)
+            label = self.label_to_index_dict[image_dir_name]
+            label = self.categorize_method(label)
+            self.classes[i] = label
+            self.cached_class_no += 1
+            self.is_class_cached = self.cached_class_no == len(self)
 
         return image_array, label
 
     def shuffle(self):
-        self.image_path_list = syncron_shuffle(self.image_path_list)
-
-    def check_label_status(self):
-        data_len = self.__len__()
-        for index in range(data_len):
-            image_path = self.image_path_list[index]
-            image_dir_name = get_parent_dir_name(image_path)
-            label = self.label_to_index_dict[image_dir_name]
-            print(image_path)
-            print(label)
-            print(to_categorical(label, num_classes=self.num_classes))
+        self.image_path_list, self.classes = \
+            syncron_shuffle(self.image_path_list, self.classes)
 
 
 class ClassifyDataloader(BaseDataLoader):
@@ -85,14 +92,16 @@ class ClassifyDataloader(BaseDataLoader):
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
-                 dtype="float32",
-                 class_mode="binary"):
+                 class_mode="binary",
+                 dtype="float32"
+                 ):
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
                                               label_to_index_dict=label_to_index_dict,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation,
-                                              class_mode=class_mode
+                                              class_mode=class_mode,
+                                              dtype=dtype
                                               )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
@@ -113,13 +122,13 @@ class ClassifyDataloader(BaseDataLoader):
         start = i * self.batch_size
         end = start + self.batch_size
 
-        batch_x = np.empty(
+        batch_x = np.zeros(
             (self.batch_size, *self.source_data_shape), dtype=self.dtype)
         if self.class_mode == "binary":
-            batch_y = np.empty(
+            batch_y = np.zeros(
                 (self.batch_size, ), dtype=self.dtype)
         elif self.class_mode == "categorical":
-            batch_y = np.empty(
+            batch_y = np.zeros(
                 (self.batch_size, self.num_classes), dtype=self.dtype)
         for batch_index, total_index in enumerate(range(start, end)):
             data = self.data_getter[total_index]

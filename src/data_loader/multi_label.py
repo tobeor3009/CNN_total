@@ -3,53 +3,44 @@
 # external module
 import cv2
 import numpy as np
+from tensorflow.keras.utils import to_categorical
 from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
-from .utils import imread
+from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy
 
 """
-Expect Data Path Structure
-
-train - image
-      - mask
-valid - image
-      - mask
-test  - image
-      - mask
-or
-
-"""
-
-"""
-Test needed
+Currently Working 2021.06.24
 """
 
 
-class SegDataGetter(BaseDataGetter):
+class MultiLabelDataGetter(BaseDataGetter):
+
     def __init__(self,
                  image_path_list,
                  mask_path_list,
+                 label_to_index_dict,
                  preprocess_input,
                  target_size,
-                 interpolation
-                 ):
+                 interpolation,
+                 class_mode):
         super().__init__()
 
         self.image_path_list = image_path_list
         self.mask_path_list = mask_path_list
+        self.label_to_index_dict = label_to_index_dict
+        self.num_classes = len(self.label_to_index_dict)
         self.preprocess_input = preprocess_input
         self.target_size = target_size
         self.interpolation = interpolation
+        self.class_mode = class_mode
 
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
         self.resize_method = ResizePolicy(target_size, interpolation)
-
-        assert len(image_path_list) == len(mask_path_list), \
-            f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
+        self.categorize_method = CategorizePolicy(class_mode, self.num_classes)
 
     def __getitem__(self, i):
         image_path = self.image_path_list[i]
@@ -64,35 +55,46 @@ class SegDataGetter(BaseDataGetter):
         image_array = self.image_preprocess_method(image_array)
         mask_array = self.mask_preprocess_method(mask_array)
 
-        return image_array, mask_array
+        image_dir_name = get_parent_dir_name(image_path)
+        label = self.label_to_index_dict[image_dir_name]
+        label = self.categorize_method(label)
+
+        preserve = np.mean(mask_array)
+
+        return image_array, mask_array, label, preserve
 
     def shuffle(self):
         self.image_path_list, self.mask_path_list = \
             syncron_shuffle(self.image_path_list, self.mask_path_list)
 
 
-class SegDataloader(BaseDataLoader):
+class MultiLabelDataloader(BaseDataLoader):
 
     def __init__(self,
                  image_path_list=None,
                  mask_path_list=None,
-                 batch_size=4,
+                 label_to_index_dict=None,
+                 batch_size=None,
                  preprocess_input=None,
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
-                 dtype="float32"):
-        self.data_getter = SegDataGetter(image_path_list=image_path_list,
-                                         mask_path_list=mask_path_list,
-                                         preprocess_input=preprocess_input,
-                                         target_size=target_size,
-                                         interpolation=interpolation
-                                         )
+                 dtype="float32",
+                 class_mode="binary"):
+        self.data_getter = MultiLabelDataGetter(image_path_list=image_path_list,
+                                                mask_path_list=mask_path_list,
+                                                label_to_index_dict=label_to_index_dict,
+                                                preprocess_input=preprocess_input,
+                                                target_size=target_size,
+                                                interpolation=interpolation,
+                                                class_mode=class_mode
+                                                )
         self.batch_size = batch_size
-        self.dtype = dtype
-        self.image_data_shape = self.data_getter[0][0].shape
-        self.mask_data_shape = self.data_getter[0][1].shape
+        self.num_classes = len(label_to_index_dict)
+        self.source_data_shape = self.data_getter[0][0].shape
+
         self.shuffle = shuffle
+        self.dtype = dtype
         self.on_epoch_end()
 
     def __getitem__(self, i):
@@ -101,9 +103,9 @@ class SegDataloader(BaseDataLoader):
         end = start + self.batch_size
 
         batch_x = np.empty(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+            (self.batch_size, *self.source_data_shape), dtype=self.dtype)
         batch_y = np.empty(
-            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
+            (self.batch_size, self.num_classes), dtype=self.dtype)
         for batch_index, total_index in enumerate(range(start, end)):
             data = self.data_getter[total_index]
             batch_x[batch_index] = data[0]
