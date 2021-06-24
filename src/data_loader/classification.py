@@ -11,21 +11,23 @@ from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy
 
 """
-Expect Data Path Structure
-
-train - class_names
-valid - class_names
-test - class_names
+Expected Data Path Structure
 
 Example)
-train - non_tumor
-      - tumor
-label_dict = {"non_tumor":0, "tumor":1}
+train - negative
+      - positive
+valid - negative
+      - positive
+test - negative
+     - positive
+
 """
 
 """
-Test needed(class cache Working?)
+To Be Done:
+    - Test class cache
 """
+
 
 class ClassifyDataGetter(BaseDataGetter):
 
@@ -75,11 +77,15 @@ class ClassifyDataGetter(BaseDataGetter):
             self.cached_class_no += 1
             self.is_class_cached = self.cached_class_no == len(self)
 
-        return image_array, label
+        single_data_dict = {"image_array": image_array,
+                            "label": label}
+
+        return single_data_dict
 
     def shuffle(self):
-        self.image_path_list, self.classes = \
-            syncron_shuffle(self.image_path_list, self.classes)
+        self.image_path_list, self.data_index, self.classes = \
+            syncron_shuffle(self.image_path_list,
+                            self.data_index, self.classes)
 
 
 class ClassifyDataloader(BaseDataLoader):
@@ -124,16 +130,13 @@ class ClassifyDataloader(BaseDataLoader):
 
         batch_x = np.zeros(
             (self.batch_size, *self.source_data_shape), dtype=self.dtype)
-        if self.class_mode == "binary":
-            batch_y = np.zeros(
-                (self.batch_size, ), dtype=self.dtype)
-        elif self.class_mode == "categorical":
-            batch_y = np.zeros(
-                (self.batch_size, self.num_classes), dtype=self.dtype)
+        batch_y = np.zeros((self.batch_size, ), dtype=self.dtype)
+        batch_y = self.data_getter.categorize_method(batch_y, dtype=self.dtype)
+
         for batch_index, total_index in enumerate(range(start, end)):
-            data = self.data_getter[total_index]
-            batch_x[batch_index] = data[0]
-            batch_y[batch_index] = data[1]
+            single_data_dict = self.data_getter[total_index]
+            batch_x[batch_index] = single_data_dict["image_array"]
+            batch_y[batch_index] = single_data_dict["label"]
 
         return batch_x, batch_y
 

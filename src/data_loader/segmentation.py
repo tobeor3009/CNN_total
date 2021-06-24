@@ -11,7 +11,7 @@ from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy
 
 """
-Expect Data Path Structure
+Expected Data Path Structure
 
 train - image
       - mask
@@ -19,12 +19,11 @@ valid - image
       - mask
 test  - image
       - mask
-or
-
 """
 
 """
-Test needed
+To Be Done:
+    - Test DataLoader Working
 """
 
 
@@ -64,7 +63,10 @@ class SegDataGetter(BaseDataGetter):
         image_array = self.image_preprocess_method(image_array)
         mask_array = self.mask_preprocess_method(mask_array)
 
-        return image_array, mask_array
+        single_data_dict = {"image_array": image_array,
+                            "mask_array": mask_array}
+
+        return single_data_dict
 
     def shuffle(self):
         self.image_path_list, self.mask_path_list = \
@@ -105,9 +107,9 @@ class SegDataloader(BaseDataLoader):
         batch_y = np.empty(
             (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
         for batch_index, total_index in enumerate(range(start, end)):
-            data = self.data_getter[total_index]
-            batch_x[batch_index] = data[0]
-            batch_y[batch_index] = data[1]
+            single_data_dict = self.data_getter[total_index]
+            batch_x[batch_index] = single_data_dict["image_array"]
+            batch_y[batch_index] = single_data_dict["mask_array"]
 
         return batch_x, batch_y
 

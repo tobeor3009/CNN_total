@@ -12,7 +12,20 @@ from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy
 
 """
-Currently Working 2021.06.24
+Expected Data Path Structure
+
+train - image
+      - mask
+valid - image
+      - mask
+test  - image
+      - mask
+"""
+
+"""
+To Be Done:
+    - Test DataLoader Working
+    - Test class cache
 """
 
 
@@ -61,7 +74,12 @@ class MultiLabelDataGetter(BaseDataGetter):
 
         preserve = np.mean(mask_array)
 
-        return image_array, mask_array, label, preserve
+        single_data_dict = {"image_array": image_array,
+                            "mask_array": mask_array,
+                            "label": label,
+                            "preserve": preserve}
+
+        return single_data_dict
 
     def shuffle(self):
         self.image_path_list, self.mask_path_list = \
@@ -107,9 +125,9 @@ class MultiLabelDataloader(BaseDataLoader):
         batch_y = np.empty(
             (self.batch_size, self.num_classes), dtype=self.dtype)
         for batch_index, total_index in enumerate(range(start, end)):
-            data = self.data_getter[total_index]
-            batch_x[batch_index] = data[0]
-            batch_y[batch_index] = data[1]
+            single_data_dict = self.data_getter[total_index]
+            batch_x[batch_index] = single_data_dict[0]
+            batch_y[batch_index] = single_data_dict[1]
 
         return batch_x, batch_y
 

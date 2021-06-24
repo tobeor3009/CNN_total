@@ -1,3 +1,5 @@
+from abc import abstractmethod
+
 import numpy as np
 import tensorflow
 from tensorflow.keras.utils import to_categorical
@@ -8,12 +10,17 @@ class BaseDataGetter():
 
     def __init__(self):
         self.data_len = None
+        self.image_path_list = None
 
     def __len__(self):
         if self.data_len is None:
             self.data_len = len(self.image_path_list)
 
         return self.data_len
+
+    @abstractmethod
+    def shuffle(self):
+        pass
 
 
 class BaseDataLoader(tensorflow.keras.utils.Sequence):
@@ -25,6 +32,10 @@ class BaseDataLoader(tensorflow.keras.utils.Sequence):
     def on_epoch_end(self):
         if self.shuffle:
             self.data_getter.shuffle()
+
+    @abstractmethod
+    def print_data_info(self):
+        pass
 
 
 class PreprocessPolicy():
@@ -77,3 +88,7 @@ class CategorizePolicy():
     def __call__(self, label):
         label = self.categorize_method(label)
         return label
+
+
+class ArgumentationPolicy():
+    pass
