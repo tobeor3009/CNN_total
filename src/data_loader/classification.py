@@ -124,10 +124,6 @@ class ClassifyDataloader(BaseDataLoader):
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
         self.source_data_shape = self.data_getter[0][0].shape
-        if target_size is None:
-            target_size = self.source_data_shape[:2]
-            self.data_getter.target_size = target_size
-            self.source_data_shape[:2] = target_size
         self.shuffle = shuffle
         self.dtype = dtype
         self.class_mode = class_mode

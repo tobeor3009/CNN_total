@@ -33,7 +33,7 @@ class BaseDataGetter():
         self.on_memory = False
 
         for index in range(len(self)):
-            single_data_tuple = single_data_tuple[index]
+            single_data_tuple = self[index]
             self.data_on_memory_dict[index] = single_data_tuple
 
         self.on_memory = True
@@ -59,9 +59,11 @@ class PreprocessPolicy():
     def __init__(self, preprocess_input):
 
         if preprocess_input is None:
-            self.preprocess_method = lambda x: (x / 127.5) - 1
+            self.preprocess_method = lambda image_array: (
+                image_array / 127.5) - 1
         elif preprocess_input == "mask":
-            self.preprocess_method = lambda x: np.expand_dims(x / 255, axis=-1)
+            self.preprocess_method = \
+                lambda image_array: np.expand_dims(image_array / 255, axis=-1)
         else:
             self.preprocess_method = preprocess_input
 
@@ -80,12 +82,12 @@ class ResizePolicy():
         }
 
         if target_size is None:
-            self.resize_method = lambda x: x
+            self.resize_method = lambda image_array: image_array
         else:
-            self.resize_method = lambda x: cv2.resize(src=x,
-                                                      dsize=target_size,
-                                                      interpolation=interpolation_dict[interpolation]
-                                                      )
+            self.resize_method = lambda image_array: cv2.resize(src=image_array,
+                                                                dsize=target_size,
+                                                                interpolation=interpolation_dict[interpolation]
+                                                                )
 
     def __call__(self, image_array):
         image_resized_array = self.resize_method(image_array)
@@ -97,10 +99,10 @@ class CategorizePolicy():
     def __init__(self, class_mode, num_classes, dtype):
 
         if class_mode == "binary":
-            self.categorize_method = lambda x: x
+            self.categorize_method = lambda label: label
         elif class_mode == "categorical":
-            self.categorize_method = lambda x: to_categorical(
-                x, num_classes, dtype=dtype)
+            self.categorize_method = \
+                lambda label: to_categorical(label, num_classes, dtype=dtype)
 
     def __call__(self, label):
         label = self.categorize_method(label)
@@ -137,7 +139,7 @@ class ArgumentationPolicy():
             final_transform = classification_transform
 
         if argumentation is None:
-            self.transform = lambda x: x
+            self.transform = lambda image_array: image_array
         else:
             self.transform = A.Compose([
                 final_transform
