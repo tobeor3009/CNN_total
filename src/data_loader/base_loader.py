@@ -32,11 +32,10 @@ class BaseDataGetter():
 
         self.on_memory = False
 
-        for index, single_data_tuple in enumerate(self):
-            if index >= len(self):
-                break
+        for index in range(len(self)):
+            single_data_tuple = single_data_tuple[index]
             self.data_on_memory_dict[index] = single_data_tuple
-            
+
         self.on_memory = True
 
 
