@@ -1,14 +1,12 @@
 # base module
 
 # external module
-import cv2
 import numpy as np
-from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ArgumentationPolicy
 
 """
 Expected Data Path Structure
@@ -34,58 +32,68 @@ class ClassifyDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  label_to_index_dict,
+                 on_memory,
                  preprocess_input,
                  target_size,
                  interpolation,
+                 argumentation,
                  class_mode,
                  dtype):
         super().__init__()
 
-        self.image_path_list = image_path_list
+        self.image_path_dict = {index: image_path for index,
+                                image_path in enumerate(image_path_list)}
+        self.data_on_memory_dict = {}
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
+        self.on_memory = on_memory
         self.preprocess_input = preprocess_input
         self.target_size = target_size
         self.interpolation = interpolation
         self.class_mode = class_mode
 
-        self.categorize_method = CategorizePolicy(class_mode, self.num_classes)
-        self.preprocess_method = PreprocessPolicy(preprocess_input)
         self.resize_method = ResizePolicy(target_size, interpolation)
+        self.argumentation_method = ArgumentationPolicy(
+            argumentation, "classfication")
+        self.preprocess_method = PreprocessPolicy(preprocess_input)
+        self.categorize_method = CategorizePolicy(
+            class_mode, self.num_classes, dtype)
 
         self.cached_class_no = 0
         self.is_class_cached = False
-        self.data_index = -1 * np.ones((len(self), ), dtype="int32")
+        self.data_index_dict = {i: i for i in range(len(self))}
+        self.class_dict = {i: self.categorize_method(
+            0) for i in range(len(self))}
 
-        self.classes = np.zeros((len(self), ), dtype=dtype)
-        self.classes = self.categorize_method(self.classes)
+        if self.on_memory:
+            self.get_data_on_memory()
 
     def __getitem__(self, i):
-        image_path = self.image_path_list[i]
 
-        image_array = imread(image_path, channel="rgb")
-        image_array = self.resize_method(image_array)
-        image_array = self.preprocess_method(image_array)
+        current_index = self.data_index_dict[i]
 
-        if self.is_class_cached:
-            label = self.classes[i]
+        if self.on_memory:
+            single_data_tuple = self.data_on_memory_dict[current_index]
         else:
-            image_dir_name = get_parent_dir_name(image_path)
-            label = self.label_to_index_dict[image_dir_name]
-            label = self.categorize_method(label)
-            self.classes[i] = label
-            self.cached_class_no += 1
-            self.is_class_cached = self.cached_class_no == len(self)
+            image_path = self.image_path_dict[current_index]
+            image_array = imread(image_path, channel="rgb")
+            image_array = self.resize_method(image_array)
+            image_array = self.argumentation_method(image_array)
+            image_array = self.preprocess_method(image_array)
 
-        single_data_dict = {"image_array": image_array,
-                            "label": label}
+            if self.is_class_cached:
+                label = self.class_dict[current_index]
+            else:
+                image_dir_name = get_parent_dir_name(image_path)
+                label = self.label_to_index_dict[image_dir_name]
+                label = self.categorize_method(label)
+                self.class_dict[current_index] = label
+                self.cached_class_no += 1
+                self.is_class_cached = self.cached_class_no == len(self)
 
-        return single_data_dict
+            single_data_tuple = image_array, label
 
-    def shuffle(self):
-        self.image_path_list, self.data_index, self.classes = \
-            syncron_shuffle(self.image_path_list,
-                            self.data_index, self.classes)
+        return single_data_tuple
 
 
 class ClassifyDataloader(BaseDataLoader):
@@ -94,18 +102,22 @@ class ClassifyDataloader(BaseDataLoader):
                  image_path_list=None,
                  label_to_index_dict=None,
                  batch_size=None,
+                 on_memory=False,
                  preprocess_input=None,
                  target_size=None,
                  interpolation="bilinear",
+                 argumentation=None,
                  shuffle=True,
                  class_mode="binary",
                  dtype="float32"
                  ):
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
                                               label_to_index_dict=label_to_index_dict,
+                                              on_memory=on_memory,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation,
+                                              argumentation=argumentation,
                                               class_mode=class_mode,
                                               dtype=dtype
                                               )
@@ -131,12 +143,12 @@ class ClassifyDataloader(BaseDataLoader):
         batch_x = np.zeros(
             (self.batch_size, *self.source_data_shape), dtype=self.dtype)
         batch_y = np.zeros((self.batch_size, ), dtype=self.dtype)
-        batch_y = self.data_getter.categorize_method(batch_y, dtype=self.dtype)
+        batch_y = self.data_getter.categorize_method(batch_y)
 
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_dict = self.data_getter[total_index]
-            batch_x[batch_index] = single_data_dict["image_array"]
-            batch_y[batch_index] = single_data_dict["label"]
+            single_data_tuple = self.data_getter[total_index]
+            batch_x[batch_index] = single_data_tuple[0]
+            batch_y[batch_index] = single_data_tuple[1]
 
         return batch_x, batch_y
 
