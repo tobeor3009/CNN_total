@@ -36,7 +36,7 @@ class ClassifyDataGetter(BaseDataGetter):
                  preprocess_input,
                  target_size,
                  interpolation,
-                 argumentation,
+                 argumentation_proba,
                  class_mode,
                  dtype):
         super().__init__()
@@ -53,20 +53,21 @@ class ClassifyDataGetter(BaseDataGetter):
         self.class_mode = class_mode
 
         self.resize_method = ResizePolicy(target_size, interpolation)
-        self.argumentation_method = ArgumentationPolicy(
-            argumentation, "classfication")
         self.preprocess_method = PreprocessPolicy(preprocess_input)
-        self.categorize_method = CategorizePolicy(
-            class_mode, self.num_classes, dtype)
+        self.categorize_method = \
+            CategorizePolicy(class_mode, self.num_classes, dtype)
 
         self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
-        self.class_dict = {i: self.categorize_method(
-            0) for i in range(len(self))}
-
-        if self.on_memory:
+        self.class_dict = \
+            {i: self.categorize_method(0) for i in range(len(self))}
+        if self.on_memory is True:
+            self.argumentation_method = \
+                ArgumentationPolicy(0, "classfication")
             self.get_data_on_memory()
+        self.argumentation_method = \
+            ArgumentationPolicy(argumentation_proba, "classfication")
 
     def __getitem__(self, i):
 
@@ -76,7 +77,9 @@ class ClassifyDataGetter(BaseDataGetter):
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
-            single_data_tuple = self.data_on_memory_dict[current_index]
+            image_array, label = self.data_on_memory_dict[current_index]
+            image_array = self.argumentation_method(image_array)
+            single_data_tuple = image_array, label
         else:
             image_path = self.image_path_dict[current_index]
             image_array = imread(image_path, channel="rgb")
@@ -106,10 +109,10 @@ class ClassifyDataloader(BaseDataLoader):
                  label_to_index_dict=None,
                  batch_size=None,
                  on_memory=False,
+                 argumentation_proba=False,
                  preprocess_input=None,
                  target_size=None,
                  interpolation="bilinear",
-                 argumentation=None,
                  shuffle=True,
                  class_mode="binary",
                  dtype="float32"
@@ -117,10 +120,10 @@ class ClassifyDataloader(BaseDataLoader):
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
                                               label_to_index_dict=label_to_index_dict,
                                               on_memory=on_memory,
+                                              argumentation_proba=argumentation_proba,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation,
-                                              argumentation=argumentation,
                                               class_mode=class_mode,
                                               dtype=dtype
                                               )

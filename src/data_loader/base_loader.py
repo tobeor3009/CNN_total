@@ -1,5 +1,4 @@
 from abc import abstractmethod
-from albumentations.augmentations.transforms import VerticalFlip
 import cv2
 import numpy as np
 import tensorflow
@@ -31,7 +30,6 @@ class BaseDataGetter():
     def get_data_on_memory(self):
 
         self.on_memory = False
-
         for index, single_data_tuple in enumerate(self):
             self.data_on_memory_dict[index] = single_data_tuple
 
@@ -108,7 +106,7 @@ class CategorizePolicy():
 
 
 class ArgumentationPolicy():
-    def __init__(self, argumentation, task):
+    def __init__(self, argumentation_proba, task):
 
         positional_transform = A.Compose([
             A.HorizontalFlip(p=0.5),
@@ -136,12 +134,12 @@ class ArgumentationPolicy():
         if task == "classfication":
             final_transform = classification_transform
 
-        if argumentation is None:
-            self.transform = lambda image_array: image_array
-        else:
-            self.transform = A.Compose([
+        if argumentation_proba:
+            self.transform = lambda image_array: A.Compose([
                 final_transform
-            ], p=0.9)
+            ], p=argumentation_proba)(image=image_array)['image']
+        else:
+            self.transform = lambda image_array: image_array
 
     def __call__(self, image_array):
         image_transformed_array = self.transform(image_array)
