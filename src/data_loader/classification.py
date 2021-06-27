@@ -70,6 +70,9 @@ class ClassifyDataGetter(BaseDataGetter):
 
     def __getitem__(self, i):
 
+        if i >= len(self):
+            raise IndexError
+
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
@@ -128,17 +131,18 @@ class ClassifyDataloader(BaseDataLoader):
         self.dtype = dtype
         self.class_mode = class_mode
 
+        self.data_getter.cached_class_no = 0
         self.print_data_info()
         self.on_epoch_end()
 
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = start + self.batch_size
-
+        end = min(start + self.batch_size, len(self.data_getter))
+        current_batch_size = end - start
         batch_x = np.zeros(
-            (self.batch_size, *self.source_data_shape), dtype=self.dtype)
-        batch_y = np.zeros((self.batch_size, ), dtype=self.dtype)
+            (current_batch_size, *self.source_data_shape), dtype=self.dtype)
+        batch_y = np.zeros((current_batch_size, ), dtype=self.dtype)
         batch_y = self.data_getter.categorize_method(batch_y)
 
         for batch_index, total_index in enumerate(range(start, end)):

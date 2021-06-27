@@ -32,8 +32,7 @@ class BaseDataGetter():
 
         self.on_memory = False
 
-        for index in range(len(self)):
-            single_data_tuple = self[index]
+        for index, single_data_tuple in enumerate(self):
             self.data_on_memory_dict[index] = single_data_tuple
 
         self.on_memory = True
@@ -42,7 +41,6 @@ class BaseDataGetter():
 class BaseDataLoader(tensorflow.keras.utils.Sequence):
 
     def __len__(self):
-        """Denotes the number of batches per epoch"""
         return len(self.data_getter) // self.batch_size
 
     def on_epoch_end(self):
