@@ -6,7 +6,7 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ArgumentationPolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifiyArgumentationPolicy
 
 """
 Expected Data Path Structure
@@ -33,10 +33,10 @@ class ClassifyDataGetter(BaseDataGetter):
                  image_path_list,
                  label_to_index_dict,
                  on_memory,
+                 argumentation_proba,
                  preprocess_input,
                  target_size,
                  interpolation,
-                 argumentation_proba,
                  class_mode,
                  dtype):
         super().__init__()
@@ -60,14 +60,14 @@ class ClassifyDataGetter(BaseDataGetter):
         self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
-        self.class_dict = \
-            {i: self.categorize_method(0) for i in range(len(self))}
+        self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
             self.argumentation_method = \
-                ArgumentationPolicy(0, "classfication")
+                ClassifiyArgumentationPolicy(0)
             self.get_data_on_memory()
+
         self.argumentation_method = \
-            ArgumentationPolicy(argumentation_proba, "classfication")
+            ClassifiyArgumentationPolicy(argumentation_proba)
 
     def __getitem__(self, i):
 
@@ -79,7 +79,6 @@ class ClassifyDataGetter(BaseDataGetter):
         if self.on_memory:
             image_array, label = self.data_on_memory_dict[current_index]
             image_array = self.argumentation_method(image_array)
-            single_data_tuple = image_array, label
         else:
             image_path = self.image_path_dict[current_index]
             image_array = imread(image_path, channel="rgb")
@@ -97,8 +96,7 @@ class ClassifyDataGetter(BaseDataGetter):
                 self.cached_class_no += 1
                 self.is_class_cached = self.cached_class_no == len(self)
 
-            single_data_tuple = image_array, label
-
+        single_data_tuple = image_array, label
         return single_data_tuple
 
 
@@ -129,7 +127,7 @@ class ClassifyDataloader(BaseDataLoader):
                                               )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
-        self.source_data_shape = self.data_getter[0][0].shape
+        self.image_data_shape = self.data_getter[0][0].shape
         self.shuffle = shuffle
         self.dtype = dtype
         self.class_mode = class_mode
@@ -144,14 +142,13 @@ class ClassifyDataloader(BaseDataLoader):
         end = min(start + self.batch_size, len(self.data_getter))
         current_batch_size = end - start
         batch_x = np.zeros(
-            (current_batch_size, *self.source_data_shape), dtype=self.dtype)
+            (current_batch_size, *self.image_data_shape), dtype=self.dtype)
         batch_y = np.zeros((current_batch_size, ), dtype=self.dtype)
         batch_y = self.data_getter.categorize_method(batch_y)
 
         for batch_index, total_index in enumerate(range(start, end)):
             single_data_tuple = self.data_getter[total_index]
-            batch_x[batch_index] = single_data_tuple[0]
-            batch_y[batch_index] = single_data_tuple[1]
+            batch_x[batch_index], batch_y[batch_index] = single_data_tuple
 
         return batch_x, batch_y
 

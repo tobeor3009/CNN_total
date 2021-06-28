@@ -1,15 +1,12 @@
 # base module
 
 # external module
-import cv2
 import numpy as np
-from tensorflow.keras.utils import to_categorical
-from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, SegArgumentationPolicy
 
 """
 Expected Data Path Structure
@@ -35,55 +32,87 @@ class MultiLabelDataGetter(BaseDataGetter):
                  image_path_list,
                  mask_path_list,
                  label_to_index_dict,
+                 on_memory,
+                 argumentation_proba,
                  preprocess_input,
                  target_size,
                  interpolation,
-                 class_mode):
+                 class_mode,
+                 dtype):
         super().__init__()
 
-        self.image_path_list = image_path_list
-        self.mask_path_list = mask_path_list
+        self.image_path_dict = {index: image_path for index,
+                                image_path in enumerate(image_path_list)}
+        self.mask_path_dict = {index: mask_path for index,
+                               mask_path in enumerate(mask_path_list)}
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
+        self.on_memory = on_memory
         self.preprocess_input = preprocess_input
         self.target_size = target_size
         self.interpolation = interpolation
         self.class_mode = class_mode
 
+        self.resize_method = ResizePolicy(target_size, interpolation)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
-        self.resize_method = ResizePolicy(target_size, interpolation)
-        self.categorize_method = CategorizePolicy(class_mode, self.num_classes)
+        self.categorize_method = CategorizePolicy(
+            class_mode, self.num_classes, dtype)
+
+        self.cached_class_no = 0
+        self.is_class_cached = False
+        self.data_index_dict = {i: i for i in range(len(self))}
+        self.class_dict = {i: None for i in range(len(self))}
+        if self.on_memory is True:
+            self.argumentation_method = \
+                SegArgumentationPolicy(0)
+            self.get_data_on_memory()
+
+        self.argumentation_method = \
+            SegArgumentationPolicy(argumentation_proba)
 
     def __getitem__(self, i):
-        image_path = self.image_path_list[i]
-        mask_path = self.mask_path_list[i]
 
-        image_array = imread(image_path, channel="rgb")
-        mask_array = imread(mask_path)
+        if i >= len(self):
+            raise IndexError
 
-        image_array = self.resize_method(image_array)
-        mask_array = self.resize_method(mask_array)
+        current_index = self.data_index_dict[i]
 
-        image_array = self.image_preprocess_method(image_array)
-        mask_array = self.mask_preprocess_method(mask_array)
+        if self.on_memory:
+            image_array, mask_array, label, preserve = self.data_on_memory_dict[current_index]
+            image_array, mask_array = \
+                self.argumentation_method(image_array, mask_array)
+        else:
+            image_path = self.image_path_dict[current_index]
+            mask_path = self.mask_path_dict[current_index]
 
-        image_dir_name = get_parent_dir_name(image_path)
-        label = self.label_to_index_dict[image_dir_name]
-        label = self.categorize_method(label)
+            image_array = imread(image_path, channel="rgb")
+            mask_array = imread(mask_path)
 
-        preserve = np.mean(mask_array)
+            image_array = self.resize_method(image_array)
+            mask_array = self.resize_method(mask_array)
 
-        single_data_dict = {"image_array": image_array,
-                            "mask_array": mask_array,
-                            "label": label,
-                            "preserve": preserve}
+            image_array = self.argumentation_method(image_array)
+            mask_array = self.argumentation_method(mask_array)
 
-        return single_data_dict
+            image_array = self.image_preprocess_method(image_array)
+            mask_array = self.mask_preprocess_method(mask_array)
 
-    def shuffle(self):
-        self.image_path_list, self.mask_path_list = \
-            syncron_shuffle(self.image_path_list, self.mask_path_list)
+            if self.is_class_cached:
+                label, preserve = self.class_dict[current_index]
+            else:
+                image_dir_name = get_parent_dir_name(image_path)
+                label = self.label_to_index_dict[image_dir_name]
+                label = self.categorize_method(label)
+                preserve = np.mean(mask_array)
+
+                self.class_dict[current_index] = label, preserve
+                self.cached_class_no += 1
+                self.is_class_cached = self.cached_class_no == len(self)
+
+        single_data_tuple = image_array, mask_array, label, preserve
+
+        return single_data_tuple
 
 
 class MultiLabelDataloader(BaseDataLoader):
@@ -93,6 +122,8 @@ class MultiLabelDataloader(BaseDataLoader):
                  mask_path_list=None,
                  label_to_index_dict=None,
                  batch_size=None,
+                 on_memory=False,
+                 argumentation_proba=False,
                  preprocess_input=None,
                  target_size=None,
                  interpolation="bilinear",
@@ -102,35 +133,48 @@ class MultiLabelDataloader(BaseDataLoader):
         self.data_getter = MultiLabelDataGetter(image_path_list=image_path_list,
                                                 mask_path_list=mask_path_list,
                                                 label_to_index_dict=label_to_index_dict,
+                                                on_memory=on_memory,
+                                                argumentation_proba=argumentation_proba,
                                                 preprocess_input=preprocess_input,
                                                 target_size=target_size,
                                                 interpolation=interpolation,
-                                                class_mode=class_mode
+                                                class_mode=class_mode,
+                                                dtype=dtype
                                                 )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
-        self.source_data_shape = self.data_getter[0][0].shape
-
+        self.image_data_shape = self.data_getter[0][0].shape
+        self.mask_data_shape = self.data_getter[0][1].shape
         self.shuffle = shuffle
         self.dtype = dtype
+
+        self.data_getter.cached_class_no = 0
+        self.print_data_info()
         self.on_epoch_end()
 
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = start + self.batch_size
+        end = min(start + self.batch_size, len(self.data_getter))
+        current_batch_size = end - start
 
-        batch_x = np.empty(
-            (self.batch_size, *self.source_data_shape), dtype=self.dtype)
-        batch_y = np.empty(
-            (self.batch_size, self.num_classes), dtype=self.dtype)
+        batch_image_array = np.zeros(
+            (current_batch_size, *self.image_data_shape), dtype=self.dtype)
+        batch_mask_array = np.zeros(
+            (current_batch_size, *self.mask_data_shape), dtype=self.dtype)
+        batch_label_array = np.zeros((current_batch_size, ), dtype=self.dtype)
+        batch_label_array = self.data_getter.categorize_method(
+            batch_label_array)
+        batch_preserve_array = np.zeros(
+            (current_batch_size, ), dtype=self.dtype)
+
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_dict = self.data_getter[total_index]
-            batch_x[batch_index] = single_data_dict[0]
-            batch_y[batch_index] = single_data_dict[1]
+            single_data_tuple = self.data_getter[total_index]
+            batch_image_array[batch_index], batch_mask_array[batch_index], \
+                batch_label_array[batch_index], batch_preserve_array[batch_index] = single_data_tuple
 
-        return batch_x, batch_y
+        return batch_image_array, batch_mask_array, batch_label_array, batch_preserve_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)
-        print(f"Total data num {data_num}")
+        print(f"Total data num {data_num} with {self.num_classes} classes")

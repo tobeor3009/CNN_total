@@ -6,5 +6,9 @@ weights/
 datasets/
 
 *.pyc
+*.ipynb
 
 temp.py
+
+!classification_inceptionv3_gpu_0.ipynb
+!segmenation_inceptionv3_unet_gpu_0.ipynb

@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import cv2
+import progressbar
 import numpy as np
 import tensorflow
 from tensorflow.keras.utils import to_categorical
@@ -28,11 +29,19 @@ class BaseDataGetter():
             self.data_index_dict[index] = shuffled_index
 
     def get_data_on_memory(self):
+        widgets = [
+            ' [', progressbar.Counter(format=f'%d/{len(self)}'), '] ',
+            progressbar.Bar(),
+            ' (', progressbar.ETA(), ') ',
+        ]
+        progressbar_displayed = progressbar.ProgressBar(widgets=widgets,
+                                                        maxval=len(self)).start()
 
         self.on_memory = False
+
         for index, single_data_tuple in enumerate(self):
             self.data_on_memory_dict[index] = single_data_tuple
-
+            progressbar_displayed.update(value=index + 1)
         self.on_memory = True
 
 
@@ -105,42 +114,77 @@ class CategorizePolicy():
         return label
 
 
-class ArgumentationPolicy():
-    def __init__(self, argumentation_proba, task):
+class ClassifiyArgumentationPolicy():
+    def __init__(self, argumentation_proba):
 
-        positional_transform = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.Transpose(p=0.5),
-            A.RandomRotate90(p=0.5)
-        ])
+        positional_transform = A.OneOf([
+            A.HorizontalFlip(p=1),
+            A.VerticalFlip(p=1),
+            A.Transpose(p=1),
+            A.RandomRotate90(p=1)
+        ], p=0.5)
 
-        brightness_contrast_transform = A.Compose([
-            A.RandomBrightnessContrast(p=0.5),
-        ])
+        brightness_contrast_transform = A.OneOf([
+            A.RandomBrightnessContrast(p=1),
+        ], p=0.5)
 
-        noise_transform = A.Compose([
-            A.Blur(blur_limit=7, p=0.5),
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.GaussNoise(var_limit=(10, 50), p=0.5),
-        ])
+        noise_transform = A.OneOf([
+            A.Blur(blur_limit=7, p=1),
+            A.GaussianBlur(blur_limit=(3, 7), p=1),
+            A.GaussNoise(var_limit=(10, 50), p=1),
+        ], p=0.5)
 
-        classification_transform = A.Compose([
+        final_transform = A.Compose([
             positional_transform,
             brightness_contrast_transform,
             noise_transform,
-        ])
-
-        if task == "classfication":
-            final_transform = classification_transform
+        ], p=argumentation_proba)
 
         if argumentation_proba:
-            self.transform = lambda image_array: A.Compose([
-                final_transform
-            ], p=argumentation_proba)(image=image_array)['image']
+            self.transform = lambda image_array: \
+                final_transform(image=image_array)['image']
         else:
             self.transform = lambda image_array: image_array
 
     def __call__(self, image_array):
         image_transformed_array = self.transform(image_array)
         return image_transformed_array
+
+
+class SegArgumentationPolicy():
+    def __init__(self, argumentation_proba):
+
+        positional_transform = A.OneOf([
+            A.HorizontalFlip(p=1),
+            A.VerticalFlip(p=1),
+            A.Transpose(p=1),
+            A.RandomRotate90(p=1)
+        ], p=0.5)
+
+        brightness_contrast_transform = A.OneOf([
+            A.RandomBrightnessContrast(p=1),
+        ], p=0.5)
+
+        noise_transform = A.OneOf([
+            A.Blur(blur_limit=7, p=1),
+            A.GaussianBlur(blur_limit=(3, 7), p=1),
+            A.GaussNoise(var_limit=(10, 50), p=1),
+        ], p=0.5)
+
+        final_transform = A.Compose([
+            positional_transform,
+            brightness_contrast_transform,
+            noise_transform,
+        ], p=argumentation_proba)
+
+        if argumentation_proba:
+            self.transform = lambda image_array, mask_array: \
+                final_transform(image=image_array, mask=mask_array).values()
+        else:
+            self.transform = lambda image_array, mask_array: \
+                (image_array, mask_array)
+
+    def __call__(self, image_array, mask_array):
+        image_transformed_array, mask_transformed_array = \
+            self.transform(image_array, mask_array)
+        return image_transformed_array, mask_transformed_array
