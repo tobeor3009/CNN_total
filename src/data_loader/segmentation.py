@@ -1,5 +1,5 @@
 # base module
-
+from copy import deepcopy
 # external module
 import numpy as np
 
@@ -51,8 +51,11 @@ class SegDataGetter(BaseDataGetter):
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
 
-        self.data_index_dict = {i: i for i in range(len(self))}
+        self.cached_no = 0
+        self.is_cached = False
 
+        self.data_index_dict = {i: i for i in range(len(self))}
+        self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
             self.argumentation_method = \
                 SegArgumentationPolicy(0)
@@ -72,7 +75,8 @@ class SegDataGetter(BaseDataGetter):
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
-            image_array, mask_array = self.data_on_memory_dict[current_index]
+            image_array, mask_array = \
+                self.data_on_memory_dict[current_index].values()
             image_array, mask_array = \
                 self.argumentation_method(image_array, mask_array)
         else:
@@ -91,8 +95,14 @@ class SegDataGetter(BaseDataGetter):
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
 
-        single_data_tuple = image_array, mask_array
-        return single_data_tuple
+            if self.is_cached:
+                self.cached_no += 1
+                self.single_data_dict = deepcopy(self.single_data_dict)
+                self.is_cached = self.cached_no == len(self)
+
+        self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["mask_array"] = mask_array
+        return self.single_data_dict
 
 
 class SegDataloader(BaseDataLoader):
@@ -117,29 +127,31 @@ class SegDataloader(BaseDataLoader):
                                          interpolation=interpolation
                                          )
         self.batch_size = batch_size
-        self.image_data_shape = self.data_getter[0][0].shape
-        self.mask_data_shape = self.data_getter[0][1].shape
+        self.image_data_shape = self.data_getter[0]["image_array"].shape
+        self.mask_data_shape = self.data_getter[0]["mask_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
 
+        self.batch_image_array = np.zeros(
+            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_mask_array = np.zeros(
+            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
+
+        self.data_getter.cached_no = 0
         self.print_data_info()
         self.on_epoch_end()
 
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = min(start + self.batch_size, len(self.data_getter))
-        current_batch_size = end - start
+        end = start + self.batch_size
 
-        batch_x = np.zeros(
-            (current_batch_size, *self.image_data_shape), dtype=self.dtype)
-        batch_y = np.zeros(
-            (current_batch_size, *self.mask_data_shape), dtype=self.dtype)
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_tuple = self.data_getter[total_index]
-            batch_x[batch_index], batch_y[batch_index] = single_data_tuple
+            single_data_dict = self.data_getter[total_index]
+            self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
 
-        return batch_x, batch_y
+        return self.batch_image_array, self.batch_mask_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

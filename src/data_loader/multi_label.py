@@ -1,5 +1,5 @@
 # base module
-
+from copy import deepcopy
 # external module
 import numpy as np
 
@@ -45,6 +45,7 @@ class MultiLabelDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
+        self.data_on_memory_dict = {}
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
@@ -62,6 +63,7 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
+        self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
             self.argumentation_method = \
@@ -108,11 +110,15 @@ class MultiLabelDataGetter(BaseDataGetter):
 
                 self.class_dict[current_index] = label, preserve
                 self.cached_class_no += 1
+                self.single_data_dict = deepcopy(self.single_data_dict)
                 self.is_class_cached = self.cached_class_no == len(self)
 
-        single_data_tuple = image_array, mask_array, label, preserve
+        self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["mask_array"] = mask_array
+        self.single_data_dict["label"] = label
+        self.single_data_dict["preserve"] = preserve
 
-        return single_data_tuple
+        return self.single_data_dict
 
 
 class MultiLabelDataloader(BaseDataLoader):
@@ -143,10 +149,21 @@ class MultiLabelDataloader(BaseDataLoader):
                                                 )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
-        self.image_data_shape = self.data_getter[0][0].shape
-        self.mask_data_shape = self.data_getter[0][1].shape
+        self.image_data_shape = self.data_getter[0]["image_array"].shape
+        self.mask_data_shape = self.data_getter[0]["mask_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
+
+        self.batch_image_array = np.zeros(
+            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_mask_array = np.zeros(
+            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
+        self.batch_label_array = np.zeros(
+            (self.batch_size, ), dtype=self.dtype)
+        self.batch_label_array = self.data_getter.categorize_method(
+            self.batch_label_array)
+        self.batch_preserve_array = np.zeros(
+            (self.batch_size, ), dtype=self.dtype)
 
         self.data_getter.cached_class_no = 0
         self.print_data_info()
@@ -155,25 +172,16 @@ class MultiLabelDataloader(BaseDataLoader):
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = min(start + self.batch_size, len(self.data_getter))
-        current_batch_size = end - start
-
-        batch_image_array = np.zeros(
-            (current_batch_size, *self.image_data_shape), dtype=self.dtype)
-        batch_mask_array = np.zeros(
-            (current_batch_size, *self.mask_data_shape), dtype=self.dtype)
-        batch_label_array = np.zeros((current_batch_size, ), dtype=self.dtype)
-        batch_label_array = self.data_getter.categorize_method(
-            batch_label_array)
-        batch_preserve_array = np.zeros(
-            (current_batch_size, ), dtype=self.dtype)
+        end = start + self.batch_size
 
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_tuple = self.data_getter[total_index]
-            batch_image_array[batch_index], batch_mask_array[batch_index], \
-                batch_label_array[batch_index], batch_preserve_array[batch_index] = single_data_tuple
+            single_data_dict = self.data_getter[total_index]
+            self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
+            self.batch_label_array[batch_index] = single_data_dict["label"]
+            self.batch_preserve_array[batch_index] = single_data_dict["preserve"]
 
-        return batch_image_array, batch_mask_array, batch_label_array, batch_preserve_array
+        return self.batch_image_array, self.batch_mask_array, self.batch_label_array, self.batch_preserve_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

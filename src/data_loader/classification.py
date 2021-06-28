@@ -1,5 +1,5 @@
 # base module
-
+from copy import deepcopy
 # external module
 import numpy as np
 
@@ -19,11 +19,6 @@ valid - negative
 test - negative
      - positive
 
-"""
-
-"""
-To Be Done:
-    - Test class cache
 """
 
 
@@ -60,6 +55,7 @@ class ClassifyDataGetter(BaseDataGetter):
         self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
+        self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
             self.argumentation_method = \
@@ -77,7 +73,8 @@ class ClassifyDataGetter(BaseDataGetter):
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
-            image_array, label = self.data_on_memory_dict[current_index]
+            image_array, label = \
+                self.data_on_memory_dict[current_index].values()
             image_array = self.argumentation_method(image_array)
         else:
             image_path = self.image_path_dict[current_index]
@@ -94,10 +91,13 @@ class ClassifyDataGetter(BaseDataGetter):
                 label = self.categorize_method(label)
                 self.class_dict[current_index] = label
                 self.cached_class_no += 1
+                self.single_data_dict = deepcopy(self.single_data_dict)
                 self.is_class_cached = self.cached_class_no == len(self)
 
-        single_data_tuple = image_array, label
-        return single_data_tuple
+        self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["label"] = label
+
+        return self.single_data_dict
 
 
 class ClassifyDataloader(BaseDataLoader):
@@ -127,10 +127,17 @@ class ClassifyDataloader(BaseDataLoader):
                                               )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
-        self.image_data_shape = self.data_getter[0][0].shape
+        self.image_data_shape = self.data_getter[0]["image_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
         self.class_mode = class_mode
+
+        self.batch_image_array = np.zeros(
+            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_label_array = np.zeros(
+            (self.batch_size, ), dtype=self.dtype)
+        self.batch_label_array = self.data_getter.categorize_method(
+            self.batch_label_array)
 
         self.data_getter.cached_class_no = 0
         self.print_data_info()
@@ -139,18 +146,14 @@ class ClassifyDataloader(BaseDataLoader):
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = min(start + self.batch_size, len(self.data_getter))
-        current_batch_size = end - start
-        batch_x = np.zeros(
-            (current_batch_size, *self.image_data_shape), dtype=self.dtype)
-        batch_y = np.zeros((current_batch_size, ), dtype=self.dtype)
-        batch_y = self.data_getter.categorize_method(batch_y)
+        end = start + self.batch_size
 
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_tuple = self.data_getter[total_index]
-            batch_x[batch_index], batch_y[batch_index] = single_data_tuple
+            single_data_dict = self.data_getter[total_index]
+            self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_label_array[batch_index] = single_data_dict["label"]
 
-        return batch_x, batch_y
+        return self.batch_image_array, self.batch_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

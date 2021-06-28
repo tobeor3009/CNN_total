@@ -30,19 +30,25 @@ class BaseDataGetter():
 
     def get_data_on_memory(self):
         widgets = [
-            ' [', progressbar.Counter(format=f'%d/{len(self)}'), '] ',
+            ' [',
+            progressbar.Counter(format=f'%(value)02d/%(max_value)d'),
+            '] ',
             progressbar.Bar(),
-            ' (', progressbar.ETA(), ') ',
+            ' (',
+            progressbar.ETA(),
+            ') ',
         ]
         progressbar_displayed = progressbar.ProgressBar(widgets=widgets,
                                                         maxval=len(self)).start()
 
         self.on_memory = False
 
-        for index, single_data_tuple in enumerate(self):
-            self.data_on_memory_dict[index] = single_data_tuple
+        for index, single_data_dict in enumerate(self):
+            self.data_on_memory_dict[index] = single_data_dict
             progressbar_displayed.update(value=index + 1)
+
         self.on_memory = True
+        progressbar_displayed.finish()
 
 
 class BaseDataLoader(tensorflow.keras.utils.Sequence):
