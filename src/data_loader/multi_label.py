@@ -60,7 +60,6 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.categorize_method = CategorizePolicy(
             class_mode, self.num_classes, dtype)
 
-        self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "label": None}
@@ -109,9 +108,8 @@ class MultiLabelDataGetter(BaseDataGetter):
                 preserve = np.mean(mask_array)
 
                 self.class_dict[current_index] = label, preserve
-                self.cached_class_no += 1
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_class_cached = self.cached_class_no == len(self)
+                self.is_class_cached = None not in self.class_dict.values()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
@@ -165,7 +163,6 @@ class MultiLabelDataloader(BaseDataLoader):
         self.batch_preserve_array = np.zeros(
             (self.batch_size, ), dtype=self.dtype)
 
-        self.data_getter.cached_class_no = 0
         self.print_data_info()
         self.on_epoch_end()
 

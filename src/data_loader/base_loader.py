@@ -131,7 +131,8 @@ class ClassifiyArgumentationPolicy():
         ], p=0.5)
 
         brightness_contrast_transform = A.OneOf([
-            A.RandomBrightnessContrast(p=1),
+            A.RandomBrightnessContrast(
+                brightness_limit=0.1, contrast_limit=0.1, p=1),
         ], p=0.5)
 
         noise_transform = A.OneOf([
@@ -172,9 +173,9 @@ class SegArgumentationPolicy():
         ], p=0.5)
 
         noise_transform = A.OneOf([
-            A.Blur(blur_limit=7, p=1),
-            A.GaussianBlur(blur_limit=(3, 7), p=1),
-            A.GaussNoise(var_limit=(10, 50), p=1),
+            A.Blur(blur_limit=2, p=1),
+            A.GaussianBlur(blur_limit=(1, 3), p=1),
+            A.GaussNoise(var_limit=(1, 1), p=1),
         ], p=0.5)
 
         final_transform = A.Compose([

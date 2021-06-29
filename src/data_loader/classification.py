@@ -52,7 +52,6 @@ class ClassifyDataGetter(BaseDataGetter):
         self.categorize_method = \
             CategorizePolicy(class_mode, self.num_classes, dtype)
 
-        self.cached_class_no = 0
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "label": None}
@@ -71,7 +70,6 @@ class ClassifyDataGetter(BaseDataGetter):
             raise IndexError
 
         current_index = self.data_index_dict[i]
-
         if self.on_memory:
             image_array, label = \
                 self.data_on_memory_dict[current_index].values()
@@ -90,9 +88,8 @@ class ClassifyDataGetter(BaseDataGetter):
                 label = self.label_to_index_dict[image_dir_name]
                 label = self.categorize_method(label)
                 self.class_dict[current_index] = label
-                self.cached_class_no += 1
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_class_cached = self.cached_class_no == len(self)
+                self.is_class_cached = None not in self.class_dict.values()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["label"] = label
@@ -139,7 +136,6 @@ class ClassifyDataloader(BaseDataLoader):
         self.batch_label_array = self.data_getter.categorize_method(
             self.batch_label_array)
 
-        self.data_getter.cached_class_no = 0
         self.print_data_info()
         self.on_epoch_end()
 
