@@ -221,15 +221,18 @@ def build_generator_non_unet(
             use_upsampling_layer=False,
         )
     # control output_channels
-    output_layer = residual_block_last(
-        x=upsampling_layer,
-        filters=output_channels,
-        kernel_size=KERNEL_SIZE,
-        weight_decay=WEIGHT_DECAY,
-        downsample=False,
-        activation="sigmoid",
-        normalization=True
-    )
+    if output_channels is None:
+        output_layer = upsampling_layer
+    else:
+        output_layer = residual_block_last(
+            x=upsampling_layer,
+            filters=output_channels,
+            kernel_size=KERNEL_SIZE,
+            weight_decay=WEIGHT_DECAY,
+            downsample=False,
+            activation="sigmoid",
+            normalization=True
+        )
     return Model(input_img, output_layer)
 
 
@@ -425,7 +428,7 @@ def build_classifier(
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
 
     input_img = Input(shape=input_img_shape)
-    dense_unit = input_img_shape[0] * input_img_shape[1]
+    dense_unit = 1024
     if depth is None:
         img_size = input_img_shape[0]
         depth = 0
@@ -443,7 +446,7 @@ def build_classifier(
     for depth_step in range(depth):
         down_sampled_layer = residual_block(
             x=down_sampled_layer,
-            filters=classfier_power * (2 ** (depth_step // 4)),
+            filters=classfier_power * (2 ** depth_step),
             kernel_size=KERNEL_SIZE,
             weight_decay=WEIGHT_DECAY,
             downsample=False,
@@ -451,7 +454,7 @@ def build_classifier(
         )
         down_sampled_layer = residual_block(
             x=down_sampled_layer,
-            filters=classfier_power * (2 ** (depth_step // 4)),
+            filters=classfier_power * (2 ** depth_step),
             kernel_size=KERNEL_SIZE,
             weight_decay=WEIGHT_DECAY,
             downsample=False,
@@ -459,14 +462,14 @@ def build_classifier(
         )
         down_sampled_layer = residual_block(
             x=down_sampled_layer,
-            filters=classfier_power * (2 ** (depth_step // 4)),
+            filters=classfier_power * (2 ** depth_step),
             kernel_size=KERNEL_SIZE,
             weight_decay=WEIGHT_DECAY,
             downsample=True,
             use_pooling_layer=False,
             activation="relu"
         )
-    # (BATCH_SIZE, 32, 32, Filters)
+    # (BATCH_SIZE, Filters)
     output = GlobalAveragePooling2D()(down_sampled_layer)
     # (BATCH_SIZE, 1024)
     output = Dense(units=dense_unit, activation="relu")(output)

@@ -130,21 +130,21 @@ class ClassifiyArgumentationPolicy():
             A.RandomRotate90(p=1)
         ], p=0.5)
 
-        brightness_contrast_transform = A.OneOf([
-            A.RandomBrightnessContrast(
-                brightness_limit=0.1, contrast_limit=0.1, p=1),
-        ], p=0.5)
-
         noise_transform = A.OneOf([
-            A.Blur(blur_limit=7, p=1),
+            A.Blur(blur_limit=2, p=1),
             A.GaussianBlur(blur_limit=(3, 7), p=1),
             A.GaussNoise(var_limit=(10, 50), p=1),
         ], p=0.5)
 
+        brightness_contrast_transform = A.OneOf([
+            A.RandomBrightnessContrast(p=1),
+        ], p=0.5)
+
+
         final_transform = A.Compose([
             positional_transform,
-            brightness_contrast_transform,
             noise_transform,
+            # brightness_contrast_transform,
         ], p=argumentation_proba)
 
         if argumentation_proba:
@@ -180,7 +180,7 @@ class SegArgumentationPolicy():
 
         final_transform = A.Compose([
             positional_transform,
-            brightness_contrast_transform,
+            # brightness_contrast_transform,
             noise_transform,
         ], p=argumentation_proba)
 
