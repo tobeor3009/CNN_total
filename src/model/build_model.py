@@ -422,13 +422,13 @@ def build_classifier(
     input_img_shape,
     classfier_power=32,
     depth=None,
+    dense_unit=1024,
     num_class=2,
 ):
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
 
     input_img = Input(shape=input_img_shape)
-    dense_unit = 1024
     if depth is None:
         img_size = input_img_shape[0]
         depth = 0

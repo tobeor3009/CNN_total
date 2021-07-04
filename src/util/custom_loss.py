@@ -78,42 +78,6 @@ def get_accuracy_loss_per_image(tp, tn, fp, fn):
     return 1 - accuracy
 
 
-def get_sensitivity_specificity_loss(tp, tn, fp, fn, negative_weight=0.2, smooth=SMOOTH):
-
-    sensitivity = tp / (tp + fn + smooth)
-    specificity = tn / (tn + fp + smooth)
-
-    total_score = negative_weight * sensitivity + \
-        (1 - negative_weight) * specificity
-
-    return 1 - total_score
-
-
-def f1_loss(tp, fp, fn):
-
-    score = (2 * tp + SMOOTH) \
-        / (2 * tp + fn + fp + SMOOTH)
-
-    return -tf.math.log(score)
-
-
-def pixel_loss(y_true, y_pred):
-
-    return huber_loss(y_true, y_pred)
-
-
-def distribution_loss(y_true, y_pred):
-
-    return binary_crossentropy_loss(y_true, y_pred)
-
-
-def dice_score(y_true, y_pred):
-    y_true = K.round(y_true)
-    y_pred = K.round(y_pred)
-
-    return 1 - dice_loss(y_true, y_pred)
-
-
 def f1_loss(y_true, y_pred, beta=1, smooth=K.epsilon()):
 
     tp = K.sum(y_true * y_pred, axis=AXIS)
@@ -124,6 +88,21 @@ def f1_loss(y_true, y_pred, beta=1, smooth=K.epsilon()):
         / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + smooth)
 
     return -tf.math.log(score)
+
+
+def f1_loss(tp, fp, fn):
+
+    score = (2 * tp + SMOOTH) \
+        / (2 * tp + fn + fp + SMOOTH)
+
+    return -tf.math.log(score)
+
+
+def dice_score(y_true, y_pred):
+    y_true = K.round(y_true)
+    y_pred = K.round(y_pred)
+
+    return 1 - dice_loss(y_true, y_pred)
 
 
 def get_tversky_loss(tp, fp, fn, alpha=0.3, beta=0.7, smooth=SMOOTH):
