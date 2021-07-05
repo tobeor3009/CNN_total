@@ -39,11 +39,11 @@ def weighted_region_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
 
     f1_loss_per_image = get_f1_loss_per_image(
         tp, tn, fp, fn, y_true, beta=beta, smooth=smooth)
-    # total_loss_per_image = f1_loss_per_image
-    accuracy_loss_per_image = get_accuracy_loss_per_image(tp, tn, fp, fn)
-    mse_loss = tf.math.reduce_mean((y_true - y_pred) ** 2, axis=AXIS)
-    total_loss_per_image = f1_loss_per_image + \
-        accuracy_loss_per_image + mse_loss
+    total_loss_per_image = f1_loss_per_image
+    # accuracy_loss_per_image = get_accuracy_loss_per_image(tp, tn, fp, fn)
+    # mse_loss = tf.math.reduce_mean((y_true - y_pred) ** 2, axis=AXIS)
+    # total_loss_per_image = f1_loss_per_image + \
+    #     accuracy_loss_per_image + mse_loss
 
     return K.mean(total_loss_per_image)
 

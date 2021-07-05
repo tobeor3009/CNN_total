@@ -4,7 +4,7 @@
 import tensorflow as tf
 
 from tensorflow.keras.layers import Lambda
-from tensorflow.keras.layers import Concatenate
+from tensorflow.keras.layers import Concatenate, Multiply
 from tensorflow.keras.layers import Conv2D, Conv2DTranspose
 from tensorflow.keras.layers import MaxPooling2D, AveragePooling2D, UpSampling2D, Dropout
 from tensorflow.keras.layers import BatchNormalization
@@ -12,7 +12,7 @@ from tensorflow.keras.layers import Dense, LeakyReLU
 from tensorflow.keras.activations import sigmoid, tanh
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.initializers import RandomNormal, HeNormal, GlorotNormal
-from tensorflow.python.keras.layers import normalization
+from tensorflow.python.keras.layers.pooling import GlobalAveragePooling2D
 
 
 default_initializer = RandomNormal(mean=0.0, stddev=0.02)
@@ -131,8 +131,9 @@ def residual_block(
         normalization=normalization,
     )
 
-    output = conved * transform_gate_output + \
-        residual * (1 - transform_gate_output)
+    output = Multiply()([conved, transform_gate_output]) + \
+        Multiply()([residual, 1 - transform_gate_output])
+
     if activation == "leakyrelu":
         output = LeakyReLU(NEGATIVE_RATIO)(output)
     elif activation == "tanh":
@@ -272,10 +273,16 @@ def deconv2d_simple(
 
 def transform_gate(x, highway_dim):
 
+    transform = GlobalAveragePooling2D()(x)
+    transform = Dense(
+        units=highway_dim * 4,
+        kernel_initializer=RELU_INITIALIZER,
+        activation="relu"
+    )(transform)
     transform = Dense(
         units=highway_dim,
         kernel_initializer=NON_LINEAR_INITIALIZER,
-        bias_initializer=tf.constant_initializer(HIGHWAY_INIT_BIAS)
-    )(x)
-    transform = sigmoid(transform)
+        bias_initializer=tf.constant_initializer(HIGHWAY_INIT_BIAS),
+        activation="sigmoid"
+    )(transform)
     return transform
