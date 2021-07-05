@@ -161,12 +161,14 @@ class ClassifiyArgumentationPolicy():
 class SegArgumentationPolicy():
     def __init__(self, argumentation_proba):
 
-        positional_transform = A.OneOf([
+        positional_transform = A.Compose([
             A.HorizontalFlip(p=1),
             A.VerticalFlip(p=1),
             A.Transpose(p=1),
             A.RandomRotate90(p=1)
-        ], p=0.5)
+        ],
+            additional_targets={'mask': 'image'},
+            p=0.5)
 
         brightness_value = 0.05
         brightness_contrast_transform = A.OneOf([
@@ -179,12 +181,21 @@ class SegArgumentationPolicy():
             A.GaussNoise(var_limit=(10, 50), p=1),
         ], p=0.5)
 
-        final_transform = A.Compose([
-            positional_transform,
-            brightness_contrast_transform,
-            noise_transform,
-        ], p=argumentation_proba)
+        # final_transform = A.Sequential([
+        #     positional_transform,
+        #     brightness_contrast_transform,
+        #     noise_transform,
+        # ],
+        #     p=argumentation_proba)
 
+        final_transform = A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.Transpose(p=0.5),
+            A.RandomRotate90(p=0.5)
+        ],
+            additional_targets={'mask': 'image'},
+            p=0.5)
         if argumentation_proba:
             self.transform = lambda image_array, mask_array: \
                 final_transform(image=image_array, mask=mask_array).values()
