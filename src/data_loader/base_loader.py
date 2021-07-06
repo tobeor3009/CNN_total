@@ -162,13 +162,17 @@ class SegArgumentationPolicy():
     def __init__(self, argumentation_proba):
 
         positional_transform = A.Compose([
-            A.HorizontalFlip(p=1),
-            A.VerticalFlip(p=1),
-            A.Transpose(p=1),
-            A.RandomRotate90(p=1)
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.Transpose(p=0.5),
+            A.RandomRotate90(p=0.5)
         ],
-            additional_targets={'mask': 'image'},
-            p=0.5)
+            p=argumentation_proba)
+
+        noise_transform = A.OneOf([
+            A.Blur(blur_limit=(2, 2), p=1),
+            A.GaussNoise(var_limit=(10, 50), p=1),
+        ], p=0.5)
 
         brightness_value = 0.05
         brightness_contrast_transform = A.OneOf([
@@ -176,29 +180,16 @@ class SegArgumentationPolicy():
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
         ], p=0.5)
 
-        noise_transform = A.OneOf([
-            A.Blur(blur_limit=(2, 2), p=1),
-            A.GaussNoise(var_limit=(10, 50), p=1),
-        ], p=0.5)
+        self.rigid_transform = positional_transform
 
-        # final_transform = A.Sequential([
-        #     positional_transform,
-        #     brightness_contrast_transform,
-        #     noise_transform,
-        # ],
-        #     p=argumentation_proba)
-
-        final_transform = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.Transpose(p=0.5),
-            A.RandomRotate90(p=0.5)
+        self.non_rigid_transform = A.Sequential([
+            noise_transform,
+            brightness_contrast_transform,
         ],
-            additional_targets={'mask': 'image'},
-            p=0.5)
+            p=argumentation_proba)
+
         if argumentation_proba:
-            self.transform = lambda image_array, mask_array: \
-                final_transform(image=image_array, mask=mask_array).values()
+            self.transform = self.image_mask_sync_transform
         else:
             self.transform = lambda image_array, mask_array: \
                 (image_array, mask_array)
@@ -206,4 +197,17 @@ class SegArgumentationPolicy():
     def __call__(self, image_array, mask_array):
         image_transformed_array, mask_transformed_array = \
             self.transform(image_array, mask_array)
+        return image_transformed_array, mask_transformed_array
+
+    def image_mask_sync_transform(self, image_array, mask_array):
+
+        transformed = self.rigid_transform(image=image_array, mask=mask_array)
+        image_transformed_array = transformed["image"]
+        mask_transformed_array = transformed["mask"]
+
+        image_transformed_array = \
+            self.non_rigid_transform(image=image_transformed_array)["image"]
+
+        self.previous = image_array, mask_array
+        self.after = image_transformed_array, mask_transformed_array
         return image_transformed_array, mask_transformed_array
