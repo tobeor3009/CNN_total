@@ -87,6 +87,7 @@ def residual_block(
     use_pooling_layer=False,
     activation="leakyrelu",
     normalization=True,
+    highway=False,
     Last=False
 ):
     if downsample:
@@ -110,7 +111,6 @@ def residual_block(
             )
         else:
             residual = x
-    transform_gate_output = transform_gate(residual, filters)
 
     conved = conv2d_bn(
         x=x,
@@ -130,10 +130,12 @@ def residual_block(
         activation=None,
         normalization=normalization,
     )
-
-    output = Multiply()([conved, transform_gate_output]) + \
-        Multiply()([residual, 1 - transform_gate_output])
-
+    if highway:
+        transform_gate_output = transform_gate(residual, filters)
+        output = Multiply()([conved, transform_gate_output]) + \
+            Multiply()([residual, 1 - transform_gate_output])
+    else:
+        output = conved + residual
     if activation == "leakyrelu":
         output = LeakyReLU(NEGATIVE_RATIO)(output)
     elif activation == "tanh":

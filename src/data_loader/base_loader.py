@@ -131,8 +131,7 @@ class ClassifiyArgumentationPolicy():
         ], p=0.5)
 
         noise_transform = A.OneOf([
-            A.Blur(blur_limit=(2, 2), p=1),
-            A.GaussNoise(var_limit=(10, 50), p=1),
+            A.GaussNoise(var_limit=(0.01, 1), p=1),
         ], p=0.5)
 
         brightness_value = 0.05
@@ -170,8 +169,7 @@ class SegArgumentationPolicy():
             p=argumentation_proba)
 
         noise_transform = A.OneOf([
-            A.Blur(blur_limit=(2, 2), p=1),
-            A.GaussNoise(var_limit=(10, 50), p=1),
+            A.GaussNoise(var_limit=(0.01, 1), p=1),
         ], p=0.5)
 
         brightness_value = 0.05
@@ -208,6 +206,4 @@ class SegArgumentationPolicy():
         image_transformed_array = \
             self.non_rigid_transform(image=image_transformed_array)["image"]
 
-        self.previous = image_array, mask_array
-        self.after = image_transformed_array, mask_transformed_array
         return image_transformed_array, mask_transformed_array

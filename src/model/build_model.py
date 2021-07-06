@@ -1,5 +1,5 @@
 # python baseModule
-
+from copy import deepcopy
 # tensorflow Module
 from tensorflow.keras import layers
 from tensorflow.keras.layers import Input, GaussianNoise, GaussianDropout
