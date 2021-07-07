@@ -41,28 +41,27 @@ class SegDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
-        self.data_on_memory_dict = {}
+        self.data_on_memory_dict = {index: None for index, _
+                                    in enumerate(image_path_list)}
         self.on_memory = on_memory
         self.preprocess_input = preprocess_input
         self.target_size = target_size
         self.interpolation = interpolation
 
         self.resize_method = ResizePolicy(target_size, interpolation)
-        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.mask_preprocess_method = PreprocessPolicy("mask")
 
-        self.cached_no = 0
         self.is_cached = False
-
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
-            self.argumentation_method = \
-                SegArgumentationPolicy(0)
+            self.argumentation_method = SegArgumentationPolicy(0)
+            self.image_preprocess_method = PreprocessPolicy(None)
+            self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
-        self.argumentation_method = \
-            SegArgumentationPolicy(argumentation_proba)
+        self.argumentation_method = SegArgumentationPolicy(argumentation_proba)
+        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
+        self.mask_preprocess_method = PreprocessPolicy("mask")
 
         assert len(image_path_list) == len(mask_path_list), \
             f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
@@ -79,6 +78,8 @@ class SegDataGetter(BaseDataGetter):
                 self.data_on_memory_dict[current_index].values()
             image_array, mask_array = \
                 self.argumentation_method(image_array, mask_array)
+            image_array = self.image_preprocess_method(image_array)
+            mask_array = self.mask_preprocess_method(mask_array)
         else:
             image_path = self.image_path_dict[current_index]
             mask_path = self.mask_path_dict[current_index]
@@ -95,10 +96,9 @@ class SegDataGetter(BaseDataGetter):
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
 
-            if self.is_cached:
-                self.cached_no += 1
+            if self.is_cached is False:
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_cached = self.cached_no == len(self)
+                self.is_cached = None not in self.data_on_memory_dict.values()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
@@ -113,7 +113,7 @@ class SegDataloader(BaseDataLoader):
                  batch_size=4,
                  on_memory=False,
                  argumentation_proba=None,
-                 preprocess_input=None,
+                 preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -137,7 +137,6 @@ class SegDataloader(BaseDataLoader):
         self.batch_mask_array = np.zeros(
             (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
 
-        self.data_getter.cached_no = 0
         self.print_data_info()
         self.on_epoch_end()
 

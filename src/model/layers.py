@@ -87,7 +87,7 @@ def residual_block(
     use_pooling_layer=False,
     activation="leakyrelu",
     normalization=True,
-    highway=False,
+    highway=True,
     Last=False
 ):
     if downsample:

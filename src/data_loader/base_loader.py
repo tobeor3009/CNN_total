@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from copy import deepcopy
 import cv2
 import progressbar
 import numpy as np
@@ -42,11 +43,11 @@ class BaseDataGetter():
                                                         maxval=len(self)).start()
 
         self.on_memory = False
-
         for index, single_data_dict in enumerate(self):
             self.data_on_memory_dict[index] = single_data_dict
             progressbar_displayed.update(value=index + 1)
 
+        self.single_data_dict = deepcopy(self.single_data_dict)
         self.on_memory = True
         progressbar_displayed.finish()
 
@@ -70,17 +71,18 @@ class PreprocessPolicy():
     def __init__(self, preprocess_input):
 
         if preprocess_input is None:
-            self.preprocess_method = lambda image_array: (
-                image_array / 127.5) - 1
-        elif preprocess_input == "mask":
+            self.preprocess_method = lambda image_array: image_array
+        elif preprocess_input == "-1~1":
             self.preprocess_method = \
-                lambda image_array: np.expand_dims(image_array / 255, axis=-1)
+                lambda image_array: (image_array / 127.5) - 1
+        elif preprocess_input == "mask":
+            self.preprocess_method = lambda image_array: image_array / 255
         else:
             self.preprocess_method = preprocess_input
 
     def __call__(self, image_array):
-        image_resized_array = self.preprocess_method(image_array)
-        return image_resized_array
+        image_preprocessed_array = self.preprocess_method(image_array)
+        return image_preprocessed_array
 
 
 class ResizePolicy():
@@ -102,6 +104,8 @@ class ResizePolicy():
 
     def __call__(self, image_array):
         image_resized_array = self.resize_method(image_array)
+        if len(image_resized_array.shape) == 2:
+            image_resized_array = np.expand_dims(image_resized_array, axis=-1)
         return image_resized_array
 
 
@@ -131,10 +135,10 @@ class ClassifiyArgumentationPolicy():
         ], p=0.5)
 
         noise_transform = A.OneOf([
-            A.GaussNoise(var_limit=(0.01, 0.1), p=1),
+            A.GaussNoise(var_limit=(0.01, 1), p=1),
         ], p=0.5)
 
-        brightness_value = 0.03
+        brightness_value = 0.05
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
@@ -168,10 +172,10 @@ class SegArgumentationPolicy():
         ], p=0.5)
 
         noise_transform = A.OneOf([
-            A.GaussNoise(var_limit=(0.01, 0.1), p=1),
+            A.GaussNoise(var_limit=(0.01, 1), p=1),
         ], p=0.5)
 
-        brightness_value = 0.03
+        brightness_value = 0.05
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),

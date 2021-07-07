@@ -12,8 +12,7 @@ def imread(img_path, channel=None):
     if channel == "rgb":
         img_numpy_array = cv2.cvtColor(
             img_numpy_array, cv2.COLOR_BGR2RGB)
-    if len(img_numpy_array.shape) == 2:
-        img_numpy_array = np.expand_dims(img_numpy_array, axis=-1)
+
     return img_numpy_array
 
 

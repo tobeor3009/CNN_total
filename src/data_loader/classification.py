@@ -48,7 +48,7 @@ class ClassifyDataGetter(BaseDataGetter):
         self.class_mode = class_mode
 
         self.resize_method = ResizePolicy(target_size, interpolation)
-        self.preprocess_method = PreprocessPolicy(preprocess_input)
+
         self.categorize_method = \
             CategorizePolicy(class_mode, self.num_classes, dtype)
 
@@ -57,12 +57,13 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.argumentation_method = \
-                ClassifiyArgumentationPolicy(0)
+            self.argumentation_method = ClassifiyArgumentationPolicy(0)
+            self.preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
         self.argumentation_method = \
             ClassifiyArgumentationPolicy(argumentation_proba)
+        self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
 
@@ -70,10 +71,12 @@ class ClassifyDataGetter(BaseDataGetter):
             raise IndexError
 
         current_index = self.data_index_dict[i]
+
         if self.on_memory:
             image_array, label = \
                 self.data_on_memory_dict[current_index].values()
             image_array = self.argumentation_method(image_array)
+            image_array = self.preprocess_method(image_array)
         else:
             image_path = self.image_path_dict[current_index]
             image_array = imread(image_path, channel="rgb")
@@ -105,7 +108,7 @@ class ClassifyDataloader(BaseDataLoader):
                  batch_size=None,
                  on_memory=False,
                  argumentation_proba=False,
-                 preprocess_input=None,
+                 preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,

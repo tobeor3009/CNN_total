@@ -45,8 +45,10 @@ class CycleGanDataGetter(BaseDataGetter):
                                        mask_path in enumerate(target_image_path_list)}
         self.data_len = len(self.image_path_dict)
         self.target_data_len = len(self.target_image_path_dict)
-        self.data_on_memory_dict = {}
-        self.target_data_on_memory_dict = {}
+        self.data_on_memory_dict = {
+            index: None for index in range(self.data_len)}
+        self.target_data_on_memory_dict = {
+            index: None for index in range(self.target_data_len)}
 
         self.on_memory = on_memory
         self.preprocess_input = preprocess_input
@@ -54,10 +56,6 @@ class CycleGanDataGetter(BaseDataGetter):
         self.interpolation = interpolation
 
         self.resize_method = ResizePolicy(target_size, interpolation)
-        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-
-        self.cached_no = 0
-        self.is_cached = False
 
         self.data_index_dict = {i: i for i in range(len(self))}
         self.target_data_index_dict = \
@@ -69,8 +67,10 @@ class CycleGanDataGetter(BaseDataGetter):
             {"image_array": None, "target_image_array": None}
         if self.on_memory is True:
             self.argumentation_method = SegArgumentationPolicy(0)
+            self.image_preprocess_method = PreprocessPolicy(None)
             self.get_unpaired_data_on_memory()
 
+        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.argumentation_method = SegArgumentationPolicy(argumentation_proba)
 
     def __getitem__(self, i):
@@ -94,6 +94,10 @@ class CycleGanDataGetter(BaseDataGetter):
 
             image_array, target_image_array = self.argumentation_method(
                 image_array, target_image_array)
+            image_array = \
+                self.image_preprocess_method(image_array)
+            target_image_array = \
+                self.image_preprocess_method(target_image_array)
         else:
             image_path = self.image_path_dict[current_index]
             target_image_path = self.target_image_path_dict[target_index]
@@ -107,15 +111,10 @@ class CycleGanDataGetter(BaseDataGetter):
             image_array, target_image_array = self.argumentation_method(
                 image_array, target_image_array)
 
-            image_array = self.image_preprocess_method(
-                image_array)
-            target_image_array = self.image_preprocess_method(
-                target_image_array)
-
-            if self.is_cached:
-                self.cached_no += 1
-                self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_cached = self.cached_no == len(self)
+            image_array = \
+                self.image_preprocess_method(image_array)
+            target_image_array = \
+                self.image_preprocess_method(target_image_array)
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["target_image_array"] = target_image_array
@@ -140,8 +139,8 @@ class CycleGanDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[index]
             image_array = imread(image_path, channel="rgb")
             image_array = self.resize_method(image_array)
-            image_array = self.image_preprocess_method(
-                image_array)
+            image_array = \
+                self.image_preprocess_method(image_array)
 
             self.data_on_memory_dict[index] = image_array
 
@@ -149,8 +148,8 @@ class CycleGanDataGetter(BaseDataGetter):
             target_image_path = self.target_image_path_dict[index]
             target_image_array = imread(target_image_path, channel="rgb")
             target_image_array = self.resize_method(target_image_array)
-            target_image_array = self.image_preprocess_method(
-                target_image_array)
+            target_image_array = \
+                self.image_preprocess_method(target_image_array)
 
             self.target_data_on_memory_dict[index] = target_image_array
 
@@ -165,7 +164,7 @@ class CycleGanDataloader(BaseDataLoader):
                  batch_size=4,
                  on_memory=False,
                  argumentation_proba=None,
-                 preprocess_input=None,
+                 preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -189,7 +188,6 @@ class CycleGanDataloader(BaseDataLoader):
         self.batch_target_image_array = np.zeros(
             (self.batch_size, *self.target_image_data_shape), dtype=self.dtype)
 
-        self.data_getter.cached_no = 0
         self.print_data_info()
         self.on_epoch_end()
 
