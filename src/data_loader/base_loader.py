@@ -131,10 +131,10 @@ class ClassifiyArgumentationPolicy():
         ], p=0.5)
 
         noise_transform = A.OneOf([
-            A.GaussNoise(var_limit=(0.01, 1), p=1),
+            A.GaussNoise(var_limit=(0.01, 0.1), p=1),
         ], p=0.5)
 
-        brightness_value = 0.05
+        brightness_value = 0.03
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
@@ -160,27 +160,25 @@ class ClassifiyArgumentationPolicy():
 class SegArgumentationPolicy():
     def __init__(self, argumentation_proba):
 
-        positional_transform = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.Transpose(p=0.5),
-            A.RandomRotate90(p=0.5)
-        ],
-            p=argumentation_proba)
-
-        noise_transform = A.OneOf([
-            A.GaussNoise(var_limit=(0.01, 1), p=1),
+        positional_transform = A.OneOf([
+            A.HorizontalFlip(p=1),
+            A.VerticalFlip(p=1),
+            A.Transpose(p=1),
+            A.RandomRotate90(p=1)
         ], p=0.5)
 
-        brightness_value = 0.05
+        noise_transform = A.OneOf([
+            A.GaussNoise(var_limit=(0.01, 0.1), p=1),
+        ], p=0.5)
+
+        brightness_value = 0.03
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
         ], p=0.5)
 
-        self.rigid_transform = positional_transform
-
-        self.non_rigid_transform = A.Sequential([
+        self.final_transform = A.Sequential([
+            positional_transform,
             noise_transform,
             brightness_contrast_transform,
         ],
@@ -199,11 +197,8 @@ class SegArgumentationPolicy():
 
     def image_mask_sync_transform(self, image_array, mask_array):
 
-        transformed = self.rigid_transform(image=image_array, mask=mask_array)
+        transformed = self.final_transform(image=image_array, mask=mask_array)
         image_transformed_array = transformed["image"]
         mask_transformed_array = transformed["mask"]
-
-        image_transformed_array = \
-            self.non_rigid_transform(image=image_transformed_array)["image"]
 
         return image_transformed_array, mask_transformed_array
