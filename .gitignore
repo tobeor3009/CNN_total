@@ -2,6 +2,7 @@
 .vscode/
 gradcam/
 logs/
+results/
 weights/
 datasets/
 
