@@ -11,6 +11,8 @@ datasets/
 
 temp.py
 
+!cycle_gan_inceptionv3_gpu_0.ipynb
+!cycle_gan_custom_gpu_0.ipynb
 !classification_inceptionv3_gpu_0.ipynb
 !classification_custom_gpu_0.ipynb
 !segmenation_inceptionv3_unet_gpu_0.ipynb
