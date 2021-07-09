@@ -16,29 +16,30 @@ WEIGHT_DECAY = 1e-2
 
 
 def build_generator(
-    input_img_shape,
+    input_image_shape,
     output_channels=4,
     depth=None,
     generator_power=32,
+    activation="sigmoid"
 ):
     """U-Net Generator"""
 
     # Image input
-    input_img = Input(shape=input_img_shape)
-    input_img_noised = GaussianNoise(0.1)(input_img)
+    input_image = Input(shape=input_image_shape)
+    input_image_noised = GaussianNoise(0.1)(input_image)
 
     if depth is None:
-        img_size = input_img_shape[0]
+        image_size = input_image_shape[0]
         depth = 0
-        while img_size != 1:
-            img_size //= 2
+        while image_size != 1:
+            image_size //= 2
             depth += 1
         depth -= 3
 
     down_sample_layers = []
 
     fix_shape_layer_1 = conv2d_bn(
-        x=input_img_noised,
+        x=input_image_noised,
         filters=generator_power,
         kernel_size=KERNEL_SIZE,
         weight_decay=1e-4,
@@ -124,32 +125,32 @@ def build_generator(
         kernel_size=KERNEL_SIZE,
         weight_decay=WEIGHT_DECAY,
         downsample=False,
-        activation="sigmoid",
+        activation=activation,
         normalization=True
     )
-    return Model(input_img, output_layer)
+    return Model(input_image, output_layer)
 
 
 def build_generator_non_unet(
-    input_img_shape,
+    input_image_shape,
     output_channels=4,
     depth=None,
     generator_power=32,
 ):
     # Image input
-    input_img = Input(shape=input_img_shape)
-    input_img_noised = GaussianNoise(0.1)(input_img)
+    input_image = Input(shape=input_image_shape)
+    input_image_noised = GaussianNoise(0.1)(input_image)
 
     if depth is None:
-        img_size = input_img_shape[0]
+        image_size = input_image_shape[0]
         depth = 0
-        while img_size != 1:
-            img_size //= 2
+        while image_size != 1:
+            image_size //= 2
             depth += 1
         depth -= 3
 
     fix_shape_layer_1 = conv2d_bn(
-        x=input_img_noised,
+        x=input_image_noised,
         filters=generator_power,
         kernel_size=KERNEL_SIZE,
         weight_decay=1e-4,
@@ -233,32 +234,32 @@ def build_generator_non_unet(
             activation="sigmoid",
             normalization=True
         )
-    return Model(input_img, output_layer)
+    return Model(input_image, output_layer)
 
 
 # def build_generator_separate(
-#     input_img_shape,
+#     input_image_shape,
 #     depth=None,
 #     generator_power=32,
 # ):
 #     """U-Net Generator"""
 
 #     # Image input
-#     input_img = Input(shape=input_img_shape)
-#     input_img_noised = GaussianNoise(0.1)(input_img)
+#     input_image = Input(shape=input_image_shape)
+#     input_image_noised = GaussianNoise(0.1)(input_image)
 
 #     if depth is None:
-#         img_size = input_img_shape[0]
+#         image_size = input_image_shape[0]
 #         depth = 0
-#         while img_size != 1:
-#             img_size //= 2
+#         while image_size != 1:
+#             image_size //= 2
 #             depth += 1
 #         depth -= 3
 
 #     down_sample_layers = []
 
 #     fix_shape_layer_1 = conv2d_bn(
-#         x=input_img_noised,
+#         x=input_image_noised,
 #         filters=generator_power,
 #         kernel_size=KERNEL_SIZE,
 #         weight_decay=1e-4,
@@ -340,7 +341,7 @@ def build_generator_non_unet(
 #     # control output_channels
 #     restored_image = residual_block_last(
 #         x=upsampling_layer,
-#         filters=input_img_shape[-1],
+#         filters=input_image_shape[-1],
 #         kernel_size=KERNEL_SIZE,
 #         weight_decay=WEIGHT_DECAY,
 #         downsample=False,
@@ -348,32 +349,37 @@ def build_generator_non_unet(
 #         normalization=True
 #     )
 #     generated_mask = pixel_shuffle_block()
-#     return Model(input_img, [restored_image, ])
+#     return Model(input_image, [restored_image, ])
 
 
 def build_discriminator(
-    input_img_shape,
-    output_img_shape,
+    input_image_shape,
+    output_image_shape,
     depth=None,
     discriminator_power=32,
 ):
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
 
-    original_img = Input(shape=input_img_shape)
-    man_or_model_made_img = Input(shape=output_img_shape)
-    # Concatenate image and conditioning image by channels to produce input
-    combined_imgs = Concatenate(axis=-1)([original_img, man_or_model_made_img])
+    original_image = Input(shape=input_image_shape)
+
+    if output_image_shape is None:
+        combined_images = original_image
+    else:
+        man_or_model_made_image = Input(shape=output_image_shape)
+        # Concatenate image and conditioning image by channels to produce input
+        combined_images = Concatenate(
+            axis=-1)([original_image, man_or_model_made_image])
 
     if depth is None:
-        img_size = input_img_shape[0]
+        image_size = input_image_shape[0]
         depth = 0
-        while img_size != 1:
-            img_size //= 2
+        while image_size != 1:
+            image_size //= 2
             depth += 1
         depth -= 3
     down_sampled_layer = conv2d_bn(
-        x=combined_imgs,
+        x=combined_images,
         filters=discriminator_power,
         kernel_size=(3, 3),
         weight_decay=WEIGHT_DECAY,
@@ -414,12 +420,14 @@ def build_discriminator(
         downsample=False,
         activation="sigmoid"
     )
-
-    return Model([original_img, man_or_model_made_img], validity)
+    if output_image_shape is None:
+        return Model(original_image, validity)
+    else:
+        return Model([original_image, man_or_model_made_image], validity)
 
 
 def build_classifier(
-    input_img_shape,
+    input_image_shape,
     classfier_power=32,
     depth=None,
     num_class=2,
@@ -427,17 +435,17 @@ def build_classifier(
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
 
-    input_img = Input(shape=input_img_shape)
+    input_image = Input(shape=input_image_shape)
     dense_unit = 1024
     if depth is None:
-        img_size = input_img_shape[0]
+        image_size = input_image_shape[0]
         depth = 0
-        while img_size != 1:
-            img_size //= 2
+        while image_size != 1:
+            image_size //= 2
             depth += 1
         depth -= 5
     down_sampled_layer = conv2d_bn(
-        x=input_img,
+        x=input_image,
         filters=classfier_power,
         kernel_size=(3, 3),
         weight_decay=WEIGHT_DECAY,
@@ -480,28 +488,29 @@ def build_classifier(
     output = Dense(units=num_class,
                    activation="sigmoid",
                    kernel_initializer="glorot_uniform")(output)
-    return Model(input_img, outputs=output)
+    return Model(input_image, outputs=output)
 
 
 def build_ensemble_discriminator(
-    input_img_shape,
-    output_img_shape,
+    input_image_shape,
+    output_image_shape,
     depth=None,
     discriminator_power=32,
 ):
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
 
-    original_img = Input(shape=input_img_shape)
-    man_or_model_mad_img = Input(shape=output_img_shape)
+    original_image = Input(shape=input_image_shape)
+    man_or_model_mad_image = Input(shape=output_image_shape)
     # Concatenate image and conditioning image by channels to produce input
-    combined_imgs = Concatenate(axis=-1)([original_img, man_or_model_mad_img])
+    combined_images = Concatenate(
+        axis=-1)([original_image, man_or_model_mad_image])
 
     if depth is None:
-        img_size = input_img_shape[0]
+        image_size = input_image_shape[0]
         depth = 0
-        while img_size != 1:
-            img_size //= 2
+        while image_size != 1:
+            image_size //= 2
             depth += 1
         depth -= 3
 
@@ -509,7 +518,7 @@ def build_ensemble_discriminator(
     #  Define Filter Growing Layer
     # ----------------------------
     filter_growing_layer = conv2d_bn(
-        x=combined_imgs,
+        x=combined_images,
         filters=discriminator_power,
         kernel_size=(3, 3),
         weight_decay=WEIGHT_DECAY,
@@ -543,7 +552,7 @@ def build_ensemble_discriminator(
     #  Define Filter Shrinking Layer
     # ----------------------------
     filter_shrinking_layer = conv2d_bn(
-        x=combined_imgs,
+        x=combined_images,
         filters=discriminator_power * (2 ** ((depth_step + 2) // 2)),
         kernel_size=(3, 3),
         weight_decay=WEIGHT_DECAY,
@@ -577,7 +586,7 @@ def build_ensemble_discriminator(
     #  Define Filter Fixed Layer
     # ----------------------------
     filter_fixed_layer = conv2d_bn(
-        x=combined_imgs,
+        x=combined_images,
         filters=discriminator_power,
         kernel_size=(3, 3),
         weight_decay=WEIGHT_DECAY,
@@ -610,4 +619,4 @@ def build_ensemble_discriminator(
     validity = layers.Average()(
         [filter_growing_validity, filter_shrinking_validity, filter_fixed_validity]
     )
-    return Model([original_img, man_or_model_mad_img], validity)
+    return Model([original_image, man_or_model_mad_image], validity)

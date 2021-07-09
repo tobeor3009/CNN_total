@@ -1,4 +1,3 @@
-from segmentation_models.base.functional import binary_crossentropy
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import LeakyReLU
 import numpy as np
@@ -27,7 +26,7 @@ def combined_loss(y_true, y_pred):
     # y_true = 1 - tf.math.cos(y_true * PIE_VALUE / 2)
     # y_pred = 1 - tf.math.cos(y_pred * PIE_VALUE / 2)
 
-    return dice_loss(y_true, y_pred) + focal_loss(y_true, y_pred) + distribution_loss(y_true, y_pred)
+    return dice_loss(y_true, y_pred) + focal_loss(y_true, y_pred)
 
 
 def weighted_region_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
@@ -37,7 +36,7 @@ def weighted_region_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
     fp = K.sum(y_pred, axis=AXIS) - tp
     fn = K.sum(y_true, axis=AXIS) - tp
 
-    f1_loss_per_image = get_f1_loss_per_image(
+    f1_loss_per_image = propotional_dice_loss(
         tp, tn, fp, fn, y_true, beta=beta, smooth=smooth)
     total_loss_per_image = f1_loss_per_image
     # accuracy_loss_per_image = get_accuracy_loss_per_image(tp, tn, fp, fn)
@@ -48,7 +47,7 @@ def weighted_region_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
     return K.mean(total_loss_per_image)
 
 
-def get_f1_loss_per_image(tp, tn, fp, fn, y_true, beta=0.7, smooth=SMOOTH):
+def propotional_dice_loss(tp, tn, fp, fn, y_true, beta=0.7, smooth=SMOOTH):
     alpha = 1 - beta
     prevalence = K.mean(y_true, axis=AXIS)
 
