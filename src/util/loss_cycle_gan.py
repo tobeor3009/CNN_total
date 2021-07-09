@@ -14,11 +14,14 @@ SMOOTH = K.epsilon()
 
 def get_channel_weighted_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
     alpha = 1 - beta
+
+    y_true = (y_true + 1 + smooth) / 2
+    y_pred = (y_true + 1 + smooth) / 2
+
     prevalence_per_channel = \
-        K.mean((y_true + 1) / 2, axis=CHANNEL_WEIGHTED_AXIS)
+        K.mean(y_true, axis=CHANNEL_WEIGHTED_AXIS)
 
     tp = K.sum(y_true * y_pred, axis=CHANNEL_WEIGHTED_AXIS)
-    tn = K.sum((1 - y_true) * (1 - y_pred), axis=CHANNEL_WEIGHTED_AXIS)
     fp = K.sum(y_pred, axis=CHANNEL_WEIGHTED_AXIS) - tp
     fn = K.sum(y_true, axis=CHANNEL_WEIGHTED_AXIS) - tp
 
