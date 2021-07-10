@@ -31,35 +31,35 @@ class CycleGan(Model):
         lambda_identity=0.5,
     ):
         super(CycleGan, self).__init__()
-        self.gen_G = generator_G
-        self.gen_F = generator_F
-        self.disc_X = discriminator_X
-        self.disc_Y = discriminator_Y
+        self.generator_G = generator_G
+        self.generator_F = generator_F
+        self.discriminator_X = discriminator_X
+        self.discriminator_Y = discriminator_Y
         self.lambda_cycle = lambda_cycle
         self.lambda_identity = lambda_identity
 
     def compile(
         self,
-        gen_G_optimizer,
-        gen_F_optimizer,
-        disc_X_optimizer,
-        disc_Y_optimizer,
+        generator_G_optimizer,
+        generator_F_optimizer,
+        discriminator_X_optimizer,
+        discriminator_Y_optimizer,
         image_loss,
         generator_against_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
     ):
         super(CycleGan, self).compile()
-        self.gen_G_optimizer = gen_G_optimizer
-        self.gen_F_optimizer = gen_F_optimizer
-        self.disc_X_optimizer = disc_X_optimizer
-        self.disc_Y_optimizer = disc_Y_optimizer
+        self.generator_G_optimizer = generator_G_optimizer
+        self.generator_F_optimizer = generator_F_optimizer
+        self.discriminator_X_optimizer = discriminator_X_optimizer
+        self.discriminator_Y_optimizer = discriminator_Y_optimizer
         self.generator_loss_deceive_discriminator = generator_against_discriminator
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
         self.cycle_loss_fn = image_loss
         self.identity_loss_fn = image_loss
 
     def call(self, x):
-        return None
+        return x
 
     def train_step(self, batch_data):
         # x is Horse and y is zebra
@@ -83,27 +83,29 @@ class CycleGan(Model):
         with tf.GradientTape(persistent=True) as tape:
 
             # another domain mapping
-            fake_x = self.gen_F(real_y, training=True)
-            fake_y = self.gen_G(real_x, training=True)
+            fake_x = self.generator_F(real_y, training=True)
+            fake_y = self.generator_G(real_x, training=True)
 
             # back to original domain mapping
-            cycled_x = self.gen_F(fake_y, training=True)
-            cycled_y = self.gen_G(fake_x, training=True)
+            cycled_x = self.generator_F(fake_y, training=True)
+            cycled_y = self.generator_G(fake_x, training=True)
 
             # Identity mapping
-            same_x = self.gen_F(real_x, training=True)
-            same_y = self.gen_G(real_y, training=True)
+            same_x = self.generator_F(real_x, training=True)
+            same_y = self.generator_G(real_y, training=True)
 
             # Discriminator output
-            disc_real_x = self.disc_X(real_x, training=True)
-            disc_fake_x = self.disc_X(fake_x, training=True)
+            disc_real_x = self.discriminator_X(real_x, training=True)
+            disc_fake_x = self.discriminator_X(fake_x, training=True)
 
-            disc_real_y = self.disc_Y(real_y, training=True)
-            disc_fake_y = self.disc_Y(fake_y, training=True)
+            disc_real_y = self.discriminator_Y(real_y, training=True)
+            disc_fake_y = self.discriminator_Y(fake_y, training=True)
 
             # Generator adverserial loss
-            gen_G_loss = self.generator_loss_deceive_discriminator(disc_fake_y)
-            gen_F_loss = self.generator_loss_deceive_discriminator(disc_fake_x)
+            generator_G_loss = self.generator_loss_deceive_discriminator(
+                disc_fake_y)
+            generator_F_loss = self.generator_loss_deceive_discriminator(
+                disc_fake_x)
 
             # Generator cycle loss
             cycle_loss_G = self.cycle_loss_fn(
@@ -124,44 +126,46 @@ class CycleGan(Model):
             )
 
             # Total generator loss
-            total_loss_G = gen_G_loss + cycle_loss_G + id_loss_G
-            total_loss_F = gen_F_loss + cycle_loss_F + id_loss_F
+            total_loss_G = generator_G_loss + cycle_loss_G + id_loss_G
+            total_loss_F = generator_F_loss + cycle_loss_F + id_loss_F
 
             # Discriminator loss
-            disc_X_loss = self.discriminator_loss_arrest_generator(
+            discriminator_X_loss = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_fake_x)
-            disc_Y_loss = self.discriminator_loss_arrest_generator(
+            discriminator_Y_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
 
         # Get the gradients for the generators
-        grads_G = tape.gradient(total_loss_G, self.gen_G.trainable_variables)
-        grads_F = tape.gradient(total_loss_F, self.gen_F.trainable_variables)
+        grads_G = tape.gradient(
+            total_loss_G, self.generator_G.trainable_variables)
+        grads_F = tape.gradient(
+            total_loss_F, self.generator_F.trainable_variables)
 
         # Get the gradients for the discriminators
-        disc_X_grads = tape.gradient(
-            disc_X_loss, self.disc_X.trainable_variables)
-        disc_Y_grads = tape.gradient(
-            disc_Y_loss, self.disc_Y.trainable_variables)
+        discriminator_X_grads = tape.gradient(
+            discriminator_X_loss, self.discriminator_X.trainable_variables)
+        discriminator_Y_grads = tape.gradient(
+            discriminator_Y_loss, self.discriminator_Y.trainable_variables)
 
         # Update the weights of the generators
-        self.gen_G_optimizer.apply_gradients(
-            zip(grads_G, self.gen_G.trainable_variables)
+        self.generator_G_optimizer.apply_gradients(
+            zip(grads_G, self.generator_G.trainable_variables)
         )
-        self.gen_F_optimizer.apply_gradients(
-            zip(grads_F, self.gen_F.trainable_variables)
+        self.generator_F_optimizer.apply_gradients(
+            zip(grads_F, self.generator_F.trainable_variables)
         )
 
         # Update the weights of the discriminators
-        self.disc_X_optimizer.apply_gradients(
-            zip(disc_X_grads, self.disc_X.trainable_variables)
+        self.discriminator_X_optimizer.apply_gradients(
+            zip(discriminator_X_grads, self.discriminator_X.trainable_variables)
         )
-        self.disc_Y_optimizer.apply_gradients(
-            zip(disc_Y_grads, self.disc_Y.trainable_variables)
+        self.discriminator_Y_optimizer.apply_gradients(
+            zip(discriminator_Y_grads, self.discriminator_Y.trainable_variables)
         )
 
         return {
             "G_loss": total_loss_G,
             "F_loss": total_loss_F,
-            "D_X_loss": disc_X_loss,
-            "D_Y_loss": disc_Y_loss,
+            "D_X_loss": discriminator_X_loss,
+            "D_Y_loss": discriminator_Y_loss,
         }
