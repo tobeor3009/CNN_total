@@ -92,6 +92,8 @@ class Pix2PixGan(Model):
         )
 
         return {
-            "generator_loss": total_generator_loss,
+            "total_generator_loss": total_generator_loss,
+            "generator_loss_in_real_y": generator_loss_in_real_y,
+            "generator_loss_adverserial_loss": generator_loss_adverserial_loss,
             "discriminator_loss_loss": discriminator_loss,
         }

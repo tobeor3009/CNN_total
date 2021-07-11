@@ -37,6 +37,7 @@ class CycleGan(Model):
         self.discriminator_Y = discriminator_Y
         self.lambda_cycle = lambda_cycle
         self.lambda_identity = lambda_identity
+        self.turn_on_identity_loss = True
 
     def compile(
         self,
@@ -115,21 +116,23 @@ class CycleGan(Model):
                 real_x, cycled_x) * self.lambda_cycle
 
             # Generator identity loss
-            id_loss_G = (
-                self.identity_loss_fn(real_y, same_y)
-                * self.lambda_cycle
-                * self.lambda_identity
-            )
-            id_loss_F = (
-                self.identity_loss_fn(real_x, same_x)
-                * self.lambda_cycle
-                * self.lambda_identity
-            )
-
+            if self.turn_on_identity_loss:
+                id_loss_G = (
+                    self.identity_loss_fn(real_y, same_y)
+                    * self.lambda_cycle
+                    * self.lambda_identity
+                )
+                id_loss_F = (
+                    self.identity_loss_fn(real_x, same_x)
+                    * self.lambda_cycle
+                    * self.lambda_identity
+                )
+            else:
+                id_loss_G = 0
+                id_loss_F = 0
             # Total generator loss
             total_loss_G = generator_G_loss + cycle_loss_G + id_loss_G
             total_loss_F = generator_F_loss + cycle_loss_F + id_loss_F
-
             # Discriminator loss
             discriminator_X_loss = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_fake_x)
@@ -165,8 +168,14 @@ class CycleGan(Model):
         )
 
         return {
-            "G_loss": total_loss_G,
-            "F_loss": total_loss_F,
+            "total_loss_G": total_loss_G,
+            "total_loss_F": total_loss_F,
             "D_X_loss": discriminator_X_loss,
             "D_Y_loss": discriminator_Y_loss,
+            "generator_G_loss": generator_G_loss,
+            "generator_F_loss": generator_F_loss,
+            "id_loss_G": id_loss_G,
+            "id_loss_F": id_loss_F,
+            "cycle_loss_G": cycle_loss_G,
+            "cycle_loss_F": cycle_loss_F
         }
