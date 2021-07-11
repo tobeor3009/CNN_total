@@ -39,10 +39,9 @@ def get_channel_weighted_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
 
 def get_channel_weighted_mse_loss(y_true, y_pred, smooth=SMOOTH):
 
-    y_true = (y_true + 1 + smooth) / 2
-    y_pred = (y_true + 1 + smooth) / 2
-
-    prevalence_per_channel = K.mean(y_true, axis=CHANNEL_WEIGHTED_AXIS)
+    prevalence_per_channel = \
+        K.mean(y_true, axis=CHANNEL_WEIGHTED_AXIS) + 1 + smooth
+    prevalence_per_channel /= 2
 
     weight_per_channel = 1 / prevalence_per_channel
     weight_per_channel_sum = K.sum(weight_per_channel, axis=-1)
@@ -50,8 +49,8 @@ def get_channel_weighted_mse_loss(y_true, y_pred, smooth=SMOOTH):
     weight_per_channel = weight_per_channel / weight_per_channel_sum
 
     mse_loss = (y_true - y_pred) ** 2
-    mse_loss = K.mean(y_true, axis=CHANNEL_WEIGHTED_AXIS)
+    mse_loss = K.mean(mse_loss, axis=CHANNEL_WEIGHTED_AXIS)
 
-    channel_weighted_dice_loss = K.mean(mse_loss)
+    channel_weighted_mse_loss = K.mean(mse_loss)
 
-    return -tf.math.log(channel_weighted_dice_loss)
+    return channel_weighted_mse_loss
