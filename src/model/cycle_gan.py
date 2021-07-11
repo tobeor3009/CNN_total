@@ -58,11 +58,12 @@ class CycleGan(Model):
         self.cycle_loss_fn = image_loss
         self.identity_loss_fn = image_loss
 
+    # seems no need in usage. it just exist for keras Model's child must implement "call" method
     def call(self, x):
         return x
 
     def train_step(self, batch_data):
-        # x is Horse and y is zebra
+
         real_x, real_y = batch_data
 
         # For CycleGAN, we need to calculate different
