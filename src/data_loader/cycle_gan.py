@@ -139,8 +139,6 @@ class CycleGanDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[index]
             image_array = imread(image_path, channel="rgb")
             image_array = self.resize_method(image_array)
-            image_array = \
-                self.image_preprocess_method(image_array)
 
             self.data_on_memory_dict[index] = image_array
 
@@ -148,8 +146,6 @@ class CycleGanDataGetter(BaseDataGetter):
             target_image_path = self.target_image_path_dict[index]
             target_image_array = imread(target_image_path, channel="rgb")
             target_image_array = self.resize_method(target_image_array)
-            target_image_array = \
-                self.image_preprocess_method(target_image_array)
 
             self.target_data_on_memory_dict[index] = target_image_array
 

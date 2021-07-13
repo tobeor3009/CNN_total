@@ -116,7 +116,7 @@ class CycleGan(Model):
                 real_x, cycled_x) * self.lambda_cycle
 
             # Generator identity loss
-            if self.turn_on_identity_loss:
+            if self.turn_on_identity_loss is True:
                 id_loss_G = (
                     self.identity_loss_fn(real_y, same_y)
                     * self.lambda_cycle
