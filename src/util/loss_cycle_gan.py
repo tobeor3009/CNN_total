@@ -54,3 +54,15 @@ def get_channel_weighted_mse_loss(y_true, y_pred, smooth=SMOOTH):
     channel_weighted_mse_loss = K.mean(mse_loss)
 
     return channel_weighted_mse_loss
+
+
+def binary_focal_loss(y_true, y_pred, gamma=2.0, alpha=0.25):
+
+    # clip to prevent NaN's and Inf's
+    y_pred = K.clip(y_pred, K.epsilon(), 1.0 - K.epsilon())
+
+    loss_1 = - y_true * (alpha * K.pow((1 - y_pred), gamma) * K.log(y_pred))
+    loss_0 = - (1 - y_true) * ((1 - alpha) *
+                               K.pow((y_pred), gamma) * K.log(1 - y_pred))
+    loss = K.mean(loss_0 + loss_1)
+    return loss
