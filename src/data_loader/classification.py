@@ -48,7 +48,6 @@ class ClassifyDataGetter(BaseDataGetter):
         self.class_mode = class_mode
 
         self.resize_method = ResizePolicy(target_size, interpolation)
-
         self.categorize_method = \
             CategorizePolicy(class_mode, self.num_classes, dtype)
 
