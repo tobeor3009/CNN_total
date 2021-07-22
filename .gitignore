@@ -5,6 +5,7 @@ logs/
 results/
 weights/
 datasets/
+images/
 
 *.pyc
 *.ipynb

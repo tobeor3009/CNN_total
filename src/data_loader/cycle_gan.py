@@ -1,5 +1,4 @@
 # base module
-from copy import deepcopy
 from collections import deque
 # external module
 import numpy as np

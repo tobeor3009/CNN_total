@@ -27,6 +27,7 @@ class ClassifyDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  label_to_index_dict,
+                 label_level,
                  on_memory,
                  argumentation_proba,
                  preprocess_input,
@@ -40,6 +41,7 @@ class ClassifyDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.data_on_memory_dict = {}
         self.label_to_index_dict = label_to_index_dict
+        self.label_level = label_level
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
         self.preprocess_input = preprocess_input
@@ -86,12 +88,13 @@ class ClassifyDataGetter(BaseDataGetter):
             if self.is_class_cached:
                 label = self.class_dict[current_index]
             else:
-                image_dir_name = get_parent_dir_name(image_path)
+                image_dir_name = get_parent_dir_name(
+                    image_path, self.label_level)
                 label = self.label_to_index_dict[image_dir_name]
                 label = self.categorize_method(label)
                 self.class_dict[current_index] = label
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_class_cached = None not in self.class_dict.values()
+                self.is_class_cached = self.check_class_dict_cached()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["label"] = label
@@ -104,6 +107,7 @@ class ClassifyDataloader(BaseDataLoader):
     def __init__(self,
                  image_path_list=None,
                  label_to_index_dict=None,
+                 label_level=1,
                  batch_size=None,
                  on_memory=False,
                  argumentation_proba=False,
@@ -116,6 +120,7 @@ class ClassifyDataloader(BaseDataLoader):
                  ):
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
                                               label_to_index_dict=label_to_index_dict,
+                                              label_level=label_level,
                                               on_memory=on_memory,
                                               argumentation_proba=argumentation_proba,
                                               preprocess_input=preprocess_input,

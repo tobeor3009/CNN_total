@@ -51,6 +51,12 @@ class BaseDataGetter():
         self.on_memory = True
         progressbar_displayed.finish()
 
+    def check_class_dict_cached(self):
+        for _, value in self.class_dict.items():
+            if value is None:
+                return False
+        return True
+
 
 class BaseDataLoader(tensorflow.keras.utils.Sequence):
 
@@ -112,7 +118,6 @@ class ResizePolicy():
 class CategorizePolicy():
 
     def __init__(self, class_mode, num_classes, dtype):
-
         if class_mode == "binary":
             self.categorize_method = lambda label: label
         elif class_mode == "categorical":

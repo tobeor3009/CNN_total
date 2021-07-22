@@ -16,9 +16,9 @@ def imread(img_path, channel=None):
     return img_numpy_array
 
 
-def get_parent_dir_name(path):
+def get_parent_dir_name(path, level=1):
 
     path_spliter = os.path.sep
     abs_path = os.path.abspath(path)
 
-    return abs_path.split(path_spliter)[-2]
+    return abs_path.split(path_spliter)[-(1+level)]
