@@ -4,6 +4,7 @@ import tensorflow as tf
 import segmentation_models as sm
 from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
+from segmentation_models.losses import BinaryFocalLoss
 
 AXIS = [1, 2, 3]
 PIE_VALUE = np.pi
@@ -12,16 +13,16 @@ SMOOTH = K.epsilon()
 dice_loss = sm.losses.DiceLoss(per_image=True)
 binary_crossentropy_loss = tf.keras.losses.BinaryCrossentropy()
 huber_loss = tf.keras.losses.Huber()
-binary_focal_loss = sm.losses.BinaryFocalLoss(alpha=0.25, gamma=4)
+binary_focal_loss = BinaryFocalLoss(alpha=0.25, gamma=2.)
 
 
-def calc_dist_map(y_true, epsilon=1e-7):
+def calc_dist_map(mask_tensor):
 
-    y_true = K.round(y_true)
-    y_true_uint8 = K.cast(y_true, dtype="uint8")
+    mask_tensor = K.round(mask_tensor)
+    mask_tensor_uint8 = K.cast(mask_tensor, dtype="uint8")
 
-    dist_map = euclidean_dist_transform(y_true_uint8)
-    dist_map = dist_map * y_true
+    dist_map = euclidean_dist_transform(mask_tensor_uint8)
+    dist_map = dist_map * mask_tensor
 
     return dist_map
 
@@ -110,13 +111,14 @@ class BaseTverskyLoss(Loss):
 
 class TverskyLoss(Loss):
     def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH,
+                 alpha=0.25, gamma=2.0,
                  include_focal=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
         self.loss_function = \
             BaseTverskyLoss(beta=beta, per_image=per_image, smooth=smooth)
         if include_focal is True:
-            self.loss_function += binary_focal_loss
+            self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
         if include_boundary is True:
             self.loss_function += BoundaryLoss()
 
@@ -139,13 +141,14 @@ class BasePropotionalDiceLoss(Loss):
 
 class PropotionalDiceLoss(Loss):
     def __init__(self, beta=0.7, smooth=SMOOTH,
+                 alpha=0.25, gamma=2.0,
                  include_focal=False, include_boundary=False):
         super().__init__(name='propotional_dice_loss')
 
         self.loss_function = \
             BasePropotionalDiceLoss(beta=beta, smooth=smooth)
         if include_focal is True:
-            self.loss_function += binary_focal_loss
+            self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
         if include_boundary is True:
             self.loss_function += BoundaryLoss()
 
