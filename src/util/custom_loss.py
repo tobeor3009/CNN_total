@@ -11,9 +11,6 @@ PIE_VALUE = np.pi
 SMOOTH = K.epsilon()
 
 dice_loss = sm.losses.DiceLoss(per_image=True)
-binary_crossentropy_loss = tf.keras.losses.BinaryCrossentropy()
-huber_loss = tf.keras.losses.Huber()
-binary_focal_loss = BinaryFocalLoss(alpha=0.25, gamma=2.)
 
 
 def calc_dist_map(mask_tensor):
@@ -111,7 +108,7 @@ class BaseTverskyLoss(Loss):
 
 class TverskyLoss(Loss):
     def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH,
-                 alpha=0.25, gamma=2.0,
+                 alpha=0.25, gamma=4.0,
                  include_focal=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
@@ -141,7 +138,7 @@ class BasePropotionalDiceLoss(Loss):
 
 class PropotionalDiceLoss(Loss):
     def __init__(self, beta=0.7, smooth=SMOOTH,
-                 alpha=0.25, gamma=2.0,
+                 alpha=0.25, gamma=4.0,
                  include_focal=False, include_boundary=False):
         super().__init__(name='propotional_dice_loss')
 
