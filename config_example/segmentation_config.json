@@ -17,6 +17,7 @@
   "test_mask_path_regexp": "test/image/*",
   "model_backbone": "inceptionv3",
   "last_channel_activation": "sigmoid",
+  "epochs": 200,
   "learning_rate": 1e-4,
   "weight_save_format": "weights_{val_loss:.4f}_{loss:.4f}_{epoch:02d}.hdf5",
   "code_test_by_small_data": false,

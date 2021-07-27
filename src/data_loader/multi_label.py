@@ -96,8 +96,8 @@ class MultiLabelDataGetter(BaseDataGetter):
             image_array = self.resize_method(image_array)
             mask_array = self.resize_method(mask_array)
 
-            image_array = self.argumentation_method(image_array)
-            mask_array = self.argumentation_method(mask_array)
+            image_array, mask_array = \
+                self.argumentation_method(image_array, mask_array)
 
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
@@ -181,7 +181,7 @@ class MultiLabelDataloader(BaseDataLoader):
             self.batch_label_array[batch_index] = single_data_dict["label"]
             self.batch_preserve_array[batch_index] = single_data_dict["preserve"]
 
-        return self.batch_image_array, self.batch_mask_array, self.batch_label_array, self.batch_preserve_array
+        return self.batch_image_array, (self.batch_mask_array, self.batch_label_array, self.batch_preserve_array)
 
     def print_data_info(self):
         data_num = len(self.data_getter)

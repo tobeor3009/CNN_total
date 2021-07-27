@@ -7,17 +7,17 @@ from ast import literal_eval as make_tuple
 
 import tensorflow as tf
 from tensorflow.keras import backend as K
-from tensorflow.keras.applications.inception_v3 import preprocess_input
+# from tensorflow.keras.applications.inception_v3 import preprocess_input
 from tensorflow.keras.optimizers import Nadam
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.callbacks import ReduceLROnPlateau
 from tensorflow.keras.callbacks import CSVLogger
-from tensorflow.keras.callbacks import LambdaCallback
 from tensorflow.keras.optimizers import Nadam
 
 import segmentation_models as sm
-sm.set_framework ('tf.keras')
-
+sm.set_framework('tf.keras')
+from segmentation_models.losses import DiceLoss, BinaryFocalLoss
+from src.util.custom_loss import PropotionalDiceLoss, TverskyLoss, dice_score, dice_loss, boundary_loss
 from src.data_loader.segmentation import SegDataloader
 
 # parse config.json
@@ -49,20 +49,71 @@ model_backbone = str(config_dict["model_backbone"])
 last_channel_activation = str(config_dict["last_channel_activation"])
 
 # define train config
-learning_rate = str(config_dict["learning_rate"])
+epochs = int(config_dict["epochs"])
+learning_rate = float(config_dict["learning_rate"])
 weight_save_format = str(config_dict["weight_save_format"])
 code_test_by_small_data = bool(config_dict["code_test_by_small_data"])
 small_data_num = int(config_dict["small_data_num"])
 
-if gpu_number == -1:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = gpu_number
+if gpu_number == "-1":
     gpu_devices = tf.config.experimental.list_physical_devices("CPU")
 else:
     gpu_devices = tf.config.experimental.list_physical_devices("GPU")
     for device in gpu_devices:
         tf.config.experimental.set_memory_growth(device, True)
 
+################ Define and Compile Model ################
+
+optimizer = Nadam(learning_rate, clipnorm=1)
+
+# create the base pre-trained model~
+model = sm.Unet(backbone_name=model_backbone,
+                input_shape=(None, None, 3),
+                classes=1,
+                activation='sigmoid')
+
+
+model.compile(optimizer=optimizer,
+              loss=PropotionalDiceLoss(
+                  include_focal=True, include_boundary=True),
+              metrics=[dice_score])
+
+################ Define Callbacks ################
+
+today = date.today()
+# YY/MM/dd
+today_str = today.strftime("%Y-%m-%d")
+today_weight_path = f"./result_daily/{task}/{data_set_name}/{today_str}/{gpu_number}/target_size_{target_size}/weights/"
+today_logs_path = f"./result_daily/{task}/{data_set_name}/{today_str}/{gpu_number}/target_size_{target_size}/"
+os.makedirs(today_weight_path, exist_ok=True)
+os.makedirs(today_logs_path, exist_ok=True)
+shutil.copy("./config.json", f"{today_logs_path}/config.json")
+
+checkpoint_callback = ModelCheckpoint(
+    today_weight_path + "/weights_{val_loss:.4f}_{loss:.4f}_{epoch:02d}.hdf5",
+    monitor='val_loss',
+    verbose=0,
+    save_best_only=False,
+    save_weights_only=True,
+    mode='min')
+
+reduceLROnPlat_callback = ReduceLROnPlateau(
+    monitor="val_loss",
+    factor=0.1,
+    patience=20,
+    verbose=1,
+    mode="auto",
+    min_delta=0.0001,
+    cooldown=5,
+    min_lr=1e-7)
+
+csv_logger_callback = CSVLogger(
+    f'{today_logs_path}/log.csv', append=False, separator=',')
+
 ################ Define Data Loader ################
+
+preprocess_input = "-1~1"
 
 train_image_path_list = glob(train_image_path_regexp)
 train_mask_path_list = glob(train_mask_path_regexp)
@@ -72,12 +123,12 @@ test_image_path_list = glob(test_image_path_regexp)
 test_mask_path_list = glob(test_mask_path_regexp)
 
 if code_test_by_small_data:
-  train_image_path_list = train_image_path_list[:small_data_num]
-  train_mask_path_list = train_mask_path_list[:small_data_num]
-  valid_image_path_list = valid_image_path_list[:small_data_num]
-  valid_mask_path_list = valid_mask_path_list[:small_data_num]
-  test_image_path_list = test_image_path_list[:small_data_num]
-  test_mask_path_list = test_mask_path_list[:small_data_num]
+    train_image_path_list = train_image_path_list[:small_data_num]
+    train_mask_path_list = train_mask_path_list[:small_data_num]
+    valid_image_path_list = valid_image_path_list[:small_data_num]
+    valid_mask_path_list = valid_mask_path_list[:small_data_num]
+    test_image_path_list = test_image_path_list[:small_data_num]
+    test_mask_path_list = test_mask_path_list[:small_data_num]
 
 train_data_loader = SegDataloader(image_path_list=train_image_path_list,
                                   mask_path_list=train_mask_path_list,
@@ -113,59 +164,15 @@ test_data_loader = SegDataloader(image_path_list=test_image_path_list,
                                  dtype=dtype
                                  )
 
-################ Define and Compile Model ################
-
-# create the base pre-trained model~
-model = sm.Unet(backbone_name=model_backbone, 
-                input_shape=(None, None, 3), 
-                classes=1, 
-                activation='sigmoid')
-
-################ Define Callbacks ################
-
-today = date.today()
-# YY/MM/dd
-today_str = today.strftime("%Y-%m-%d")
-today_weight_path = f"./result/{task}/{data_set_name}/{today_str}/{gpu_number}/target_size_{target_size}/weights/" 
-today_logs_path = f"./result/{task}/{data_set_name}/{today_str}/{gpu_number}/target_size_{target_size}/"
-os.makedirs(today_weight_path, exist_ok=True)
-os.makedirs(today_logs_path, exist_ok=True)
-shutil.copy("./config.json", f"{today_logs_path}/config.json")
-
-checkpoint_callback = ModelCheckpoint(
-    today_weight_path+"/weights_{val_loss:.4f}_{loss:.4f}_{epoch:02d}.hdf5",
-    monitor='val_loss',
-    verbose=0,
-    save_best_only=False,
-    save_weights_only=True,
-    mode='min')
-
-reduceLROnPlat_callback = ReduceLROnPlateau(
-    monitor="val_loss",
-    factor=0.1,
-    patience=20,
-    verbose=1,
-    mode="auto",
-    min_delta=0.0001,
-    cooldown=5,
-    min_lr=1e-7)
-
-csv_logger_callback = CSVLogger(f'{today_logs_path}/log.csv', append=False, separator=',')
-
 ################ Run train ################
-
-start_epoch = 0
-epochs = 200
 
 model.fit(
     train_data_loader,
     validation_data=valid_data_loader,
     epochs=epochs,
     callbacks=[checkpoint_callback,
-              reduceLROnPlat_callback,
-              csv_logger_callback],
-    initial_epoch=start_epoch
+               reduceLROnPlat_callback,
+               csv_logger_callback]
 )
 
 ################ Evaluate test Dataset ################
-

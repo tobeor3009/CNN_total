@@ -19,6 +19,7 @@
   "transfer_train_mode": "include_deep_layer",
   "layer_name_frozen_to": "mixed4",
   "activation": "binary_sigmoid",
+  "epochs": 200,
   "learning_rate": 1e-4,
   "weight_save_format": "weights_{val_loss:.4f}_{loss:.4f}_{epoch:02d}.hdf5",
   "code_test_by_small_data": false,

@@ -14,7 +14,7 @@
   "test_target_image_path_regexp": "IHC/test/*/*",
   "learning_rate": 2e-4,
   "identity_loss_epoch": 20,
-  "target_epoch": 100,
+  "epochs": 200,
   "code_test_by_small_data": false,
   "small_data_num": 100
 }

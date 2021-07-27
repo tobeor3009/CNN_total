@@ -97,7 +97,8 @@ class ResizePolicy():
 
         # cv2 resize policy
         interpolation_dict = {
-            "bilinear": cv2.INTER_LINEAR
+            "bilinear": cv2.INTER_LINEAR,
+            "cubic": cv2.INTER_CUBIC
         }
 
         if target_size is None:

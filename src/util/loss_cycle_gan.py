@@ -3,7 +3,7 @@ from tensorflow.keras.layers import LeakyReLU
 import numpy as np
 import tensorflow as tf
 import segmentation_models as sm
-from . custom_loss_base import Loss
+from segmentation_models.base import Loss
 
 AXIS = [1, 2]
 CHANNEL_WEIGHTED_AXIS = [1, 2]

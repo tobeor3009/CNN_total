@@ -7,8 +7,8 @@ with open("./config.json") as binary_json:
 task = str(config_dict["task"])
 
 if task == "classification":
-  from src.manage_train import classification  
+    from src.manage_train import classification
 elif task == "segmentation":
-  from src.manage_train import segmentation
+    from src.manage_train import segmentation
 # elif task == "cycle_gan":
 #   from src.manage_train import cycle_gan
