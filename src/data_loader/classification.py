@@ -6,7 +6,7 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifiyArgumentationPolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy
 
 """
 Expected Data Path Structure
@@ -58,12 +58,12 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.argumentation_method = ClassifiyArgumentationPolicy(0)
+            self.argumentation_method = ClassifyArgumentationPolicy(0)
             self.preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
         self.argumentation_method = \
-            ClassifiyArgumentationPolicy(argumentation_proba)
+            ClassifyArgumentationPolicy(argumentation_proba)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):

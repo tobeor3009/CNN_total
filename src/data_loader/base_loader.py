@@ -130,7 +130,7 @@ class CategorizePolicy():
         return label
 
 
-class ClassifiyArgumentationPolicy():
+class ClassifyArgumentationPolicy():
     def __init__(self, argumentation_proba):
 
         positional_transform = A.OneOf([
