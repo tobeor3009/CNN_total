@@ -98,6 +98,7 @@ class SegDataGetter(BaseDataGetter):
             mask_array = self.mask_preprocess_method(mask_array)
 
             if self.is_cached is False:
+                self.single_data_dict = deepcopy(self.single_data_dict)
                 self.is_cached = None not in self.data_on_memory_dict.values()
 
         self.single_data_dict["image_array"] = image_array

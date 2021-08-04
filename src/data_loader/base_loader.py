@@ -145,16 +145,27 @@ class ClassifyArgumentationPolicy():
             A.GaussNoise(var_limit=(0.01, 5), p=1),
         ], p=0.5)
 
-        brightness_value = 0.1
+        brightness_value = 0.2
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
         ], p=0.5)
 
+        color_transform = A.OneOf([
+            A.ChannelShuffle(p=1),
+            A.ToGray(p=1),
+            A.ToSepia(p=1),
+        ], p=0.5)
+
+        # to_jpeg_transform = A.ImageCompression(
+        #     quality_lower=99, quality_upper=100, p=0.5)
+
         final_transform = A.Compose([
             positional_transform,
             noise_transform,
             brightness_contrast_transform,
+            color_transform,
+            # to_jpeg_transform
         ], p=argumentation_proba)
 
         if argumentation_proba:

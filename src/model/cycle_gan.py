@@ -308,7 +308,9 @@ def residual_block(
         padding=padding,
         use_bias=use_bias,
     )(x)
-    x = tfa.layers.InstanceNormalization(
+    # x = tfa.layers.InstanceNormalization(
+    #     gamma_initializer=gamma_initializer)(x)
+    x = layers.LayerNormalization(
         gamma_initializer=gamma_initializer)(x)
     x = activation(x)
 
