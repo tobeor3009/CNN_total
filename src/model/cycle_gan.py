@@ -15,16 +15,15 @@ base_image_loss_fn = MeanAbsoluteError()
 
 
 # Define the loss function for the generators
-def base_generator_loss_deceive_discriminator(fake):
-    fake_loss = adv_loss_fn(tf.ones_like(fake), fake)
-    return fake_loss
+def base_generator_loss_deceive_discriminator(fake_img):
+    return -tf.reduce_mean(fake_img)
 
 
 # Define the loss function for the discriminators
-def base_discriminator_loss_arrest_generator(real, fake):
-    real_loss = adv_loss_fn(tf.ones_like(real), real)
-    fake_loss = adv_loss_fn(tf.zeros_like(fake), fake)
-    return (real_loss + fake_loss) * 0.5
+def base_discriminator_loss_arrest_generator(real_img, fake_img):
+    real_loss = tf.reduce_mean(real_img)
+    fake_loss = tf.reduce_mean(fake_img)
+    return fake_loss - real_loss
 
 # Define Base Model
 
@@ -111,10 +110,33 @@ class CycleGan(Model):
     def call(self, x):
         return x
 
+    def gradient_penalty(self, discriminator, batch_size, real_images, fake_images):
+        """ Calculates the gradient penalty.
+
+        This loss is calculated on an interpolated image
+        and added to the discriminator loss.
+        """
+        # Get the interpolated image
+        alpha = tf.random.normal([batch_size, 1, 1, 1], 0.0, 1.0)
+        diff = fake_images - real_images
+        interpolated = real_images + alpha * diff
+
+        with tf.GradientTape() as gp_tape:
+            gp_tape.watch(interpolated)
+            # 1. Get the discriminator output for this interpolated image.
+            pred = discriminator(interpolated, training=True)
+
+        # 2. Calculate the gradients w.r.t to this interpolated image.
+        grads = gp_tape.gradient(pred, [interpolated])[0]
+        # 3. Calculate the norm of the gradients.
+        norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
+        gp = tf.reduce_mean((norm - 1.0) ** 2)
+        return gp
+
     def train_step(self, batch_data):
 
         real_x, real_y = batch_data
-
+        batch_size = tf.shape(real_x)[0]
         # For CycleGAN, we need to calculate different
         # kinds of losses for the generators and discriminators.
         # We will perform the following steps here:
@@ -187,6 +209,14 @@ class CycleGan(Model):
                         disc_real_x, disc_same_x)
                     discriminator_Y_identity_loss = self.discriminator_loss_arrest_generator(
                         disc_real_y, disc_same_y)
+
+                    discriminator_X_identity_gradient_panalty = self.gradient_penalty(
+                        self.discriminator_X, batch_size, real_x, same_x)
+                    discriminator_Y_identity_gradient_panalty = self.gradient_penalty(
+                        self.discriminator_Y, batch_size, real_y, same_y)
+
+                    discriminator_X_identity_loss += discriminator_X_identity_gradient_panalty
+                    discriminator_Y_identity_loss += discriminator_Y_identity_gradient_panalty
                 else:
                     generator_G_identity_loss = 0
                     generator_F_identity_loss = 0
@@ -211,10 +241,18 @@ class CycleGan(Model):
             discriminator_Y_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
 
+            discriminator_X_gradient_panalty = self.gradient_penalty(
+                self.discriminator_X, batch_size, real_x, fake_x)
+            discriminator_Y_gradient_panalty = self.gradient_penalty(
+                self.discriminator_Y, batch_size, real_y, fake_y)
+
+            discriminator_X_loss += discriminator_X_gradient_panalty
+            discriminator_Y_loss += discriminator_Y_gradient_panalty
+
             total_discriminator_X_loss = discriminator_X_loss + \
-                discriminator_X_identity_loss * 0.5
+                discriminator_X_identity_loss * self.lambda_identity
             total_discriminator_Y_loss = discriminator_Y_loss + \
-                discriminator_Y_identity_loss * 0.5
+                discriminator_Y_identity_loss * self.lambda_identity
 
         # Get the gradients for the generators
         grads_G = tape.gradient(

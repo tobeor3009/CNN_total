@@ -3,6 +3,7 @@ from collections import deque
 # external module
 import numpy as np
 from sklearn.utils import shuffle as syncron_shuffle
+from tqdm import tqdm
 
 # this library module
 from .utils import imread
@@ -134,14 +135,14 @@ class CycleGanDataGetter(BaseDataGetter):
         image_range = range(self.data_len)
         target_image_range = range(self.target_data_len)
 
-        for index in image_range:
+        for index in tqdm(image_range):
             image_path = self.image_path_dict[index]
             image_array = imread(image_path, channel="rgb")
             image_array = self.resize_method(image_array)
 
             self.data_on_memory_dict[index] = image_array
 
-        for index in target_image_range:
+        for index in tqdm(target_image_range):
             target_image_path = self.target_image_path_dict[index]
             target_image_array = imread(target_image_path, channel="rgb")
             target_image_array = self.resize_method(target_image_array)

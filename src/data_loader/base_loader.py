@@ -157,15 +157,15 @@ class ClassifyArgumentationPolicy():
             A.ToSepia(p=1),
         ], p=0.5)
 
-        # to_jpeg_transform = A.ImageCompression(
-        #     quality_lower=99, quality_upper=100, p=0.5)
+        to_jpeg_transform = A.ImageCompression(
+            quality_lower=99, quality_upper=100, p=0.5)
 
         final_transform = A.Compose([
             positional_transform,
             noise_transform,
             brightness_contrast_transform,
             color_transform,
-            # to_jpeg_transform
+            to_jpeg_transform
         ], p=argumentation_proba)
 
         if argumentation_proba:

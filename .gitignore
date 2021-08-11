@@ -7,6 +7,7 @@ results_total/
 weights/
 datasets/
 images/
+temp/
 
 *.pyc
 *.ipynb
