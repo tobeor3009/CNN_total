@@ -10,7 +10,6 @@ kernel_init = RandomNormal(mean=0.0, stddev=0.02)
 gamma_init = RandomNormal(mean=0.0, stddev=0.02)
 
 # Loss function for evaluating adversarial loss
-adv_loss_fn = MeanAbsoluteError()
 base_image_loss_fn = MeanAbsoluteError()
 
 
@@ -37,6 +36,7 @@ class CycleGan(Model):
         discriminator_Y=None,
         lambda_cycle=10.0,
         lambda_identity=0.5,
+        gp_weight=10.0
     ):
         super(CycleGan, self).__init__()
 
@@ -85,6 +85,7 @@ class CycleGan(Model):
         self.lambda_identity = lambda_identity
         self.turn_on_identity_loss = True
         self.turn_on_discriminator_on_identity = False
+        self.gp_weight = gp_weight
 
     def compile(
         self,
@@ -215,8 +216,10 @@ class CycleGan(Model):
                     discriminator_Y_identity_gradient_panalty = self.gradient_penalty(
                         self.discriminator_Y, batch_size, real_y, same_y)
 
-                    discriminator_X_identity_loss += discriminator_X_identity_gradient_panalty
-                    discriminator_Y_identity_loss += discriminator_Y_identity_gradient_panalty
+                    discriminator_X_identity_loss += self.gp_weight * \
+                        discriminator_X_identity_gradient_panalty
+                    discriminator_Y_identity_loss += self.gp_weight * \
+                        discriminator_Y_identity_gradient_panalty
                 else:
                     generator_G_identity_loss = 0
                     generator_F_identity_loss = 0
@@ -246,8 +249,8 @@ class CycleGan(Model):
             discriminator_Y_gradient_panalty = self.gradient_penalty(
                 self.discriminator_Y, batch_size, real_y, fake_y)
 
-            discriminator_X_loss += discriminator_X_gradient_panalty
-            discriminator_Y_loss += discriminator_Y_gradient_panalty
+            discriminator_X_loss += self.gp_weight * discriminator_X_gradient_panalty
+            discriminator_Y_loss += self.gp_weight * discriminator_Y_gradient_panalty
 
             total_discriminator_X_loss = discriminator_X_loss + \
                 discriminator_X_identity_loss * self.lambda_identity
