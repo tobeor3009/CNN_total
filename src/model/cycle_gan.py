@@ -94,7 +94,7 @@ class CycleGan(Model):
         discriminator_X_optimizer,
         discriminator_Y_optimizer,
         image_loss_fn=base_image_loss_fn,
-        generator_against_discriminator=base_generator_loss_deceive_discriminator,
+        generator_loss_deceive_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
     ):
         super(CycleGan, self).compile()
@@ -102,7 +102,7 @@ class CycleGan(Model):
         self.generator_F_optimizer = generator_F_optimizer
         self.discriminator_X_optimizer = discriminator_X_optimizer
         self.discriminator_Y_optimizer = discriminator_Y_optimizer
-        self.generator_loss_deceive_discriminator = generator_against_discriminator
+        self.generator_loss_deceive_discriminator = generator_loss_deceive_discriminator
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
         self.cycle_loss_fn = image_loss_fn
         self.identity_loss_fn = image_loss_fn
