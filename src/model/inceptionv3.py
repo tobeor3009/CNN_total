@@ -20,6 +20,8 @@ Reference:
       http://arxiv.org/abs/1512.00567) (CVPR 2016)
 """
 
+import tenosorflow as tf
+
 from tensorflow_addons.layers import InstanceNormalization
 
 from tensorflow.python.keras import backend
@@ -39,7 +41,8 @@ WEIGHTS_PATH_NO_TOP = (
     'https://storage.googleapis.com/tensorflow/keras-applications/'
     'inception_v3/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5')
 
-layers = VersionAwareLayers()
+# layers = VersionAwareLayers()
+layers = tf.keras.layers
 
 
 @keras_export('keras.applications.inception_v3.InceptionV3',
