@@ -14,23 +14,22 @@
 # ==============================================================================
 # pylint: disable=invalid-name
 """Inception V3 model for Keras.
-
-Reference:
+Reference paper:
   - [Rethinking the Inception Architecture for Computer Vision](
       http://arxiv.org/abs/1512.00567) (CVPR 2016)
 """
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
-import tenosorflow as tf
-
-from tensorflow_addons.layers import InstanceNormalization
+import os
 
 from tensorflow.python.keras import backend
+from tensorflow.python.keras import layers
 from tensorflow.python.keras.applications import imagenet_utils
 from tensorflow.python.keras.engine import training
-from tensorflow.python.keras.layers import VersionAwareLayers
 from tensorflow.python.keras.utils import data_utils
 from tensorflow.python.keras.utils import layer_utils
-from tensorflow.python.lib.io import file_io
 from tensorflow.python.util.tf_export import keras_export
 
 
@@ -41,44 +40,29 @@ WEIGHTS_PATH_NO_TOP = (
     'https://storage.googleapis.com/tensorflow/keras-applications/'
     'inception_v3/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5')
 
-# layers = VersionAwareLayers()
-layers = tf.keras.layers
-
 
 @keras_export('keras.applications.inception_v3.InceptionV3',
               'keras.applications.InceptionV3')
 def InceptionV3(
-        include_top=True,
-        weights='imagenet',
-        input_tensor=None,
-        input_shape=None,
-        pooling=None,
-        classes=1000,
-        normliazation="BatchNormalization",
-        classifier_activation='softmax'):
+    include_top=True,
+    weights='imagenet',
+    input_tensor=None,
+    input_shape=None,
+    pooling=None,
+    classes=1000,
+    normliazation="BatchNormalization",
+    classifier_activation='softmax',
+):
     """Instantiates the Inception v3 architecture.
-
-    Reference:
+    Reference paper:
     - [Rethinking the Inception Architecture for Computer Vision](
         http://arxiv.org/abs/1512.00567) (CVPR 2016)
-
-    This function returns a Keras image classification model,
-    optionally loaded with weights pre-trained on ImageNet.
-
-    For image classification use cases, see
-    [this page for detailed examples](
-      https://keras.io/api/applications/#usage-examples-for-image-classification-models).
-
-    For transfer learning use cases, make sure to read the
-    [guide to transfer learning & fine-tuning](
-      https://keras.io/guides/transfer_learning/).
-
-    Note: each Keras Application expects a specific kind of input preprocessing.
-    For `InceptionV3`, call `tf.keras.applications.inception_v3.preprocess_input`
-    on your inputs before passing them to the model.
-    `inception_v3.preprocess_input` will scale input pixels between -1 and 1.
-
-    Args:
+    Optionally loads weights pre-trained on ImageNet.
+    Note that the data format convention used by the model is
+    the one specified in the `tf.keras.backend.image_data_format()`.
+    Caution: Be sure to properly pre-process your inputs to the application.
+    Please see `applications.inception_v3.preprocess_input` for an example.
+    Arguments:
       include_top: Boolean, whether to include the fully-connected
         layer at the top, as the last layer of the network. Default to `True`.
       weights: One of `None` (random initialization),
@@ -110,13 +94,15 @@ def InceptionV3(
       classifier_activation: A `str` or callable. The activation function to use
         on the "top" layer. Ignored unless `include_top=True`. Set
         `classifier_activation=None` to return the logits of the "top" layer.
-        When loading pretrained weights, `classifier_activation` can only
-        be `None` or `"softmax"`.
-
     Returns:
       A `keras.Model` instance.
+    Raises:
+      ValueError: in case of invalid argument for `weights`,
+        or invalid input shape.
+      ValueError: if `classifier_activation` is not `softmax` or `None` when
+        using a pretrained top layer.
     """
-    if not (weights in {'imagenet', None} or file_io.file_exists_v2(weights)):
+    if not (weights in {'imagenet', None} or os.path.exists(weights)):
         raise ValueError('The `weights` argument should be either '
                          '`None` (random initialization), `imagenet` '
                          '(pre-training on ImageNet), '
@@ -355,8 +341,7 @@ def InceptionV3(
                                               strides=(1, 1),
                                               padding='same')(
                                                   x)
-        branch_pool = conv2d_bn(branch_pool, 192, 1, 1,
-                                normliazation=normliazation)
+        branch_pool = conv2d_bn(branch_pool, 192, 1, 1, normliazation=normliazation)
         x = layers.concatenate([branch1x1, branch3x3, branch3x3dbl, branch_pool],
                                axis=channel_axis,
                                name='mixed' + str(9 + i))
@@ -411,8 +396,7 @@ def conv2d_bn(x,
               normliazation="BatchNormalization",
               name=None):
     """Utility function to apply conv + BN.
-
-    Args:
+    Arguments:
       x: input tensor.
       filters: filters in `Conv2D`.
       num_row: height of the convolution kernel.
@@ -422,7 +406,6 @@ def conv2d_bn(x,
       name: name of the ops; will become `name + '_conv'`
         for the convolution and `name + '_bn'` for the
         batch norm layer.
-
     Returns:
       Output tensor after applying `Conv2D` and `BatchNormalization`.
     """
@@ -463,16 +446,33 @@ def conv2d_bn(x,
 
 @keras_export('keras.applications.inception_v3.preprocess_input')
 def preprocess_input(x, data_format=None):
+    """Preprocesses a numpy array encoding a batch of images.
+    Arguments
+      x: A 4D numpy array consists of RGB values within [0, 255].
+    Returns
+      Preprocessed array.
+    Raises
+      ValueError: In case of unknown `data_format` argument.
+    """
     return imagenet_utils.preprocess_input(x, data_format=data_format, mode='tf')
 
 
 @keras_export('keras.applications.inception_v3.decode_predictions')
 def decode_predictions(preds, top=5):
+    """Decodes the prediction result from the model.
+    Arguments
+      preds: Numpy tensor encoding a batch of predictions.
+      top: Integer, how many top-guesses to return.
+    Returns
+      A list of lists of top class prediction tuples
+      `(class_name, class_description, score)`.
+      One list of tuples per sample in batch input.
+    Raises
+      ValueError: In case of invalid shape of the `preds` array (must be 2D).
+    """
     return imagenet_utils.decode_predictions(preds, top=top)
 
 
 preprocess_input.__doc__ = imagenet_utils.PREPROCESS_INPUT_DOC.format(
-    mode='',
-    ret=imagenet_utils.PREPROCESS_INPUT_RET_DOC_TF,
-    error=imagenet_utils.PREPROCESS_INPUT_ERROR_DOC)
+    mode='', ret=imagenet_utils.PREPROCESS_INPUT_RET_DOC_TF)
 decode_predictions.__doc__ = imagenet_utils.decode_predictions.__doc__
