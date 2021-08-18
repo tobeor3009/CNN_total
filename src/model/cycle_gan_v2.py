@@ -138,10 +138,6 @@ class CycleGan(Model):
 
         real_x, real_y = batch_data
         batch_size = tf.shape(real_x)[0]
-        # For CycleGAN, we need to calculate different
-        # kinds of losses for the generators and discriminators.
-        # We will perform the following steps here:
-        #
         # 1. Pass real images through the generators and get the generated images
         # 2. Pass the generated images back to the generators to check if we
         #    we can predict the original image from the generated image.
@@ -160,27 +156,34 @@ class CycleGan(Model):
             fake_y = self.generator_G(real_x, training=True)
 
             # back to original domain mapping
-            cycled_x = self.generator_F(fake_y, training=True)
-            cycled_y = self.generator_G(fake_x, training=True)
+            cycle_x = self.generator_F(fake_y, training=True)
+            cycle_y = self.generator_G(fake_x, training=True)
 
             # Discriminator output
             disc_real_x = self.discriminator_X(real_x, training=True)
             disc_fake_x = self.discriminator_X(fake_x, training=True)
+            disc_cycle_x = self.discriminator_X(cycle_x, training=True)
 
             disc_real_y = self.discriminator_Y(real_y, training=True)
             disc_fake_y = self.discriminator_Y(fake_y, training=True)
+            disc_cycle_y = self.discriminator_Y(cycle_y, training=True)
 
             # Generator cycle loss
-            cycle_loss_G = self.cycle_loss_fn(
-                real_y, cycled_y) * self.lambda_cycle
-            cycle_loss_F = self.cycle_loss_fn(
-                real_x, cycled_x) * self.lambda_cycle
+            gen_G_cycle_image_loss = self.cycle_loss_fn(
+                real_y, cycle_y) * self.lambda_cycle
+            gen_F_cycle_image_loss = self.cycle_loss_fn(
+                real_x, cycle_x) * self.lambda_cycle
 
             # Generator adverserial loss
-            generator_G_loss = self.generator_loss_deceive_discriminator(
+            gen_G_fake_disc_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
-            generator_F_loss = self.generator_loss_deceive_discriminator(
+            gen_F_fake_disc_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_x)
+
+            gen_G_cycle_disc_loss = self.generator_loss_deceive_discriminator(
+                disc_cycle_y)
+            gen_F_cycle_disc_loss = self.generator_loss_deceive_discriminator(
+                disc_cycle_x)
 
             # Generator identity loss
             if self.turn_on_identity_loss is True:
@@ -188,12 +191,12 @@ class CycleGan(Model):
                 same_x = self.generator_F(real_x, training=True)
                 same_y = self.generator_G(real_y, training=True)
 
-                identity_loss_G = (
+                gen_G_identity_image_loss = (
                     self.identity_loss_fn(real_y, same_y)
                     * self.lambda_cycle
                     * self.lambda_identity
                 )
-                identity_loss_F = (
+                gen_F_identity_image_loss = (
                     self.identity_loss_fn(real_x, same_x)
                     * self.lambda_cycle
                     * self.lambda_identity
@@ -202,100 +205,112 @@ class CycleGan(Model):
                     disc_same_x = self.discriminator_X(same_x, training=True)
                     disc_same_y = self.discriminator_Y(same_y, training=True)
 
-                    generator_G_identity_loss = self.generator_loss_deceive_discriminator(
+                    gen_G_identity_disc_loss = self.generator_loss_deceive_discriminator(
                         disc_same_y)
-                    generator_F_identity_loss = self.generator_loss_deceive_discriminator(
+                    gen_F_identity_disc_loss = self.generator_loss_deceive_discriminator(
                         disc_same_x)
-                    discriminator_X_identity_loss = self.discriminator_loss_arrest_generator(
+                    disc_X_identity_loss = self.discriminator_loss_arrest_generator(
                         disc_real_x, disc_same_x)
-                    discriminator_Y_identity_loss = self.discriminator_loss_arrest_generator(
+                    disc_Y_identity_loss = self.discriminator_loss_arrest_generator(
                         disc_real_y, disc_same_y)
 
-                    discriminator_X_identity_gradient_panalty = self.gradient_penalty(
+                    disc_X_identity_gradient_panalty = self.gradient_penalty(
                         self.discriminator_X, batch_size, real_x, same_x)
-                    discriminator_Y_identity_gradient_panalty = self.gradient_penalty(
+                    disc_Y_identity_gradient_panalty = self.gradient_penalty(
                         self.discriminator_Y, batch_size, real_y, same_y)
 
-                    discriminator_X_identity_loss += self.gp_weight * \
-                        discriminator_X_identity_gradient_panalty
-                    discriminator_Y_identity_loss += self.gp_weight * \
-                        discriminator_Y_identity_gradient_panalty
+                    disc_X_identity_loss += self.gp_weight * \
+                        disc_X_identity_gradient_panalty
+                    disc_Y_identity_loss += self.gp_weight * \
+                        disc_Y_identity_gradient_panalty
                 else:
-                    generator_G_identity_loss = 0
-                    generator_F_identity_loss = 0
-                    discriminator_X_identity_loss = 0
-                    discriminator_Y_identity_loss = 0
+                    gen_G_identity_disc_loss = 0
+                    gen_F_identity_disc_loss = 0
+                    disc_X_identity_loss = 0
+                    disc_Y_identity_loss = 0
             else:
-                identity_loss_G = 0
-                identity_loss_F = 0
-                generator_G_identity_loss = 0
-                generator_F_identity_loss = 0
-                discriminator_X_identity_loss = 0
-                discriminator_Y_identity_loss = 0
+                gen_G_identity_image_loss = 0
+                gen_F_identity_image_loss = 0
+                gen_G_identity_disc_loss = 0
+                gen_F_identity_disc_loss = 0
+                disc_X_identity_loss = 0
+                disc_Y_identity_loss = 0
             # Total generator loss
-            total_loss_G = generator_G_loss + cycle_loss_G + \
-                generator_G_identity_loss + identity_loss_G
-            total_loss_F = generator_F_loss + cycle_loss_F + \
-                generator_F_identity_loss + identity_loss_F
+            gen_G_total_loss = gen_G_fake_disc_loss + \
+                gen_G_cycle_image_loss + gen_G_cycle_disc_loss + \
+                gen_G_identity_image_loss + gen_G_identity_disc_loss
+            gen_F_total_loss = gen_F_fake_disc_loss + \
+                gen_F_cycle_image_loss + gen_F_cycle_disc_loss + \
+                gen_F_identity_image_loss + gen_F_identity_disc_loss
 
             # Discriminator loss
-            discriminator_X_loss = self.discriminator_loss_arrest_generator(
+            disc_X_fake_loss = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_fake_x)
-            discriminator_Y_loss = self.discriminator_loss_arrest_generator(
+            disc_Y_fake_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
+            disc_X_cycle_loss = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_cycle_x)
+            disc_Y_cycle_loss = self.discriminator_loss_arrest_generator(
+                disc_real_y, disc_cycle_y)
 
-            discriminator_X_gradient_panalty = self.gradient_penalty(
+            disc_X_fake_gradient_panalty = self.gradient_penalty(
                 self.discriminator_X, batch_size, real_x, fake_x)
-            discriminator_Y_gradient_panalty = self.gradient_penalty(
+            disc_Y_fake_gradient_panalty = self.gradient_penalty(
                 self.discriminator_Y, batch_size, real_y, fake_y)
+            disc_X_cycle_gradient_panalty = self.gradient_penalty(
+                self.discriminator_X, batch_size, real_x, cycle_x)
+            disc_Y_cycle_gradient_panalty = self.gradient_penalty(
+                self.discriminator_Y, batch_size, real_y, cycle_y)
 
-            discriminator_X_loss += self.gp_weight * discriminator_X_gradient_panalty
-            discriminator_Y_loss += self.gp_weight * discriminator_Y_gradient_panalty
+            disc_X_fake_loss += self.gp_weight * disc_X_fake_gradient_panalty
+            disc_Y_fake_loss += self.gp_weight * disc_Y_fake_gradient_panalty
+            disc_X_cycle_loss += self.gp_weight * disc_X_cycle_gradient_panalty
+            disc_Y_cycle_loss += self.gp_weight * disc_Y_cycle_gradient_panalty
 
-            total_discriminator_X_loss = discriminator_X_loss + \
-                discriminator_X_identity_loss * self.lambda_identity
-            total_discriminator_Y_loss = discriminator_Y_loss + \
-                discriminator_Y_identity_loss * self.lambda_identity
+            disc_X_total_loss = disc_X_fake_loss + disc_X_cycle_loss + \
+                disc_X_identity_loss * self.lambda_identity
+            disc_Y_total_loss = disc_Y_fake_loss + disc_Y_cycle_loss + \
+                disc_Y_identity_loss * self.lambda_identity
 
         # Get the gradients for the generators
-        grads_G = tape.gradient(
-            total_loss_G, self.generator_G.trainable_variables)
-        grads_F = tape.gradient(
-            total_loss_F, self.generator_F.trainable_variables)
+        gen_G_grads = tape.gradient(
+            gen_G_total_loss, self.generator_G.trainable_variables)
+        gen_F_grads = tape.gradient(
+            gen_F_total_loss, self.generator_F.trainable_variables)
 
         # Get the gradients for the discriminators
-        discriminator_X_grads = tape.gradient(
-            total_discriminator_X_loss, self.discriminator_X.trainable_variables)
-        discriminator_Y_grads = tape.gradient(
-            total_discriminator_Y_loss, self.discriminator_Y.trainable_variables)
+        disc_X_grads = tape.gradient(
+            disc_X_total_loss, self.discriminator_X.trainable_variables)
+        disc_Y_grads = tape.gradient(
+            disc_Y_total_loss, self.discriminator_Y.trainable_variables)
 
         # Update the weights of the generators
         self.generator_G_optimizer.apply_gradients(
-            zip(grads_G, self.generator_G.trainable_variables)
+            zip(gen_G_grads, self.generator_G.trainable_variables)
         )
         self.generator_F_optimizer.apply_gradients(
-            zip(grads_F, self.generator_F.trainable_variables)
+            zip(gen_F_grads, self.generator_F.trainable_variables)
         )
 
         # Update the weights of the discriminators
         self.discriminator_X_optimizer.apply_gradients(
-            zip(discriminator_X_grads, self.discriminator_X.trainable_variables)
+            zip(disc_X_grads, self.discriminator_X.trainable_variables)
         )
         self.discriminator_Y_optimizer.apply_gradients(
-            zip(discriminator_Y_grads, self.discriminator_Y.trainable_variables)
+            zip(disc_Y_grads, self.discriminator_Y.trainable_variables)
         )
 
         return {
-            "total_loss_G": total_loss_G,
-            "total_loss_F": total_loss_F,
-            "D_X_loss": total_discriminator_X_loss,
-            "D_Y_loss": total_discriminator_Y_loss,
-            "generator_G_loss": generator_G_loss,
-            "generator_F_loss": generator_F_loss,
-            "identity_loss_G": identity_loss_G,
-            "identity_loss_F": identity_loss_F,
-            "cycle_loss_G": cycle_loss_G,
-            "cycle_loss_F": cycle_loss_F
+            "total_loss_G": gen_G_total_loss,
+            "total_loss_F": gen_F_total_loss,
+            "D_X_loss": disc_X_total_loss,
+            "D_Y_loss": disc_Y_total_loss,
+            "generator_G_loss": gen_G_fake_disc_loss,
+            "generator_F_loss": gen_F_fake_disc_loss,
+            "identity_loss_G": gen_G_identity_image_loss,
+            "identity_loss_F": gen_F_identity_image_loss,
+            "cycle_loss_G": gen_G_cycle_image_loss,
+            "cycle_loss_F": gen_F_cycle_image_loss
         }
 
 
