@@ -23,5 +23,6 @@ config.json
 !classification_custom_gpu_0.ipynb
 !segmenation_inceptionv3_unet_gpu_0.ipynb
 !segmenation_auto_curation_inceptionv3_unet_gpu_0.ipynb
+!star_gan_inceptionv3_gpu_0.ipynb
 !check_argumentations.ipynb
 !multi_label_incetpionv3_gpu_0.ipynb

@@ -12,6 +12,19 @@ import numpy as np
 kernel_init = RandomNormal(mean=0.0, stddev=0.02)
 gamma_init = RandomNormal(mean=0.0, stddev=0.02)
 
+# Define the loss function for the generators
+
+
+def base_generator_loss_deceive_discriminator(fake_img):
+    return -tf.reduce_mean(fake_img)
+
+
+# Define the loss function for the discriminators
+def base_discriminator_loss_arrest_generator(real_img, fake_img):
+    real_loss = tf.reduce_mean(real_img)
+    fake_loss = tf.reduce_mean(fake_img)
+    return fake_loss - real_loss
+
 # Define Base Model
 
 
@@ -19,7 +32,8 @@ class DCGAN(Model):
     def __init__(self,
                  generator=None,
                  discriminator=None,
-                 latent_dim=10):
+                 latent_dim=10,
+                 gp_weight=10.0):
         super(DCGAN, self).__init__()
 
         start_image_shape = (8, 8)
@@ -46,15 +60,16 @@ class DCGAN(Model):
         else:
             self.discriminator = discriminator
         self.latent_dim = latent_dim
+        self.gp_weight = gp_weight
 
     def compile(self,
                 g_optimizer,
-                d_optimizer,
-                loss_fn=keras.losses.BinaryCrossentropy()):
+                d_optimizer):
         super(DCGAN, self).compile()
         self.g_optimizer = g_optimizer
         self.d_optimizer = d_optimizer
-        self.loss_fn = loss_fn
+        self.generator_loss_deceive_discriminator = base_generator_loss_deceive_discriminator
+        self.discriminator_loss_arrest_generator = base_discriminator_loss_arrest_generator
         self.g_loss_metric = keras.metrics.Mean(name="g_loss")
         self.d_loss_metric = keras.metrics.Mean(name="d_loss")
 
@@ -66,54 +81,66 @@ class DCGAN(Model):
     def call(self, x):
         return x
 
+    def gradient_penalty(self, discriminator, batch_size, real_images, fake_images):
+        """ Calculates the gradient penalty.
+
+        This loss is calculated on an interpolated image
+        and added to the discriminator loss.
+        """
+        # Get the interpolated image
+        alpha = tf.random.normal([batch_size, 1, 1, 1], 0.0, 1.0)
+        diff = fake_images - real_images
+        interpolated = real_images + alpha * diff
+
+        with tf.GradientTape() as gp_tape:
+            gp_tape.watch(interpolated)
+            # 1. Get the discriminator output for this interpolated image.
+            pred = discriminator(interpolated, training=True)
+
+        # 2. Calculate the gradients w.r.t to this interpolated image.
+        grads = gp_tape.gradient(pred, [interpolated])[0]
+        # 3. Calculate the norm of the gradients.
+        norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
+        gp = tf.reduce_mean((norm - 1.0) ** 2)
+        return gp
+
     def train_step(self, batch):
 
         real_images, real_target_images = batch
 
         # Sample random points in the latent space
         batch_size = tf.shape(real_images)[0]
-        random_latent_vectors = tf.random.normal(
-            shape=(batch_size, self.latent_dim))
-
-        # Decode them to fake images
-        generated_images = self.generator(random_latent_vectors)
-
-        # Combine them with real images
-        combined_images = tf.concat([generated_images, real_images], axis=0)
-
-        fake_label = tf.zeros((batch_size, 1))
-        fake_label += 0.05 * tf.random.uniform(tf.shape(fake_label))
-        real_label = tf.ones((batch_size, 1))
-        real_label -= 0.05 * tf.random.uniform(tf.shape(real_label))
-
-        # Assemble labels discriminating real from fake images
-        labels = tf.concat(
-            [fake_label, real_label], axis=0
-        )
 
         # Train the discriminator
-        with tf.GradientTape() as tape:
-            predictions = self.discriminator(combined_images)
-            d_loss = self.loss_fn(labels, predictions)
+        with tf.GradientTape(persistent=True) as tape:
+
+            random_latent_vectors = tf.random.normal(
+                shape=(batch_size, self.latent_dim))
+
+            # Decode them to fake images
+            fake_images = self.generator(random_latent_vectors)
+
+            disc_real_x = self.discriminator(real_images)
+            disc_fake_x = self.discriminator(fake_images)
+
+            d_loss = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_fake_x)
+            d_loss_gradient_panalty = self.gradient_penalty(
+                self.discriminator, batch_size, real_images, fake_images)
+            d_loss += self.gp_weight * d_loss_gradient_panalty
+
         grads = tape.gradient(d_loss, self.discriminator.trainable_weights)
+
         self.d_optimizer.apply_gradients(
             zip(grads, self.discriminator.trainable_weights)
         )
 
-        # Sample random points in the latent space
-        random_latent_vectors = tf.random.normal(
-            shape=(batch_size, self.latent_dim))
-
-        # Assemble labels that say "all real images"
-        misleading_labels = tf.ones((batch_size, 1))
-
         # Train the generator (note that we should *not* update the weights
         # of the discriminator)!
-        with tf.GradientTape() as tape:
-            predictions = self.discriminator(
-                self.generator(random_latent_vectors))
-            g_loss = self.loss_fn(misleading_labels, predictions)
-        grads = tape.gradient(g_loss, self.generator.trainable_weights)
+        with tf.GradientTape(persistent=True) as tape:
+            g_loss = self.generator_loss_deceive_discriminator(fake_images)
+        grads = tape.gradient(g_loss,
+                              self.generator.trainable_weights)
         self.g_optimizer.apply_gradients(
             zip(grads, self.generator.trainable_weights))
 

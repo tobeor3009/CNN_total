@@ -229,8 +229,11 @@ class StarGanDataloader(BaseDataLoader):
             self.batch_target_image_array[batch_index] = target_single_data_dict["image_array"]
             self.batch_target_label_array[batch_index] = target_single_data_dict["label"]
 
-        return self.batch_image_array, self.batch_label_array, \
-            self.batch_target_image_array, self.batch_target_label_array
+        return np.array([self.batch_image_array, self.batch_target_image_array]), \
+            np.array([self.batch_label_array, self.batch_target_label_array])
+
+        # return self.batch_image_array, self.batch_label_array, \
+        #     self.batch_target_image_array, self.batch_target_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

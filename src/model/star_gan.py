@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.keras import backend as keras_backend
 from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
@@ -67,11 +68,38 @@ class StarGan(Model):
 
         real_x, label_x, real_y, label_y = batch_data
 
+        image_shape = real_x.shape
+        label_x_shape = label_x.shape
+        label_repeated_x = tf.reshape(
+            label_x, (label_x_shape[0], 1, 1, label_x_shape[1]))
+        label_repeated_x = keras_backend.repeat_elements(
+            label_repeated_x, image_shape[1], axis=1)
+        label_repeated_x = keras_backend.repeat_elements(
+            label_repeated_x, image_shape[1], axis=2)
+
+        label_y_shape = label_y.shape
+        label_repeated_y = tf.reshape(
+            label_y, (label_y_shape[0], 1, 1, label_y_shape[1]))
+        label_repeated_y = keras_backend.repeat_elements(
+            label_repeated_y, image_shape[1], axis=1)
+        label_repeated_y = keras_backend.repeat_elements(
+            label_repeated_y, image_shape[1], axis=2)
+
+        real_x_for_y = keras_backend.concatenate(
+            [real_x, label_repeated_y], axis=-1)
+        real_y_for_x = keras_backend.concatenate(
+            [real_y, label_repeated_x], axis=-1)
+
         with tf.GradientTape(persistent=True) as tape:
 
             # another domain mapping
-            fake_x = self.generator(real_y, label_x, training=True)
-            fake_y = self.generator(real_x, label_y, training=True)
+            fake_x = self.generator(real_y_for_x, training=True)
+            fake_y = self.generator(real_x_for_y, training=True)
+
+            fake_x_for_y = keras_backend.concatenate(
+                [fake_x, label_repeated_y], axis=-1)
+            fake_y_for_x = keras_backend.concatenate(
+                [fake_y, label_repeated_x], axis=-1)
 
             # back to original domain mapping
             reconstruct_x = self.generator(fake_y, label_x, training=True)
