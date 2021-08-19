@@ -6,7 +6,8 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
+    base_argumentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -30,6 +31,7 @@ class ClassifyDataGetter(BaseDataGetter):
                  label_level,
                  on_memory,
                  argumentation_proba,
+                 argumentation_policy_dict,
                  preprocess_input,
                  target_size,
                  interpolation,
@@ -58,12 +60,14 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.argumentation_method = ClassifyArgumentationPolicy(0)
+            self.argumentation_method = ClassifyArgumentationPolicy(
+                0, argumentation_policy_dict)
             self.preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
         self.argumentation_method = \
-            ClassifyArgumentationPolicy(argumentation_proba)
+            ClassifyArgumentationPolicy(
+                argumentation_proba, argumentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -111,6 +115,7 @@ class ClassifyDataloader(BaseDataLoader):
                  batch_size=None,
                  on_memory=False,
                  argumentation_proba=False,
+                 argumentation_policy_dict=base_argumentation_policy_dict,
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -123,6 +128,7 @@ class ClassifyDataloader(BaseDataLoader):
                                               label_level=label_level,
                                               on_memory=on_memory,
                                               argumentation_proba=argumentation_proba,
+                                              argumentation_policy_dict=argumentation_policy_dict,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation,

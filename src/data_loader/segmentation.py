@@ -7,7 +7,9 @@ import progressbar
 # this library module
 from .utils import imread
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy
+    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
+    base_argumentation_policy_dict
+
 
 """
 Expected Data Path Structure
@@ -32,6 +34,7 @@ class SegDataGetter(BaseDataGetter):
                  mask_path_list,
                  on_memory,
                  argumentation_proba,
+                 argumentation_policy_dict,
                  preprocess_input,
                  target_size,
                  interpolation
@@ -55,12 +58,12 @@ class SegDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
-            self.argumentation_method = SegArgumentationPolicy(0)
+            self.argumentation_method = SegArgumentationPolicy(0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
-        self.argumentation_method = SegArgumentationPolicy(argumentation_proba)
+        self.argumentation_method = SegArgumentationPolicy(argumentation_proba, argumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
 
@@ -114,6 +117,7 @@ class SegDataloader(BaseDataLoader):
                  batch_size=4,
                  on_memory=False,
                  argumentation_proba=None,
+                 argumentation_policy_dict=base_argumentation_policy_dict,
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -123,6 +127,7 @@ class SegDataloader(BaseDataLoader):
                                          mask_path_list=mask_path_list,
                                          on_memory=on_memory,
                                          argumentation_proba=argumentation_proba,
+                                         argumentation_policy_dict=argumentation_policy_dict,
                                          preprocess_input=preprocess_input,
                                          target_size=target_size,
                                          interpolation=interpolation

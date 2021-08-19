@@ -8,7 +8,13 @@ from tensorflow.keras.utils import to_categorical
 from sklearn.utils import shuffle as syncron_shuffle
 import albumentations as A
 
-
+base_argumentation_policy_dict = {
+    "positional": True,
+    "noise": True,
+    "brightness_contrast": True,
+    "color": True,
+    "to_jpeg": True
+}
 class BaseDataGetter():
 
     def __init__(self):
@@ -131,7 +137,9 @@ class CategorizePolicy():
 
 
 class ClassifyArgumentationPolicy():
-    def __init__(self, argumentation_proba):
+    def __init__(self,
+                 argumentation_proba,
+                 argumentation_policy_dict):
 
         positional_transform = A.OneOf([
             A.HorizontalFlip(p=1),
@@ -160,13 +168,20 @@ class ClassifyArgumentationPolicy():
         to_jpeg_transform = A.ImageCompression(
             quality_lower=99, quality_upper=100, p=0.5)
 
-        final_transform = A.Compose([
-            positional_transform,
-            noise_transform,
-            brightness_contrast_transform,
-            color_transform,
-            to_jpeg_transform
-        ], p=argumentation_proba)
+        final_transform_list = []
+        if argumentation_policy_dict["positional"] is True:
+            final_transform_list.append(positional_transform)
+        if argumentation_policy_dict["noise"] is True:
+            final_transform_list.append(noise_transform)
+        if argumentation_policy_dict["brightness_contrast"] is True:
+            final_transform_list.append(brightness_contrast_transform)
+        if argumentation_policy_dict["color"] is True:
+            final_transform_list.append(color_transform)
+        if argumentation_policy_dict["to_jpeg"] is True:
+            final_transform_list.append(to_jpeg_transform)
+
+        final_transform = A.Compose(
+            final_transform_list, p=argumentation_proba)
 
         if argumentation_proba:
             self.transform = lambda image_array: \
@@ -180,7 +195,9 @@ class ClassifyArgumentationPolicy():
 
 
 class SegArgumentationPolicy():
-    def __init__(self, argumentation_proba):
+    def __init__(self,
+                 argumentation_proba,
+                 argumentation_policy_dict):
 
         positional_transform = A.OneOf([
             A.HorizontalFlip(p=1),
@@ -200,12 +217,16 @@ class SegArgumentationPolicy():
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
         ], p=0.5)
 
-        self.final_transform = A.Sequential([
-            positional_transform,
-            noise_transform,
-            brightness_contrast_transform,
-        ],
-            p=argumentation_proba)
+        final_transform_list = []
+        if argumentation_policy_dict["positional"] is True:
+            final_transform_list.append(positional_transform)
+        if argumentation_policy_dict["noise"] is True:
+            final_transform_list.append(noise_transform)
+        if argumentation_policy_dict["brightness_contrast"] is True:
+            final_transform_list.append(brightness_contrast_transform)
+
+        self.final_transform = A.Sequential(
+            final_transform_list, p=argumentation_proba)
 
         if argumentation_proba:
             self.transform = self.image_mask_sync_transform
