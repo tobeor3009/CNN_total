@@ -1,13 +1,17 @@
 # base module
 from copy import deepcopy
 from collections import deque
+from tqdm import tqdm
 # external module
 import numpy as np
+from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
+    base_argumentation_policy_dict
+
 
 """
 Expected Data Path Structure
@@ -31,6 +35,7 @@ class StarGanDataGetter(BaseDataGetter):
                  label_level,
                  on_memory,
                  argumentation_proba,
+                 argumentation_policy_dict,
                  preprocess_input,
                  target_size,
                  interpolation,
@@ -56,20 +61,23 @@ class StarGanDataGetter(BaseDataGetter):
 
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
-        self.target_data_index_dict = {i: i for i in range(len(self))}
-        self.target_data_index_quque = deque(range(len(self)))
+        self.target_data_index_list = list(range(len(self)))
+        self.target_data_index_list = \
+            syncron_shuffle(self.target_data_index_list)
         self.target_data_index_quque_len = len(self)
 
         self.single_data_dict = {"image_array": None, "label": None}
         self.target_single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.argumentation_method = ClassifyArgumentationPolicy(0)
+            self.argumentation_method = ClassifyArgumentationPolicy(
+                0, argumentation_policy_dict)
             self.preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
         self.argumentation_method = \
-            ClassifyArgumentationPolicy(argumentation_proba)
+            ClassifyArgumentationPolicy(
+                argumentation_proba, argumentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -81,10 +89,11 @@ class StarGanDataGetter(BaseDataGetter):
             self.target_data_index_quque_len -= 1
         else:
             self.target_data_index_quque_len = len(self) - 1
-            self.target_data_index_quque = deque(range(len(self)))
+            self.target_data_index_list = syncron_shuffle(
+                self.target_data_index_list)
 
         current_index = self.data_index_dict[i]
-        target_index = self.target_data_index_quque.pop()
+        target_index = self.target_data_index_list[i]
 
         if self.on_memory:
             image_array, label = \
@@ -120,7 +129,7 @@ class StarGanDataGetter(BaseDataGetter):
                 image_dir_name = get_parent_dir_name(
                     image_path, self.label_level)
                 target_image_dir_name = get_parent_dir_name(
-                    image_path, self.label_level)
+                    target_image_path, self.label_level)
 
                 label = self.label_to_index_dict[image_dir_name]
                 target_label = self.label_to_index_dict[target_image_dir_name]
@@ -149,7 +158,7 @@ class StarGanDataGetter(BaseDataGetter):
 
         image_range = range(self.data_len)
 
-        for index in image_range:
+        for index in tqdm(image_range):
             image_path = self.image_path_dict[index]
             image_array = imread(image_path, channel="rgb")
             image_array = self.resize_method(image_array)
@@ -173,6 +182,7 @@ class StarGanDataloader(BaseDataLoader):
                  batch_size=None,
                  on_memory=False,
                  argumentation_proba=False,
+                 argumentation_policy_dict=base_argumentation_policy_dict,
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -185,6 +195,7 @@ class StarGanDataloader(BaseDataLoader):
                                              label_level=label_level,
                                              on_memory=on_memory,
                                              argumentation_proba=argumentation_proba,
+                                             argumentation_policy_dict=argumentation_policy_dict,
                                              preprocess_input=preprocess_input,
                                              target_size=target_size,
                                              interpolation=interpolation,
@@ -207,6 +218,7 @@ class StarGanDataloader(BaseDataLoader):
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
         self.batch_target_label_array = np.zeros(
             (self.batch_size, ), dtype=self.dtype)
+
         self.batch_label_array = self.data_getter.categorize_method(
             self.batch_label_array)
         self.batch_target_label_array = self.data_getter.categorize_method(
