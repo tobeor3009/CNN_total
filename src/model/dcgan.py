@@ -111,17 +111,19 @@ class DCGAN(Model):
         # Sample random points in the latent space
         batch_size = tf.shape(real_images)[0]
 
-        # Train the discriminator
-        with tf.GradientTape(persistent=True) as tape:
+        random_latent_vectors = tf.random.normal(
+            shape=(batch_size, self.latent_dim))
 
-            random_latent_vectors = tf.random.normal(
-                shape=(batch_size, self.latent_dim))
+        # Train the discriminator
+        with tf.GradientTape(persistent=True) as gen_tape, tf.GradientTape(persistent=True) as disc_tape:
 
             # Decode them to fake images
-            fake_images = self.generator(random_latent_vectors)
+            fake_images = self.generator(random_latent_vectors, training=True)
 
-            disc_real_x = self.discriminator(real_images)
-            disc_fake_x = self.discriminator(fake_images)
+            disc_real_x = self.discriminator(real_images, training=True)
+            disc_fake_x = self.discriminator(fake_images, training=True)
+
+            g_loss = self.generator_loss_deceive_discriminator(fake_images)
 
             d_loss = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_fake_x)
@@ -129,20 +131,17 @@ class DCGAN(Model):
                 self.discriminator, batch_size, real_images, fake_images)
             d_loss += self.gp_weight * d_loss_gradient_panalty
 
-        grads = tape.gradient(d_loss, self.discriminator.trainable_weights)
+        disc_grads = disc_tape.gradient(
+            d_loss, self.discriminator.trainable_variables)
 
         self.d_optimizer.apply_gradients(
-            zip(grads, self.discriminator.trainable_weights)
+            zip(disc_grads, self.discriminator.trainable_variables)
         )
 
-        # Train the generator (note that we should *not* update the weights
-        # of the discriminator)!
-        with tf.GradientTape(persistent=True) as tape:
-            g_loss = self.generator_loss_deceive_discriminator(fake_images)
-        grads = tape.gradient(g_loss,
-                              self.generator.trainable_weights)
+        gen_grads = gen_tape.gradient(g_loss,
+                                      self.generator.trainable_variables)
         self.g_optimizer.apply_gradients(
-            zip(grads, self.generator.trainable_weights))
+            zip(gen_grads, self.generator.trainable_variables))
 
         # Update metrics
         self.g_loss_metric.update_state(g_loss)
