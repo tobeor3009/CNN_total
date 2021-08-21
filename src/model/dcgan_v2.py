@@ -1,8 +1,8 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 from tensorflow import keras
-from tensorflow.keras.models import Model
 from tensorflow.keras import backend as keras_backend
+from tensorflow.keras.models import Model
 from tensorflow.keras import layers
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.keras.initializers import RandomNormal
@@ -12,7 +12,6 @@ import numpy as np
 # Define Base Model Params
 kernel_init = RandomNormal(mean=0.0, stddev=0.02)
 gamma_init = RandomNormal(mean=0.0, stddev=0.02)
-cross_entropy = tf.keras.losses.BinaryCrossentropy()
 
 # Define the loss function for the generators
 
@@ -27,17 +26,6 @@ def base_discriminator_loss_arrest_generator(real_img, fake_img):
     fake_loss = tf.reduce_mean(fake_img)
     return fake_loss - real_loss
 
-
-def generator_loss(fake_output):
-    return cross_entropy(tf.ones_like(fake_output), fake_output)
-
-
-def discriminator_loss(real_output, fake_output):
-    real_loss = cross_entropy(tf.ones_like(real_output), real_output)
-    fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
-    total_loss = real_loss + fake_loss
-    return total_loss
-
 # Define Base Model
 
 
@@ -50,14 +38,28 @@ class DCGAN(Model):
         super(DCGAN, self).__init__()
 
         start_image_shape = (8, 8)
-        input_img_size = (256, 256, 1)
+        input_img_size = (256, 256, 3)
         filters = 64
         num_residual_blocks = 9
         num_downsampling = 3
 
-        self.generator = generator
-        self.discriminator = discriminator
+        if generator is None:
+            self.generator = get_resnet_generator(latent_dim=latent_dim,
+                                                  start_image_shape=start_image_shape,
+                                                  output_image_shape=input_img_size,
+                                                  filters=filters,
+                                                  num_residual_blocks=num_residual_blocks,
+                                                  gamma_initializer=gamma_init,
+                                                  name="generator")
+        else:
+            self.generator = generator
 
+        if discriminator is None:
+            self.discriminator = get_discriminator(input_img_size=input_img_size,
+                                                   num_downsampling=num_downsampling,
+                                                   name="discriminator")
+        else:
+            self.discriminator = discriminator
         self.latent_dim = latent_dim
         self.gp_weight = gp_weight
 
@@ -125,24 +127,29 @@ class DCGAN(Model):
             disc_real_x = self.discriminator(real_images, training=True)
             disc_fake_x = self.discriminator(fake_images, training=True)
 
-            gen_loss = generator_loss(fake_images)
-            disc_loss = discriminator_loss(disc_real_x, disc_fake_x)
+            g_loss = self.generator_loss_deceive_discriminator(fake_images)
+
+            d_loss = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_fake_x)
+            d_loss_gradient_panalty = self.gradient_penalty(
+                self.discriminator, batch_size, real_images, fake_images)
+            d_loss += self.gp_weight * d_loss_gradient_panalty
 
         disc_grads = disc_tape.gradient(
-            disc_loss, self.discriminator.trainable_variables)
+            d_loss, self.discriminator.trainable_variables)
 
         self.d_optimizer.apply_gradients(
             zip(disc_grads, self.discriminator.trainable_variables)
         )
 
-        gen_grads = gen_tape.gradient(gen_loss,
+        gen_grads = gen_tape.gradient(g_loss,
                                       self.generator.trainable_variables)
         self.g_optimizer.apply_gradients(
             zip(gen_grads, self.generator.trainable_variables))
 
         # Update metrics
-        self.g_loss_metric.update_state(gen_loss)
-        self.d_loss_metric.update_state(disc_loss)
+        self.g_loss_metric.update_state(g_loss)
+        self.d_loss_metric.update_state(d_loss)
         return {
             "g_loss": self.g_loss_metric.result(),
             "d_loss": self.d_loss_metric.result(),
@@ -286,10 +293,9 @@ def get_resnet_generator(
         upsample_size //= 2
         num_upsample_blocks += 1
 
-    start_shape = np.prod(start_image_shape[:2]) * filters
     img_input = layers.Input(shape=(latent_dim,), name=name + "_img_input")
 
-    x = layers.Dense(start_shape)(img_input)
+    x = layers.Dense(np.prod(start_image_shape[:2]) * filters)(img_input)
     x = layers.Reshape((*start_image_shape[:2], filters))(x)
     x = ReflectionPadding2D(padding=(3, 3))(x)
     x = layers.Conv2D(filters, (7, 7), kernel_initializer=kernel_init, use_bias=False)(

@@ -6,26 +6,30 @@ from tensorflow.keras import backend
 from tensorflow.keras import layers
 from tensorflow.keras import models
 from tensorflow.keras import utils as keras_utils
-from . inceptionv3_tf_2_2 import InceptionV3 as InceptionV3_2_2
-from . inceptionv3_tf_2_5 import InceptionV3 as InceptionV3_2_5
-
+if tf.__version__ >= '2.5.0':
+    from . inceptionv3_tf_2_5 import InceptionV3
+else:
+    from . inceptionv3_tf_2_2 import InceptionV3
 # ---------------------------------------------------------------------
 #  Utility functions
 # ---------------------------------------------------------------------
 
 
+# def get_submodules():
+#     return {
+#         'backend': backend,
+#         'models': models,
+#         'layers': layers,
+#         'utils': keras_utils,
+#     }
+
 def get_submodules():
-    return {
-        'backend': backend,
-        'models': models,
-        'layers': layers,
-        'utils': keras_utils,
-    }
+    return backend, layers, models, keras_utils
 
 
 def freeze_model(model):
     """Set all layers non trainable, excluding BatchNormalization layers"""
-    _, layers, _, _ = get_submodules().values()
+    _, layers, _, _ = get_submodules()
     for layer in model.layers:
         if not isinstance(layer, layers.BatchNormalization):
             layer.trainable = False
@@ -85,10 +89,10 @@ def get_feature_layers(backbone_name, n=5):
                            'block3a_expand_activation', 'block2a_expand_activation'),
         'efficientnetb2': ('block6a_expand_activation', 'block4a_expand_activation',
                            'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb3': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb4': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
+        'efficientnetb3': ('block6a_expand_activation', 'block4a_exp    and_activation',
+                           'block3a_expand_activation', 'block2a_exp    and_activation'),
+        'efficientnetb4': ('block6a_expand_activation', 'block4a_exp    and_activation',
+                           'block3a_expand_activation', 'block2a_exp    and_activation'),
         'efficientnetb5': ('block6a_expand_activation', 'block4a_expand_activation',
                            'block3a_expand_activation', 'block2a_expand_activation'),
         'efficientnetb6': ('block6a_expand_activation', 'block4a_expand_activation',
@@ -120,14 +124,13 @@ def Conv2dBn(
         kernel_constraint=None,
         bias_constraint=None,
         use_batchnorm=False,
-        **kwargs
+        name=None
 ):
     """Extension of Conv2D layer with batchnorm"""
 
     conv_name, act_name, bn_name = None, None, None
-    block_name = kwargs.pop('name', None)
-    backend, layers, models, keras_utils = get_submodules_from_kwargs(kwargs)
-
+    backend, layers, models, keras_utils = get_submodules()
+    block_name = name
     if block_name is not None:
         conv_name = block_name + '_conv'
 
@@ -174,7 +177,6 @@ def Conv2dBn(
 
 
 def Conv3x3BnReLU(filters, use_batchnorm, name=None):
-    kwargs = get_submodules()
 
     def wrapper(input_tensor):
         return Conv2dBn(
@@ -185,7 +187,6 @@ def Conv3x3BnReLU(filters, use_batchnorm, name=None):
             padding='same',
             use_batchnorm=use_batchnorm,
             name=name,
-            **kwargs
         )(input_tensor)
 
     return wrapper
@@ -367,29 +368,16 @@ def Unet(
         raise ValueError('Decoder block type should be in ("upsampling", "transpose"). '
                          'Got: {}'.format(decoder_block_type))
 
-    if backbone_name == "inceptionv3":
-        if tf.__version__ >= '2.5.0':
-            backbone = InceptionV3_2_5(
-                include_top=False,
-                weights=encoder_weights,
-                input_tensor=None,
-                input_shape=input_shape,
-                classes=None,
-                normliazation=normalization,
-                pooling=None,
-                classifier_activation=None
-            )
-        else:
-            backbone = InceptionV3_2_2(
-                include_top=False,
-                weights=encoder_weights,
-                input_tensor=None,
-                input_shape=input_shape,
-                classes=None,
-                normliazation=normalization,
-                pooling=None,
-                classifier_activation=None
-            )
+    backbone = InceptionV3(
+        include_top=False,
+        weights=encoder_weights,
+        input_tensor=None,
+        input_shape=input_shape,
+        classes=None,
+        normliazation=normalization,
+        pooling=None,
+        classifier_activation=None
+    )
 
     if encoder_features == 'default':
         encoder_features = get_feature_layers(backbone_name, n=4)
