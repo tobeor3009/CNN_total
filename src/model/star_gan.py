@@ -24,6 +24,15 @@ def base_discriminator_loss_arrest_generator(real_img, fake_img):
     return fake_loss - real_loss
 
 
+def compute_l2_norm(tensor):
+
+    squared = keras_backend.square(tensor)
+    l2_norm = keras_backend.sum(squared)
+    l2_norm = keras_backend.sqrt(l2_norm)
+
+    return l2_norm
+
+
 class StarGan(Model):
     def __init__(
         self,
@@ -93,6 +102,22 @@ class StarGan(Model):
         norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
         gp = tf.reduce_mean((norm - 1.0) ** 2)
         return gp
+
+    def active_gradient_clipping(self, grad_list, trainable_variable_list):
+
+        cliped_grad_list = []
+
+        for grad, trainable_variable in zip(grad_list, trainable_variable_list):
+            grad_l2_norm = compute_l2_norm(grad)
+            trainable_variable_l2_norm = compute_l2_norm(trainable_variable)
+
+            clip_value = self.lambda_clip * \
+                (trainable_variable_l2_norm / grad_l2_norm)
+            cliped_grad = keras_backend.clip(grad, -clip_value, clip_value)
+
+            cliped_grad_list.append(cliped_grad)
+
+        return cliped_grad_list
 
     def train_step(self, batch_data):
 
@@ -233,21 +258,27 @@ class StarGan(Model):
             disc_total_loss = disc_total_loss_x + disc_total_loss_y
 
         # Get the gradients for the generators
-        generator_grads = tape.gradient(
+        gen_grads = tape.gradient(
             gen_total_loss, self.generator.trainable_variables)
 
         # Get the gradients for the discriminators
-        discriminator_grads = tape.gradient(
+        disc_grads = tape.gradient(
             disc_total_loss, self.discriminator.trainable_variables)
+
+        # apply active gradient clipping
+        cliped_gen_grads = self.active_gradient_clipping(
+            gen_grads, self.generator.trainable_variables)
+        cliped_disc_grads = self.active_gradient_clipping(
+            disc_grads, self.discriminator.trainable_variables)
 
         # Update the weights of the generators
         self.generator_optimizer.apply_gradients(
-            zip(generator_grads, self.generator.trainable_variables)
+            zip(cliped_gen_grads, self.generator.trainable_variables)
         )
 
         # Update the weights of the discriminators
         self.discriminator_optimizer.apply_gradients(
-            zip(discriminator_grads, self.discriminator.trainable_variables)
+            zip(cliped_disc_grads, self.discriminator.trainable_variables)
         )
 
         return {

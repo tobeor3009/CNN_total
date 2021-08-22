@@ -122,6 +122,9 @@ class StarGan(Model):
 
     def train_step(self, batch_data):
 
+        # =================================================================================== #
+        #                             1. Preprocess input data                                #
+        # =================================================================================== #
         image_tensor, label_tensor = batch_data
         real_x = image_tensor[0]
         real_y = image_tensor[1]
@@ -152,11 +155,14 @@ class StarGan(Model):
         real_y_for_y = keras_backend.concatenate(
             [real_x, label_repeated_y, label_repeated_y], axis=-1)
 
-        with tf.GradientTape(persistent=True) as tape:
+        # =================================================================================== #
+        #                             2. Train the discriminator                              #
+        # =================================================================================== #
+        with tf.GradientTape(persistent=True) as disc_tape:
 
             # another domain mapping
-            fake_x = self.generator(real_y_for_x, training=True)
-            fake_y = self.generator(real_x_for_y, training=True)
+            fake_x = self.generator(real_y_for_x)
+            fake_y = self.generator(real_x_for_y)
 
             fake_x_for_y = keras_backend.concatenate(
                 [fake_x, label_repeated_x, label_repeated_y], axis=-1)
@@ -164,12 +170,12 @@ class StarGan(Model):
                 [fake_y, label_repeated_y, label_repeated_x], axis=-1)
 
             # back to original domain mapping
-            reconstruct_x = self.generator(fake_y_for_x, training=True)
-            reconstruct_y = self.generator(fake_x_for_y, training=True)
+            reconstruct_x = self.generator(fake_y_for_x)
+            reconstruct_y = self.generator(fake_x_for_y)
 
             # Identity mapping
-            same_x = self.generator(real_x_for_x, training=True)
-            same_y = self.generator(real_y_for_y, training=True)
+            same_x = self.generator(real_x_for_x)
+            same_y = self.generator(real_y_for_y)
 
             # Discriminator output
             disc_real_x, label_predicted_real_x = self.discriminator(
@@ -189,6 +195,120 @@ class StarGan(Model):
                 reconstruct_y, training=True)
             disc_same_y, label_predicted_same_y = self.discriminator(
                 same_y, training=True)
+
+            # Compute Discriminator loss_x
+            disc_fake_class_loss_x = self.class_loss_fn(
+                label_x, label_predicted_fake_x)
+            disc_reconstruct_class_loss_x = self.class_loss_fn(
+                label_x, label_predicted_reconstruct_x)
+            disc_same_class_loss_x = self.class_loss_fn(
+                label_x, label_predicted_same_x)
+
+            disc_fake_loss_x = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_fake_x)
+            disc_fake_x_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_x, fake_x)
+            disc_fake_loss_x += self.gp_weight * disc_fake_x_gradient_panalty
+
+            disc_reconstruct_loss_x = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_reconstruct_x)
+            disc_reconstruct_x_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_x, reconstruct_x)
+            disc_reconstruct_loss_x += self.gp_weight * disc_reconstruct_x_gradient_panalty
+
+            disc_identity_loss_x = self.discriminator_loss_arrest_generator(
+                disc_real_x, disc_same_x)
+            disc_identity_x_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_x, same_x)
+            disc_identity_loss_x += self.gp_weight * disc_identity_x_gradient_panalty
+            disc_identity_loss_x *= self.lambda_identity
+
+            disc_class_loss_real_x = self.class_loss_fn(
+                label_x, label_predicted_real_x)
+
+            # Compute Discriminator loss_y
+            disc_fake_class_loss_y = self.class_loss_fn(
+                label_y, label_predicted_fake_y)
+            disc_reconstruct_class_loss_y = self.class_loss_fn(
+                label_y, label_predicted_reconstruct_y)
+            disc_same_class_loss_y = self.class_loss_fn(
+                label_y, label_predicted_same_y)
+
+            disc_fake_loss_y = self.discriminator_loss_arrest_generator(
+                disc_real_y, disc_fake_y)
+            disc_fake_y_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_y, fake_y)
+            disc_fake_loss_y += self.gp_weight * disc_fake_y_gradient_panalty
+
+            disc_reconstruct_loss_y = self.discriminator_loss_arrest_generator(
+                disc_real_y, disc_reconstruct_y)
+            disc_reconstruct_y_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_y, reconstruct_y)
+            disc_reconstruct_loss_y += self.gp_weight * disc_reconstruct_y_gradient_panalty
+
+            disc_identity_loss_y = self.discriminator_loss_arrest_generator(
+                disc_real_y, disc_same_y)
+            disc_identity_y_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_y, same_y)
+            disc_identity_loss_y += self.gp_weight * disc_identity_y_gradient_panalty
+            disc_identity_loss_y *= self.lambda_identity
+
+            disc_class_loss_real_y = self.class_loss_fn(
+                label_y, label_predicted_real_y)
+
+            disc_total_loss_x = disc_fake_loss_x + disc_reconstruct_loss_x + disc_identity_loss_x + \
+                disc_class_loss_real_x + disc_same_class_loss_x + \
+                disc_fake_class_loss_x + disc_reconstruct_class_loss_x
+            disc_total_loss_y = disc_fake_loss_y + disc_reconstruct_loss_y + disc_identity_loss_y + \
+                disc_class_loss_real_y + disc_same_class_loss_y + \
+                disc_fake_class_loss_y + disc_reconstruct_class_loss_y
+
+            disc_total_loss = disc_total_loss_x + disc_total_loss_y
+
+        # Get the gradients for the discriminators
+        disc_grads = disc_tape.gradient(
+            disc_total_loss, self.discriminator.trainable_variables)
+        cliped_disc_grads = self.active_gradient_clipping(
+            disc_grads, self.discriminator.trainable_variables)
+
+        # Update the weights of the discriminators
+        self.discriminator_optimizer.apply_gradients(
+            zip(cliped_disc_grads, self.discriminator.trainable_variables)
+        )
+
+        # =================================================================================== #
+        #                               3. Train the generator                                #
+        # =================================================================================== #
+        with tf.GradientTape(persistent=True) as gen_tape:
+            # another domain mapping
+            fake_x = self.generator(real_y_for_x, training=True)
+            fake_y = self.generator(real_x_for_y, training=True)
+
+            fake_x_for_y = keras_backend.concatenate(
+                [fake_x, label_repeated_x, label_repeated_y], axis=-1)
+            fake_y_for_x = keras_backend.concatenate(
+                [fake_y, label_repeated_y, label_repeated_x], axis=-1)
+
+            # back to original domain mapping
+            reconstruct_x = self.generator(fake_y_for_x, training=True)
+            reconstruct_y = self.generator(fake_x_for_y, training=True)
+
+            # Identity mapping
+            same_x = self.generator(real_x_for_x, training=True)
+            same_y = self.generator(real_y_for_y, training=True)
+
+            # Discriminator output
+            disc_real_x, label_predicted_real_x = self.discriminator(real_x)
+            disc_fake_x, label_predicted_fake_x = self.discriminator(fake_x)
+            disc_reconstruct_x, label_predicted_reconstruct_x = self.discriminator(
+                reconstruct_x)
+            disc_same_x, label_predicted_same_x = self.discriminator(same_x)
+
+            disc_real_y, label_predicted_real_y = self.discriminator(real_y)
+            disc_fake_y, label_predicted_fake_y = self.discriminator(fake_y)
+            disc_reconstruct_y, label_predicted_reconstruct_y = self.discriminator(
+                reconstruct_y)
+            disc_same_y, label_predicted_same_y = self.discriminator(same_y)
 
             # Generator adverserial loss
             gen_fake_disc_loss_x = self.generator_loss_deceive_discriminator(
@@ -219,37 +339,6 @@ class StarGan(Model):
             reconstruct_image_loss_y = self.reconstruct_loss_fn(
                 real_y, reconstruct_y) * self.lambda_reconstruct
 
-            # Discriminator loss
-            disc_fake_loss_x = self.discriminator_loss_arrest_generator(
-                disc_real_x, disc_fake_x)
-            disc_fake_x_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_x, fake_x)
-            disc_fake_loss_x += self.gp_weight * disc_fake_x_gradient_panalty
-
-            disc_reconstruct_loss_x = self.discriminator_loss_arrest_generator(
-                disc_real_x, disc_reconstruct_x)
-            disc_reconstruct_x_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_x, reconstruct_x)
-            disc_reconstruct_loss_x += self.gp_weight * disc_reconstruct_x_gradient_panalty
-
-            disc_class_loss_real_x = self.class_loss_fn(
-                label_x, label_predicted_real_x)
-
-            disc_fake_loss_y = self.discriminator_loss_arrest_generator(
-                disc_real_y, disc_fake_y)
-            disc_fake_y_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_y, fake_y)
-            disc_fake_loss_y += self.gp_weight * disc_fake_y_gradient_panalty
-
-            disc_reconstruct_loss_y = self.discriminator_loss_arrest_generator(
-                disc_real_y, disc_reconstruct_y)
-            disc_reconstruct_y_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_y, reconstruct_y)
-            disc_reconstruct_loss_y += self.gp_weight * disc_reconstruct_y_gradient_panalty
-
-            disc_class_loss_real_y = self.class_loss_fn(
-                label_y, label_predicted_real_y)
-
             gen_identity_image_loss_x = (
                 self.identity_loss_fn(real_x, same_x)
                 * self.lambda_reconstruct
@@ -260,19 +349,6 @@ class StarGan(Model):
                 * self.lambda_reconstruct
                 * self.lambda_identity
             )
-            disc_identity_loss_x = self.discriminator_loss_arrest_generator(
-                disc_real_x, disc_same_x)
-            disc_identity_x_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_x, same_x)
-            disc_identity_loss_x += self.gp_weight * disc_identity_x_gradient_panalty
-            disc_identity_loss_x *= self.lambda_identity
-
-            disc_identity_loss_y = self.discriminator_loss_arrest_generator(
-                disc_real_y, disc_same_y)
-            disc_identity_y_gradient_panalty = self.gradient_penalty(
-                self.discriminator, self.batch_size, real_y, same_y)
-            disc_identity_loss_y += self.gp_weight * disc_identity_y_gradient_panalty
-            disc_identity_loss_y *= self.lambda_identity
 
             # Total generator loss
             gen_total_loss_x = gen_fake_disc_loss_x + gen_reconstruct_disc_loss_x + \
@@ -286,37 +362,15 @@ class StarGan(Model):
 
             gen_total_loss = gen_total_loss_x + gen_total_loss_y
 
-            disc_total_loss_x = disc_fake_loss_x + disc_reconstruct_loss_x + disc_identity_loss_x + \
-                disc_class_loss_real_x + gen_same_class_loss_x + \
-                gen_fake_class_loss_x + gen_reconstruct_class_loss_x
-            disc_total_loss_y = disc_fake_loss_y + disc_reconstruct_loss_y + disc_identity_loss_y + \
-                disc_class_loss_real_y + gen_same_class_loss_y + \
-                gen_fake_class_loss_y + gen_reconstruct_class_loss_y
-
-            disc_total_loss = disc_total_loss_x + disc_total_loss_y
-
         # Get the gradients for the generators
-        gen_grads = tape.gradient(
+        gen_grads = gen_tape.gradient(
             gen_total_loss, self.generator.trainable_variables)
-
-        # Get the gradients for the discriminators
-        disc_grads = tape.gradient(
-            disc_total_loss, self.discriminator.trainable_variables)
-
-        # apply active gradient clipping
         cliped_gen_grads = self.active_gradient_clipping(
             gen_grads, self.generator.trainable_variables)
-        cliped_disc_grads = self.active_gradient_clipping(
-            disc_grads, self.discriminator.trainable_variables)
 
         # Update the weights of the generators
         self.generator_optimizer.apply_gradients(
             zip(cliped_gen_grads, self.generator.trainable_variables)
-        )
-
-        # Update the weights of the discriminators
-        self.discriminator_optimizer.apply_gradients(
-            zip(cliped_disc_grads, self.discriminator.trainable_variables)
         )
 
         return {
