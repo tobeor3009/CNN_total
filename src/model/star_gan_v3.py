@@ -120,6 +120,7 @@ class StarGan(Model):
 
         return cliped_grad_list
 
+    @tf.function
     def train_step(self, batch_data):
 
         # =================================================================================== #
