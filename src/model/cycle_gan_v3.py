@@ -171,7 +171,7 @@ class CycleGan(Model):
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as disc_tape:
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as disc_tape:
             # another domain mapping
             fake_x = self.generator_F(real_y)
             fake_y = self.generator_G(real_x)
@@ -263,7 +263,7 @@ class CycleGan(Model):
         # =================================================================================== #
         #                               3. Train the generator                                #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as gen_tape:
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as gen_tape:
 
             # another domain mapping
             fake_x = self.generator_F(real_y, training=True)
@@ -279,9 +279,9 @@ class CycleGan(Model):
 
             # Discriminator output
             disc_fake_x = self.discriminator_X(fake_x)
-            disc_cycle_x = self.discriminator_X(cycle_x)
-
             disc_fake_y = self.discriminator_Y(fake_y)
+
+            disc_cycle_x = self.discriminator_X(cycle_x)
             disc_cycle_y = self.discriminator_Y(cycle_y)
 
             disc_same_x = self.discriminator_X(same_x)
@@ -292,11 +292,6 @@ class CycleGan(Model):
                 real_y, cycle_y) * self.lambda_cycle
             gen_F_cycle_image_loss = self.cycle_loss_fn(
                 real_x, cycle_x) * self.lambda_cycle
-
-            gen_G_identity_disc_loss = self.generator_loss_deceive_discriminator(
-                disc_same_y)
-            gen_F_identity_disc_loss = self.generator_loss_deceive_discriminator(
-                disc_same_x)
 
             gen_G_identity_image_loss = (
                 self.identity_loss_fn(real_y, same_y)
@@ -310,6 +305,11 @@ class CycleGan(Model):
             )
 
             # Generator adverserial loss
+            gen_G_identity_disc_loss = self.generator_loss_deceive_discriminator(
+                disc_same_y)
+            gen_F_identity_disc_loss = self.generator_loss_deceive_discriminator(
+                disc_same_x)
+
             gen_G_fake_disc_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
             gen_F_fake_disc_loss = self.generator_loss_deceive_discriminator(

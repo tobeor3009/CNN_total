@@ -159,7 +159,7 @@ class StarGan(Model):
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as disc_tape:
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as disc_tape:
 
             # another domain mapping
             fake_x = self.generator(real_y_for_x)
@@ -280,7 +280,7 @@ class StarGan(Model):
         # =================================================================================== #
         #                               3. Train the generator                                #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as gen_tape:
+        with tf.GradientTape(persistent=False, watch_accessed_variables=False) as gen_tape:
             # another domain mapping
             fake_x = self.generator(real_y_for_x, training=True)
             fake_y = self.generator(real_x_for_y, training=True)
