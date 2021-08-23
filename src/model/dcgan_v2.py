@@ -72,7 +72,8 @@ class DCGAN(Model):
 
     def compile(self,
                 g_optimizer,
-                d_optimizer):
+                d_optimizer,
+                lambda_clip=0.1):
         super(DCGAN, self).compile()
         self.g_optimizer = g_optimizer
         self.d_optimizer = d_optimizer
@@ -80,6 +81,7 @@ class DCGAN(Model):
         self.discriminator_loss_arrest_generator = base_discriminator_loss_arrest_generator
         self.g_loss_metric = keras.metrics.Mean(name="g_loss")
         self.d_loss_metric = keras.metrics.Mean(name="d_loss")
+        self.lambda_clip = lambda_clip
 
     @property
     def metrics(self):
@@ -143,10 +145,10 @@ class DCGAN(Model):
         random_latent_vectors = keras_backend.expand_dims(
             random_latent_vectors, axis=-1)
 
-        # =================================================================================== #
-        #                             2. Train the discriminator                              #
-        # =================================================================================== #
-        with tf.GradientTape(persistent=True) as disc_tape:
+        with tf.GradientTape(persistent=True) as grad_tape:
+            # =================================================================================== #
+            #                             2. Train the discriminator                              #
+            # =================================================================================== #
             # Decode them to fake images
             fake_images = self.generator(random_latent_vectors)
 
@@ -158,35 +160,34 @@ class DCGAN(Model):
             d_loss_gradient_panalty = self.gradient_penalty(
                 self.discriminator, batch_size, real_images, fake_images)
             d_loss += self.gp_weight * d_loss_gradient_panalty
-        # Get the gradients for the discriminators
-        disc_grads = disc_tape.gradient(
-            d_loss, self.discriminator.trainable_variables)
-        cliped_disc_grads = self.active_gradient_clipping(
-            disc_grads, self.discriminator.trainable_variables)
+            with grad_tape.stop_recording():
+                # Get the gradients for the discriminators
+                disc_grads = grad_tape.gradient(
+                    d_loss, self.discriminator.trainable_variables)
+                cliped_disc_grads = self.active_gradient_clipping(
+                    disc_grads, self.discriminator.trainable_variables)
 
-        # Update the weights of the discriminators
-        self.d_optimizer.apply_gradients(
-            zip(cliped_disc_grads, self.discriminator.trainable_variables)
-        )
-
-        # =================================================================================== #
-        #                               3. Train the generator                                #
-        # =================================================================================== #
-        with tf.GradientTape(persistent=True) as gen_tape:
+                # Update the weights of the discriminators
+                self.d_optimizer.apply_gradients(
+                    zip(cliped_disc_grads, self.discriminator.trainable_variables)
+                )
+            # =================================================================================== #
+            #                               3. Train the generator                                #
+            # =================================================================================== #
             fake_images = self.generator(random_latent_vectors, training=True)
             disc_fake_x = self.discriminator(fake_images, training=True)
 
             g_loss = self.generator_loss_deceive_discriminator(fake_images)
+            with grad_tape.stop_recording():
+                # Get the gradients for the generators
+                gen_grads = grad_tape.gradient(g_loss,
+                                               self.generator.trainable_variables)
+                cliped_gen_grads = self.active_gradient_clipping(
+                    gen_grads, self.generator.trainable_variables)
 
-        # Get the gradients for the generators
-        gen_grads = gen_tape.gradient(g_loss,
-                                      self.generator.trainable_variables)
-        cliped_gen_grads = self.active_gradient_clipping(
-            gen_grads, self.generator.trainable_variables)
-
-        # Update the weights of the generators
-        self.g_optimizer.apply_gradients(
-            zip(cliped_gen_grads, self.generator.trainable_variables))
+                # Update the weights of the generators
+                self.g_optimizer.apply_gradients(
+                    zip(cliped_gen_grads, self.generator.trainable_variables))
 
         # Update metrics
         self.g_loss_metric.update_state(g_loss)
