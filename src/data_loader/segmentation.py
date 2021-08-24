@@ -35,7 +35,9 @@ class SegDataGetter(BaseDataGetter):
                  on_memory,
                  argumentation_proba,
                  argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
+                 mask_preprocess_input,
                  target_size,
                  interpolation
                  ):
@@ -58,14 +60,18 @@ class SegDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
-            self.argumentation_method = SegArgumentationPolicy(0, argumentation_policy_dict)
+            self.argumentation_method = SegArgumentationPolicy(
+                0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
-        self.argumentation_method = SegArgumentationPolicy(argumentation_proba, argumentation_policy_dict)
+        self.image_channel = image_channel_dict["image"]
+        self.mask_channel = image_channel_dict["mask"]
+        self.argumentation_method = SegArgumentationPolicy(
+            argumentation_proba, argumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.mask_preprocess_method = PreprocessPolicy("mask")
+        self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
 
         assert len(image_path_list) == len(mask_path_list), \
             f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
@@ -88,8 +94,8 @@ class SegDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
             mask_path = self.mask_path_dict[current_index]
 
-            image_array = imread(image_path, channel="rgb")
-            mask_array = imread(mask_path)
+            image_array = imread(image_path, channel=self.image_channel)
+            mask_array = imread(mask_path, channel=self.mask_channel)
 
             image_array = self.resize_method(image_array)
             mask_array = self.resize_method(mask_array)
@@ -118,7 +124,9 @@ class SegDataloader(BaseDataLoader):
                  on_memory=False,
                  argumentation_proba=None,
                  argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_input="-1~1",
+                 mask_preprocess_input="mask",
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -128,7 +136,9 @@ class SegDataloader(BaseDataLoader):
                                          on_memory=on_memory,
                                          argumentation_proba=argumentation_proba,
                                          argumentation_policy_dict=argumentation_policy_dict,
+                                         image_channel_dict=image_channel_dict,
                                          preprocess_input=preprocess_input,
+                                         mask_preprocess_input=mask_preprocess_input,
                                          target_size=target_size,
                                          interpolation=interpolation
                                          )
