@@ -32,6 +32,7 @@ class ClassifyDataGetter(BaseDataGetter):
                  on_memory,
                  argumentation_proba,
                  argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
                  target_size,
                  interpolation,
@@ -46,7 +47,7 @@ class ClassifyDataGetter(BaseDataGetter):
         self.label_level = label_level
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
+        self.image_channel = image_channel_dict["image"]
         self.target_size = target_size
         self.interpolation = interpolation
         self.class_mode = class_mode
@@ -84,7 +85,7 @@ class ClassifyDataGetter(BaseDataGetter):
             image_array = self.preprocess_method(image_array)
         else:
             image_path = self.image_path_dict[current_index]
-            image_array = imread(image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
             image_array = self.resize_method(image_array)
             image_array = self.argumentation_method(image_array)
             image_array = self.preprocess_method(image_array)
@@ -116,6 +117,7 @@ class ClassifyDataloader(BaseDataLoader):
                  on_memory=False,
                  argumentation_proba=False,
                  argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -129,6 +131,7 @@ class ClassifyDataloader(BaseDataLoader):
                                               on_memory=on_memory,
                                               argumentation_proba=argumentation_proba,
                                               argumentation_policy_dict=argumentation_policy_dict,
+                                              image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation,

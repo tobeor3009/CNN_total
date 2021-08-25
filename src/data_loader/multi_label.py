@@ -37,6 +37,7 @@ class MultiLabelDataGetter(BaseDataGetter):
                  on_memory,
                  argumentation_proba,
                  argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
                  target_size,
                  interpolation,
@@ -52,7 +53,7 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
+        self.image_channel = image_channel_dict["image"]
         self.target_size = target_size
         self.interpolation = interpolation
         self.class_mode = class_mode
@@ -95,7 +96,7 @@ class MultiLabelDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
             mask_path = self.mask_path_dict[current_index]
 
-            image_array = imread(image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
             mask_array = imread(mask_path)
 
             image_array = self.resize_method(image_array)
@@ -137,6 +138,7 @@ class MultiLabelDataloader(BaseDataLoader):
                  on_memory=False,
                  argumentation_proba=False,
                  argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -149,6 +151,7 @@ class MultiLabelDataloader(BaseDataLoader):
                                                 on_memory=on_memory,
                                                 argumentation_proba=argumentation_proba,
                                                 argumentation_policy_dict=argumentation_policy_dict,
+                                                image_channel_dict=image_channel_dict,
                                                 preprocess_input=preprocess_input,
                                                 target_size=target_size,
                                                 interpolation=interpolation,

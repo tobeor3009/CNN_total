@@ -35,6 +35,7 @@ class CycleGanDataGetter(BaseDataGetter):
                  on_memory,
                  argumentation_proba,
                  argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
                  target_size,
                  interpolation
@@ -53,7 +54,8 @@ class CycleGanDataGetter(BaseDataGetter):
             index: None for index in range(self.target_data_len)}
 
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
+        self.image_channel = image_channel_dict["image"]
+        self.target_image_channel = image_channel_dict["target_image"]
         self.target_size = target_size
         self.interpolation = interpolation
 
@@ -68,12 +70,14 @@ class CycleGanDataGetter(BaseDataGetter):
         self.single_data_dict = \
             {"image_array": None, "target_image_array": None}
         if self.on_memory is True:
-            self.argumentation_method = SegArgumentationPolicy(0, argumentation_policy_dict)
+            self.argumentation_method = SegArgumentationPolicy(
+                0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.get_unpaired_data_on_memory()
 
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.argumentation_method = SegArgumentationPolicy(argumentation_proba, argumentation_policy_dict)
+        self.argumentation_method = SegArgumentationPolicy(
+            argumentation_proba, argumentation_policy_dict)
 
     def __getitem__(self, i):
 
@@ -104,8 +108,9 @@ class CycleGanDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
             target_image_path = self.target_image_path_dict[target_index]
 
-            image_array = imread(image_path, channel="rgb")
-            target_image_array = imread(target_image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
+            target_image_array = imread(
+                target_image_path, channel=self.target_image_channel)
 
             image_array = self.resize_method(image_array)
             target_image_array = self.resize_method(target_image_array)
@@ -163,6 +168,7 @@ class CycleGanDataloader(BaseDataLoader):
                  on_memory=False,
                  argumentation_proba=None,
                  argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb", "target_image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -173,6 +179,7 @@ class CycleGanDataloader(BaseDataLoader):
                                               on_memory=on_memory,
                                               argumentation_proba=argumentation_proba,
                                               argumentation_policy_dict=argumentation_policy_dict,
+                                              image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation

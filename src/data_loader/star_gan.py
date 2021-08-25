@@ -36,6 +36,7 @@ class StarGanDataGetter(BaseDataGetter):
                  on_memory,
                  argumentation_proba,
                  argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
                  target_size,
                  interpolation,
@@ -50,7 +51,7 @@ class StarGanDataGetter(BaseDataGetter):
         self.label_level = label_level
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
+        self.image_channel = image_channel_dict["image"]
         self.target_size = target_size
         self.interpolation = interpolation
         self.class_mode = class_mode
@@ -110,8 +111,9 @@ class StarGanDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
             target_image_path = self.image_path_dict[target_index]
 
-            image_array = imread(image_path, channel="rgb")
-            target_image_array = imread(target_image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
+            target_image_array = imread(
+                target_image_path, channel=self.image_channel)
 
             image_array = self.resize_method(image_array)
             target_image_array = self.resize_method(target_image_array)
@@ -160,7 +162,7 @@ class StarGanDataGetter(BaseDataGetter):
 
         for index in tqdm(image_range):
             image_path = self.image_path_dict[index]
-            image_array = imread(image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
             image_array = self.resize_method(image_array)
 
             image_dir_name = get_parent_dir_name(image_path, self.label_level)
@@ -183,6 +185,7 @@ class StarGanDataloader(BaseDataLoader):
                  on_memory=False,
                  argumentation_proba=False,
                  argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -196,6 +199,7 @@ class StarGanDataloader(BaseDataLoader):
                                              on_memory=on_memory,
                                              argumentation_proba=argumentation_proba,
                                              argumentation_policy_dict=argumentation_policy_dict,
+                                             image_channel_dict=image_channel_dict,
                                              preprocess_input=preprocess_input,
                                              target_size=target_size,
                                              interpolation=interpolation,
