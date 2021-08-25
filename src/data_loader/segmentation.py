@@ -50,7 +50,10 @@ class SegDataGetter(BaseDataGetter):
         self.data_on_memory_dict = {index: None for index, _
                                     in enumerate(image_path_list)}
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
+
+        self.image_channel = image_channel_dict["image"]
+        self.mask_channel = image_channel_dict["mask"]
+
         self.target_size = target_size
         self.interpolation = interpolation
 
@@ -66,8 +69,6 @@ class SegDataGetter(BaseDataGetter):
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_memory()
 
-        self.image_channel = image_channel_dict["image"]
-        self.mask_channel = image_channel_dict["mask"]
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
@@ -192,7 +193,6 @@ class SelfModifyDataGetter(BaseDataGetter):
         self.data_on_memory_dict = {index: None for index, _
                                     in enumerate(image_path_list)}
         self.on_memory = on_memory
-        self.preprocess_input = preprocess_input
         self.target_size = target_size
         self.interpolation = interpolation
 

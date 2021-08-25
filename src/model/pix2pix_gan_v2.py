@@ -35,15 +35,18 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        gp_weight=10.0
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
+        self.gp_weight = gp_weight
 
     def compile(
         self,
         generator_optimizer,
         discriminator_optimizer,
+        batch_size,
         image_loss=base_image_loss_fn,
         generator_against_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
@@ -55,6 +58,7 @@ class Pix2PixGan(Model):
         self.generator_loss_deceive_discriminator = generator_against_discriminator
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
         self.image_loss = image_loss
+        self.batch_size = batch_size
         self.lambda_clip = lambda_clip
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
 
@@ -122,7 +126,10 @@ class Pix2PixGan(Model):
             # Discriminator loss
             disc_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
+            disc_loss_gradient_panalty = self.gradient_penalty(
+                self.discriminator, self.batch_size, real_y, fake_y)
 
+            disc_loss += self.gp_weight * disc_loss_gradient_panalty
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(
             disc_loss, self.discriminator.trainable_variables)
