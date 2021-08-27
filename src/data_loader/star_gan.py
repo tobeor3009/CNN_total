@@ -106,7 +106,7 @@ class StarGanDataGetter(BaseDataGetter):
             target_image_array = self.argumentation_method(target_image_array)
 
             image_array = self.preprocess_method(image_array)
-            target_label = self.preprocess_method(target_label)
+            target_image_array = self.preprocess_method(target_image_array)
         else:
             image_path = self.image_path_dict[current_index]
             target_image_path = self.image_path_dict[target_index]

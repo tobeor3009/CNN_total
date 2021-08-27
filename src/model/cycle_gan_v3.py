@@ -171,7 +171,7 @@ class CycleGan(Model):
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as disc_tape:
+        with tf.GradientTape(persistent=True, watch_accessed_variables=True) as disc_tape:
             # another domain mapping
             fake_x = self.generator_F(real_y)
             fake_y = self.generator_G(real_x)
@@ -263,7 +263,7 @@ class CycleGan(Model):
         # =================================================================================== #
         #                               3. Train the generator                                #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True, watch_accessed_variables=False) as gen_tape:
+        with tf.GradientTape(persistent=True, watch_accessed_variables=True) as gen_tape:
 
             # another domain mapping
             fake_x = self.generator_F(real_y, training=True)
