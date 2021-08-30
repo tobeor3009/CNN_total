@@ -376,7 +376,8 @@ def InceptionV3(
                                        axis=channel_axis,
                                        name='mixed9_' + str(i))
 
-        branch3x3dbl = conv2d_bn(x, 448, 1, 1, normliazation=normliazation, activation=activation)
+        branch3x3dbl = conv2d_bn(
+            x, 448, 1, 1, normliazation=normliazation, activation=activation)
         branch3x3dbl = conv2d_bn(branch3x3dbl, 384, 3,
                                  3, normliazation=normliazation, activation=activation)
         branch3x3dbl_1 = conv2d_bn(

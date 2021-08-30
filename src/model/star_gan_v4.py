@@ -5,8 +5,9 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
 
-from .util.wgan_gp import base_generator_loss_deceive_discriminator, base_discriminator_loss_arrest_generator, \
-    gradient_penalty, active_gradient_clipping
+from .util.wgan_gp import base_generator_loss_deceive_discriminator, \
+    base_discriminator_loss_arrest_generator, gradient_penalty
+from .util.grad_clip import active_gradient_clipping
 
 # Loss function for evaluating adversarial loss
 adv_loss_fn = MeanAbsoluteError()
