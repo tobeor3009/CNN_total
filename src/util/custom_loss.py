@@ -6,7 +6,7 @@ from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
 from segmentation_models.losses import BinaryFocalLoss
 
-AXIS = [1, 2, 3]
+AXIS = [1, 2]
 PIE_VALUE = np.pi
 SMOOTH = K.epsilon()
 

@@ -9,7 +9,7 @@ import numpy as np
 
 from .util.lsgan import base_generator_loss_deceive_discriminator, base_discriminator_loss_arrest_generator
 from .util.grad_clip import active_gradient_clipping
-
+from .util.gan_loss import rgb_color_histogram_loss
 
 # Loss function for evaluating adversarial loss
 base_image_loss_fn = MeanAbsoluteError()
@@ -104,7 +104,7 @@ class DCGAN(Model):
             fake_images = self.generator(real_images, training=True)
             disc_fake_x = self.discriminator(fake_images, training=True)
 
-            gen_image_loss = self.image_loss(real_images, fake_images)
+            gen_image_loss = rgb_color_histogram_loss(real_images, fake_images)
             gen_disc_loss = self.generator_loss_deceive_discriminator(
                 fake_images)
 
