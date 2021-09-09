@@ -103,7 +103,7 @@ class StarGan(Model):
         gp = tf.reduce_mean((norm - 1.0) ** 2)
         return gp
 
-    def active_gradient_clipping(self, grad_list, trainable_variable_list):
+    def adaptive_gradient_clipping(self, grad_list, trainable_variable_list):
 
         cliped_grad_list = []
 
@@ -266,9 +266,9 @@ class StarGan(Model):
             disc_total_loss, self.discriminator.trainable_variables)
 
         # apply active gradient clipping
-        cliped_gen_grads = self.active_gradient_clipping(
+        cliped_gen_grads = self.adaptive_gradient_clipping(
             gen_grads, self.generator.trainable_variables)
-        cliped_disc_grads = self.active_gradient_clipping(
+        cliped_disc_grads = self.adaptive_gradient_clipping(
             disc_grads, self.discriminator.trainable_variables)
 
         # Update the weights of the generators

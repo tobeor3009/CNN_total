@@ -1,4 +1,4 @@
-from keras_applications import get_submodules_from_kwargs
+import numpy as np
 
 import tensorflow as tf
 
@@ -6,10 +6,14 @@ from tensorflow.keras import backend
 from tensorflow.keras import layers
 from tensorflow.keras import models
 from tensorflow.keras import utils as keras_utils
+from tensorflow.keras import backend as keras_backend
+from tensorflow.keras.models import Model
 if tf.__version__ >= '2.5.0':
     from . inceptionv3_tf_2_5 import InceptionV3
 else:
     from . inceptionv3_tf_2_2 import InceptionV3
+
+from segmentation_models.backbones.backbones_factory import Backbones
 # ---------------------------------------------------------------------
 #  Utility functions
 # ---------------------------------------------------------------------
@@ -43,62 +47,8 @@ def get_feature_layers(backbone_name, n=5):
         # (x16, x8, x4, x2, x1) - `x4` mean that features has 4 times less spatial
         # resolution (Height x Width) than input image.
 
-        # VGG
-        'vgg16': ('block5_conv3', 'block4_conv3', 'block3_conv3', 'block2_conv2', 'block1_conv2'),
-        'vgg19': ('block5_conv4', 'block4_conv4', 'block3_conv4', 'block2_conv2', 'block1_conv2'),
-
-        # ResNets
-        'resnet18': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'resnet34': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'resnet50': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'resnet101': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'resnet152': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-
-        # ResNeXt
-        'resnext50': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'resnext101': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-
         # Inception
         'inceptionv3': (228, 86, 16, 9),
-        'inceptionresnetv2': (594, 260, 16, 9),
-
-        # DenseNet
-        'densenet121': (311, 139, 51, 4),
-        'densenet169': (367, 139, 51, 4),
-        'densenet201': (479, 139, 51, 4),
-
-        # SE models
-        'seresnet18': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'seresnet34': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
-        'seresnet50': (246, 136, 62, 4),
-        'seresnet101': (552, 136, 62, 4),
-        'seresnet152': (858, 208, 62, 4),
-        'seresnext50': (1078, 584, 254, 4),
-        'seresnext101': (2472, 584, 254, 4),
-        'senet154': (6884, 1625, 454, 12),
-
-        # Mobile Nets
-        'mobilenet': ('conv_pw_11_relu', 'conv_pw_5_relu', 'conv_pw_3_relu', 'conv_pw_1_relu'),
-        'mobilenetv2': ('block_13_expand_relu', 'block_6_expand_relu', 'block_3_expand_relu',
-                        'block_1_expand_relu'),
-
-        # EfficientNets
-        'efficientnetb0': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb1': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb2': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb3': ('block6a_expand_activation', 'block4a_exp    and_activation',
-                           'block3a_expand_activation', 'block2a_exp    and_activation'),
-        'efficientnetb4': ('block6a_expand_activation', 'block4a_exp    and_activation',
-                           'block3a_expand_activation', 'block2a_exp    and_activation'),
-        'efficientnetb5': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb6': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
-        'efficientnetb7': ('block6a_expand_activation', 'block4a_expand_activation',
-                           'block3a_expand_activation', 'block2a_expand_activation'),
 
     }
 
@@ -277,14 +227,13 @@ def build_unet(
         x = Conv3x3BnReLU(512, use_batchnorm, name='center_block1')(x)
         x = Conv3x3BnReLU(512, use_batchnorm, name='center_block2')(x)
 
-    # building decoder blocks
+        # building decoder blocks
     for i in range(n_upsample_blocks):
 
         if i < len(skips):
             skip = skips[i]
         else:
             skip = None
-
         x = decoder_block(
             decoder_filters[i], stage=i, use_batchnorm=use_batchnorm)(x, skip)
 
@@ -378,7 +327,6 @@ def Unet(
         pooling=None,
         classifier_activation=None
     )
-
     if encoder_features == 'default':
         encoder_features = get_feature_layers(backbone_name, n=4)
 
@@ -400,5 +348,161 @@ def Unet(
     # loading model weights
     if weights is not None:
         model.load_weights(weights)
+
+    return model
+
+
+def Unet_stargan(
+        label_input,
+        label_tensor,
+        target_label_input,
+        target_label_tensor,
+        stargan_mode="concatenate",
+        backbone_name='inceptionv3',
+        input_shape=(None, None, 3),
+        classes=1,
+        activation='sigmoid',
+        weights=None,
+        normalization="BatchNormalization",
+        encoder_weights='imagenet',
+        encoder_freeze=False,
+        encoder_features='default',
+        decoder_block_type='upsampling',
+        decoder_filters=(256, 128, 64, 32, 16),
+        decoder_use_batchnorm=True,
+        **kwargs
+):
+    """ Unet_ is a fully convolution neural network for image semantic segmentation
+
+    Args:
+        backbone_name: name of classification model (without last dense layers) used as feature
+            extractor to build segmentation model.
+        input_shape: shape of input data/image ``(H, W, C)``, in general
+            case you do not need to set ``H`` and ``W`` shapes, just pass ``(None, None, C)`` to make your model be
+            able to process images af any size, but ``H`` and ``W`` of input images should be divisible by factor ``32``.
+        classes: a number of classes for output (output shape - ``(h, w, classes)``).
+        activation: name of one of ``keras.activations`` for last model layer
+            (e.g. ``sigmoid``, ``softmax``, ``linear``).
+        weights: optional, path to model weights.
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        encoder_freeze: if ``True`` set all layers of encoder (backbone model) as non-trainable.
+        encoder_features: a list of layer numbers or names starting from top of the model.
+            Each of these layers will be concatenated with corresponding decoder block. If ``default`` is used
+            layer names are taken from ``DEFAULT_SKIP_CONNECTIONS``.
+        decoder_block_type: one of blocks with following layers structure:
+
+            - `upsampling`:  ``UpSampling2D`` -> ``Conv2D`` -> ``Conv2D``
+            - `transpose`:   ``Transpose2D`` -> ``Conv2D``
+
+        decoder_filters: list of numbers of ``Conv2D`` layer filters in decoder blocks
+        decoder_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
+            is used.
+
+    Returns:
+        ``keras.models.Model``: **Unet**
+
+    .. _Unet:
+        https://arxiv.org/pdf/1505.04597
+
+    """
+
+    global backend, layers, models, keras_utils
+
+    if decoder_block_type == 'upsampling':
+        decoder_block = DecoderUpsamplingX2Block
+    elif decoder_block_type == 'transpose':
+        decoder_block = DecoderTransposeX2Block
+    else:
+        raise ValueError('Decoder block type should be in ("upsampling", "transpose"). '
+                         'Got: {}'.format(decoder_block_type))
+
+    backbone = InceptionV3(
+        include_top=False,
+        weights=encoder_weights,
+        input_tensor=None,
+        input_shape=input_shape,
+        classes=None,
+        normliazation=normalization,
+        pooling=None,
+        classifier_activation=None,
+        label_input=label_input,
+        label_tensor=label_tensor,
+        target_label_input=target_label_input,
+        target_label_tensor=target_label_tensor,
+        stargan_mode=stargan_mode
+    )
+
+    if encoder_features == 'default':
+        encoder_features = get_feature_layers(backbone_name, n=4)
+
+    model = build_unet_stargan(
+        backbone=backbone,
+        decoder_block=decoder_block,
+        skip_connection_layers=encoder_features,
+        decoder_filters=decoder_filters,
+        classes=classes,
+        activation=activation,
+        n_upsample_blocks=len(decoder_filters),
+        use_batchnorm=decoder_use_batchnorm,
+    )
+
+    # lock encoder weights for fine-tuning
+    if encoder_freeze:
+        freeze_model(backbone)
+
+    # loading model weights
+    if weights is not None:
+        model.load_weights(weights)
+
+    return model
+
+
+def build_unet_stargan(
+        backbone,
+        decoder_block,
+        skip_connection_layers,
+        decoder_filters=(256, 128, 64, 32, 16),
+        n_upsample_blocks=5,
+        classes=1,
+        activation='sigmoid',
+        use_batchnorm=True,
+):
+    input_ = backbone.input
+    x = backbone.output
+
+    # extract skip connections
+    # inception v3 position is [-3]
+    skips = ([backbone.get_layer(name=i).output if isinstance(i, str)
+              else backbone.get_layer(index=i).output for i in (np.array(skip_connection_layers) + 9)])
+
+    # add center block if previous operation was maxpooling (for vgg models)
+    if isinstance(backbone.layers[-1], layers.MaxPooling2D):
+        x = Conv3x3BnReLU(512, use_batchnorm, name='center_block1')(x)
+        x = Conv3x3BnReLU(512, use_batchnorm, name='center_block2')(x)
+
+    # building decoder blocks
+    for i in range(n_upsample_blocks):
+
+        if i < len(skips):
+            skip = skips[i]
+        else:
+            skip = None
+
+        x = decoder_block(
+            decoder_filters[i], stage=i, use_batchnorm=use_batchnorm)(x, skip)
+
+    # model head (define number of output classes)
+    x = layers.Conv2D(
+        filters=classes,
+        kernel_size=(3, 3),
+        padding='same',
+        use_bias=True,
+        kernel_initializer='glorot_uniform',
+        name='final_conv',
+    )(x)
+    x = layers.Activation(activation, name=activation)(x)
+
+    # create keras model instance
+    model = models.Model(input_, x)
 
     return model

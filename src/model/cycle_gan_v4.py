@@ -8,7 +8,7 @@ from tensorflow.keras.initializers import RandomNormal
 
 from .util.wgan_gp import base_generator_loss_deceive_discriminator, \
     base_discriminator_loss_arrest_generator, gradient_penalty
-from .util.grad_clip import active_gradient_clipping
+from .util.grad_clip import adaptive_gradient_clipping
 
 # Define Base Model Params
 kernel_init = RandomNormal(mean=0.0, stddev=0.02)
@@ -191,9 +191,9 @@ class CycleGan(Model):
             disc_Y_total_loss, self.discriminator_Y.trainable_variables)
 
         # Apply Active Gradient Clipping on discriminator's grad
-        cliped_disc_X_grads = active_gradient_clipping(
+        cliped_disc_X_grads = adaptive_gradient_clipping(
             disc_X_grads, self.discriminator_X.trainable_variables, lambda_clip=self.lambda_clip)
-        cliped_disc_Y_grads = active_gradient_clipping(
+        cliped_disc_Y_grads = adaptive_gradient_clipping(
             disc_Y_grads, self.discriminator_Y.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
@@ -279,9 +279,9 @@ class CycleGan(Model):
             gen_F_total_loss, self.generator_F.trainable_variables)
 
         # Apply Active Gradient Clipping on generator's grad
-        cliped_gen_G_grads = active_gradient_clipping(
+        cliped_gen_G_grads = adaptive_gradient_clipping(
             gen_G_grads, self.generator_G.trainable_variables, lambda_clip=self.lambda_clip)
-        cliped_gen_F_grads = active_gradient_clipping(
+        cliped_gen_F_grads = adaptive_gradient_clipping(
             gen_F_grads, self.generator_F.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators

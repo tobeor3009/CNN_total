@@ -11,8 +11,7 @@ def compute_l2_norm(tensor):
     return l2_norm
 
 
-@tf.function
-def active_gradient_clipping(grad_list, trainable_variable_list, lambda_clip=10):
+def adaptive_gradient_clipping(grad_list, trainable_variable_list, lambda_clip=10):
 
     cliped_grad_list = []
 

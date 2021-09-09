@@ -6,7 +6,7 @@ from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
 
 from .util.wgan_gp import base_generator_loss_deceive_discriminator, base_discriminator_loss_arrest_generator, \
-    gradient_penalty, active_gradient_clipping
+    gradient_penalty, adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss
 adv_loss_fn = MeanAbsoluteError()
@@ -211,7 +211,7 @@ class StarGan(Model):
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(
             disc_total_loss, self.discriminator.trainable_variables)
-        cliped_disc_grads = active_gradient_clipping(
+        cliped_disc_grads = adaptive_gradient_clipping(
             disc_grads, self.discriminator.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
@@ -308,7 +308,7 @@ class StarGan(Model):
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(
             gen_total_loss, self.generator.trainable_variables)
-        cliped_gen_grads = active_gradient_clipping(
+        cliped_gen_grads = adaptive_gradient_clipping(
             gen_grads, self.generator.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators

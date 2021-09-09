@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras import layers
-from tensorflow.keras import activations
 from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
@@ -20,6 +19,7 @@ class StarGan(Model):
     def __init__(
         self,
         generator,
+        label_transformer,
         discriminator,
         label_mode="concatenate",
         lambda_reconstruct=10.0,
@@ -28,6 +28,7 @@ class StarGan(Model):
     ):
         super(StarGan, self).__init__()
         self.generator = generator
+        self.label_transformer = label_transformer
         self.discriminator = discriminator
         self.label_mode = label_mode
         self.lambda_reconstruct = lambda_reconstruct
@@ -41,6 +42,7 @@ class StarGan(Model):
         image_shape,
         label_num,
         generator_optimizer,
+        label_transformer_optimizer,
         discriminator_optimizer,
         image_loss_fn=base_image_loss_fn,
         class_loss_fn=base_class_loss_fn,
@@ -53,6 +55,7 @@ class StarGan(Model):
         self.image_shape = image_shape
         self.label_num = label_num
         self.generator_optimizer = generator_optimizer
+        self.label_transformer_optimizer = label_transformer_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.generator_loss_deceive_discriminator = generator_against_discriminator
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
@@ -83,13 +86,26 @@ class StarGan(Model):
         # =================================================================================== #
         with tf.GradientTape(persistent=False) as disc_tape:
 
+            transformed_label_x = self.label_transformer(label_x)
+            transformed_label_y = self.label_transformer(label_y)
+
+            real_y_for_x = layers.concatenate(
+                [real_y, transformed_label_x], axis=-1)
+            real_x_for_y = layers.concatenate(
+                [real_x, transformed_label_y], axis=-1)
+
             # another domain mapping
-            fake_x = self.generator([real_y, label_y, label_x])
-            fake_y = self.generator([real_x, label_x, label_y])
+            fake_x = self.generator(real_y_for_x)
+            fake_y = self.generator(real_x_for_y)
+
+            fake_y_for_x = layers.concatenate(
+                [fake_y, transformed_label_x], axis=-1)
+            fake_x_for_y = layers.concatenate(
+                [fake_x, transformed_label_y], axis=-1)
 
             # back to original domain mapping
-            reconstruct_x = self.generator([fake_y, label_y, label_x])
-            reconstruct_y = self.generator([fake_x, label_x, label_y])
+            reconstruct_x = self.generator(fake_y_for_x)
+            reconstruct_y = self.generator(fake_x_for_y)
 
             # Discriminator output
             disc_real_x, label_predicted_real_x = self.discriminator(
@@ -117,14 +133,12 @@ class StarGan(Model):
             disc_fake_x_gradient_panalty = gradient_penalty(
                 self.discriminator, self.batch_size, real_x, fake_x)
             disc_fake_loss_x += self.gp_weight * disc_fake_x_gradient_panalty
-            disc_fake_loss_x = activations.tanh(disc_fake_loss_x)
 
             disc_reconstruct_loss_x = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_reconstruct_x)
             disc_reconstruct_x_gradient_panalty = gradient_penalty(
                 self.discriminator, self.batch_size, real_x, reconstruct_x)
             disc_reconstruct_loss_x += self.gp_weight * disc_reconstruct_x_gradient_panalty
-            disc_reconstruct_loss_x = activations.tanh(disc_reconstruct_loss_x)
 
             disc_class_loss_real_x = self.class_loss_fn(
                 label_x, label_predicted_real_x)
@@ -140,14 +154,12 @@ class StarGan(Model):
             disc_fake_y_gradient_panalty = gradient_penalty(
                 self.discriminator, self.batch_size, real_y, fake_y)
             disc_fake_loss_y += self.gp_weight * disc_fake_y_gradient_panalty
-            disc_fake_loss_y = activations.tanh(disc_fake_loss_y)
 
             disc_reconstruct_loss_y = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_reconstruct_y)
             disc_reconstruct_y_gradient_panalty = gradient_penalty(
                 self.discriminator, self.batch_size, real_y, reconstruct_y)
             disc_reconstruct_loss_y += self.gp_weight * disc_reconstruct_y_gradient_panalty
-            disc_reconstruct_loss_y = activations.tanh(disc_reconstruct_loss_y)
 
             disc_class_loss_real_y = self.class_loss_fn(
                 label_y, label_predicted_real_y)
@@ -177,15 +189,28 @@ class StarGan(Model):
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as gen_tape:
 
+            transformed_label_x = self.label_transformer(
+                label_x, training=True)
+            transformed_label_y = self.label_transformer(
+                label_y, training=True)
+
+            real_y_for_x = layers.concatenate(
+                [real_y, transformed_label_x], axis=-1)
+            real_x_for_y = layers.concatenate(
+                [real_x, transformed_label_y], axis=-1)
+
             # another domain mapping
-            fake_x = self.generator([real_y, label_y, label_x], training=True)
-            fake_y = self.generator([real_x, label_x, label_y], training=True)
+            fake_x = self.generator(real_y_for_x, training=True)
+            fake_y = self.generator(real_x_for_y, training=True)
+
+            fake_y_for_x = layers.concatenate(
+                [fake_y, transformed_label_x], axis=-1)
+            fake_x_for_y = layers.concatenate(
+                [fake_x, transformed_label_y], axis=-1)
 
             # back to original domain mapping
-            reconstruct_x = self.generator(
-                [fake_y, label_y, label_x], training=True)
-            reconstruct_y = self.generator(
-                [fake_x, label_x, label_y], training=True)
+            reconstruct_x = self.generator(fake_y_for_x, training=True)
+            reconstruct_y = self.generator(fake_x_for_y, training=True)
 
             # Discriminator output
             disc_real_x, label_predicted_real_x = self.discriminator(real_x)
@@ -240,10 +265,19 @@ class StarGan(Model):
         cliped_gen_grads = adaptive_gradient_clipping(
             gen_grads, self.generator.trainable_variables, lambda_clip=self.lambda_clip)
         # Get the gradients for the label_transformer
+        label_transformer_grads = gen_tape.gradient(
+            gen_total_loss, self.label_transformer.trainable_variables)
+        cliped_label_transformer_grads = adaptive_gradient_clipping(
+            label_transformer_grads, self.label_transformer.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators
         self.generator_optimizer.apply_gradients(
             zip(cliped_gen_grads, self.generator.trainable_variables)
+        )
+        # Update the weights of the label_transformer
+        self.label_transformer_optimizer.apply_gradients(
+            zip(cliped_label_transformer_grads,
+                self.label_transformer.trainable_variables)
         )
 
         return {

@@ -1,8 +1,10 @@
 # this model avgpool(pool_size=2, stride=2)-conv(kernel_size=1, stride=1)
 # when down_sampled residual block
 
+import re
 import tensorflow as tf
 
+from tensorflow.keras import layers
 from tensorflow.keras.layers import Lambda
 from tensorflow.keras.layers import Concatenate, Multiply
 from tensorflow.keras.layers import Conv2D, Conv2DTranspose
@@ -11,12 +13,16 @@ from tensorflow.keras.layers import BatchNormalization
 from tensorflow.keras.layers import Dense, LeakyReLU
 from tensorflow.keras.activations import sigmoid, tanh
 from tensorflow.keras.regularizers import l2
-from tensorflow.keras.initializers import RandomNormal, HeNormal, GlorotNormal
+from tensorflow.keras.initializers import RandomNormal, GlorotNormal
 from tensorflow.python.keras.layers.pooling import GlobalAveragePooling2D
 
 
 default_initializer = RandomNormal(mean=0.0, stddev=0.02)
-RELU_INITIALIZER = HeNormal()
+if tf.__version__ >= "2.5.0":
+    from tensorflow.keras.initializers import HeNormal
+    RELU_INITIALIZER = HeNormal()
+else:
+    RELU_INITIALIZER = GlorotNormal()
 # Xavier
 NON_LINEAR_INITIALIZER = GlorotNormal()
 NEGATIVE_RATIO = 0.25
@@ -87,7 +93,7 @@ def residual_block(
     use_pooling_layer=False,
     activation="leakyrelu",
     normalization=True,
-    highway=True,
+    highway=False,
     Last=False
 ):
     if downsample:
@@ -132,10 +138,24 @@ def residual_block(
     )
     if highway:
         transform_gate_output = transform_gate(residual, filters)
-        output = Multiply()([conved, transform_gate_output]) + \
-            Multiply()([residual, 1 - transform_gate_output])
-    else:
-        output = conved + residual
+        reverse_transform_gate_output = tf.ones_like(
+            transform_gate_output) - transform_gate_output
+
+        transform_gate_output = layers.Reshape(
+            (1, 1, filters))(transform_gate_output)
+        reverse_transform_gate_output = layers.Reshape(
+            (1, 1, filters))(reverse_transform_gate_output)
+        # label_repeated_x = layers.Reshape(
+        #     (1, 1, self.label_num))(label_x)
+        # label_repeated_x = keras_backend.repeat_elements(
+        #     label_repeated_x, self.image_shape[0], axis=1)
+        # label_repeated_x = keras_backend.repeat_elements(
+        #     label_repeated_x, self.image_shape[1], axis=2)
+        conved = conved * transform_gate_output
+        residual = residual * reverse_transform_gate_output
+
+    output = conved + residual
+
     if activation == "leakyrelu":
         output = LeakyReLU(NEGATIVE_RATIO)(output)
     elif activation == "tanh":

@@ -3,8 +3,14 @@ from tensorflow.keras import backend as keras_backend
 import tensorflow_addons as tfa
 from tensorflow.keras.models import Model
 from tensorflow.keras import layers
+from tensorflow.keras import activations
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.keras.initializers import RandomNormal
+
+from .util.gan_loss import rgb_color_histogram_loss
+from .util.wgan_gp import base_generator_loss_deceive_discriminator, \
+    base_discriminator_loss_arrest_generator, gradient_penalty
+from .util.grad_clip import adaptive_gradient_clipping
 
 # Define Base Model Params
 kernel_init = RandomNormal(mean=0.0, stddev=0.02)
@@ -12,27 +18,6 @@ gamma_init = RandomNormal(mean=0.0, stddev=0.02)
 
 # Loss function for evaluating adversarial loss
 base_image_loss_fn = MeanAbsoluteError()
-
-
-# Define the loss function for the generators
-def base_generator_loss_deceive_discriminator(fake_img):
-    return -tf.reduce_mean(fake_img)
-
-
-# Define the loss function for the discriminators
-def base_discriminator_loss_arrest_generator(real_img, fake_img):
-    real_loss = tf.reduce_mean(real_img)
-    fake_loss = tf.reduce_mean(fake_img)
-    return fake_loss - real_loss
-
-
-def compute_l2_norm(tensor):
-
-    squared = keras_backend.square(tensor)
-    l2_norm = keras_backend.sum(squared)
-    l2_norm = keras_backend.sqrt(l2_norm)
-
-    return l2_norm
 
 
 class CycleGan(Model):
@@ -44,6 +29,7 @@ class CycleGan(Model):
         discriminator_Y=None,
         lambda_cycle=10.0,
         lambda_identity=0.5,
+        lambda_histogram=0.,
         gp_weight=10.0
     ):
         super(CycleGan, self).__init__()
@@ -91,6 +77,7 @@ class CycleGan(Model):
 
         self.lambda_cycle = lambda_cycle
         self.lambda_identity = lambda_identity
+        self.lambda_histogram = lambda_histogram
         self.turn_on_identity_loss = True
         self.turn_on_discriminator_on_identity = False
         self.gp_weight = gp_weight
@@ -104,7 +91,10 @@ class CycleGan(Model):
         image_loss_fn=base_image_loss_fn,
         generator_loss_deceive_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
-        lambda_clip=0.1
+        identity_loss=True,
+        histogram_loss=True,
+        active_gradient_clip=True,
+        lambda_clip=0.1,
     ):
         super(CycleGan, self).compile()
         self.generator_G_optimizer = generator_G_optimizer
@@ -115,50 +105,14 @@ class CycleGan(Model):
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
         self.cycle_loss_fn = image_loss_fn
         self.identity_loss_fn = image_loss_fn
+        self.identity_loss = identity_loss
+        self.histogram_loss = histogram_loss
+        self.active_gradient_clip = active_gradient_clip
         self.lambda_clip = lambda_clip
 
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
     def call(self, x):
         return x
-
-    def gradient_penalty(self, discriminator, batch_size, real_images, fake_images):
-        """ Calculates the gradient penalty.
-
-        This loss is calculated on an interpolated image
-        and added to the discriminator loss.
-        """
-        # Get the interpolated image
-        alpha = tf.random.normal([batch_size, 1, 1, 1], 0.0, 1.0)
-        diff = fake_images - real_images
-        interpolated = real_images + alpha * diff
-
-        with tf.GradientTape() as gp_tape:
-            gp_tape.watch(interpolated)
-            # 1. Get the discriminator output for this interpolated image.
-            pred = discriminator(interpolated, training=True)
-
-        # 2. Calculate the gradients w.r.t to this interpolated image.
-        grads = gp_tape.gradient(pred, [interpolated])[0]
-        # 3. Calculate the norm of the gradients.
-        norm = tf.sqrt(tf.reduce_sum(tf.square(grads), axis=[1, 2, 3]))
-        gp = tf.reduce_mean((norm - 1.0) ** 2)
-        return gp
-
-    def adaptive_gradient_clipping(self, grad_list, trainable_variable_list):
-
-        cliped_grad_list = []
-
-        for grad, trainable_variable in zip(grad_list, trainable_variable_list):
-            grad_l2_norm = compute_l2_norm(grad)
-            trainable_variable_l2_norm = compute_l2_norm(trainable_variable)
-
-            clip_value = self.lambda_clip * \
-                (trainable_variable_l2_norm / grad_l2_norm)
-            cliped_grad = keras_backend.clip(grad, -clip_value, clip_value)
-
-            cliped_grad_list.append(cliped_grad)
-
-        return cliped_grad_list
 
     @tf.function
     def train_step(self, batch_data):
@@ -180,10 +134,6 @@ class CycleGan(Model):
             cycle_x = self.generator_F(fake_y)
             cycle_y = self.generator_G(fake_x)
 
-            # Identity mapping
-            same_x = self.generator_F(real_x)
-            same_y = self.generator_G(real_y)
-
             # Discriminator output
             disc_real_x = self.discriminator_X(real_x, training=True)
             disc_fake_x = self.discriminator_X(fake_x, training=True)
@@ -193,23 +143,31 @@ class CycleGan(Model):
             disc_fake_y = self.discriminator_Y(fake_y, training=True)
             disc_cycle_y = self.discriminator_Y(cycle_y, training=True)
 
-            disc_same_x = self.discriminator_X(same_x, training=True)
-            disc_same_y = self.discriminator_Y(same_y, training=True)
+            if self.identity_loss is True:
+                # Identity mapping
+                same_x = self.generator_F(real_x)
+                same_y = self.generator_G(real_y)
 
-            disc_X_identity_loss = self.discriminator_loss_arrest_generator(
-                disc_real_x, disc_same_x)
-            disc_Y_identity_loss = self.discriminator_loss_arrest_generator(
-                disc_real_y, disc_same_y)
+                disc_same_x = self.discriminator_X(same_x, training=True)
+                disc_same_y = self.discriminator_Y(same_y, training=True)
 
-            disc_X_identity_gradient_panalty = self.gradient_penalty(
-                self.discriminator_X, batch_size, real_x, same_x)
-            disc_Y_identity_gradient_panalty = self.gradient_penalty(
-                self.discriminator_Y, batch_size, real_y, same_y)
+                disc_X_identity_loss = self.discriminator_loss_arrest_generator(
+                    disc_real_x, disc_same_x)
+                disc_Y_identity_loss = self.discriminator_loss_arrest_generator(
+                    disc_real_y, disc_same_y)
 
-            disc_X_identity_loss += self.gp_weight * \
-                disc_X_identity_gradient_panalty
-            disc_Y_identity_loss += self.gp_weight * \
-                disc_Y_identity_gradient_panalty
+                disc_X_identity_gradient_panalty = gradient_penalty(
+                    self.discriminator_X, batch_size, real_x, same_x)
+                disc_Y_identity_gradient_panalty = gradient_penalty(
+                    self.discriminator_Y, batch_size, real_y, same_y)
+
+                disc_X_identity_loss += self.gp_weight * \
+                    disc_X_identity_gradient_panalty
+                disc_Y_identity_loss += self.gp_weight * \
+                    disc_Y_identity_gradient_panalty
+            else:
+                disc_X_identity_loss = 0
+                disc_Y_identity_loss = 0
 
             # Discriminator loss
             disc_X_fake_loss = self.discriminator_loss_arrest_generator(
@@ -221,13 +179,13 @@ class CycleGan(Model):
             disc_Y_cycle_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_cycle_y)
 
-            disc_X_fake_gradient_panalty = self.gradient_penalty(
+            disc_X_fake_gradient_panalty = gradient_penalty(
                 self.discriminator_X, batch_size, real_x, fake_x)
-            disc_Y_fake_gradient_panalty = self.gradient_penalty(
+            disc_Y_fake_gradient_panalty = gradient_penalty(
                 self.discriminator_Y, batch_size, real_y, fake_y)
-            disc_X_cycle_gradient_panalty = self.gradient_penalty(
+            disc_X_cycle_gradient_panalty = gradient_penalty(
                 self.discriminator_X, batch_size, real_x, cycle_x)
-            disc_Y_cycle_gradient_panalty = self.gradient_penalty(
+            disc_Y_cycle_gradient_panalty = gradient_penalty(
                 self.discriminator_Y, batch_size, real_y, cycle_y)
 
             disc_X_fake_loss += self.gp_weight * disc_X_fake_gradient_panalty
@@ -246,18 +204,19 @@ class CycleGan(Model):
         disc_Y_grads = disc_tape.gradient(
             disc_Y_total_loss, self.discriminator_Y.trainable_variables)
 
-        # Apply Active Gradient Clipping on discriminator's grad
-        cliped_disc_X_grads = self.adaptive_gradient_clipping(
-            disc_X_grads, self.discriminator_X.trainable_variables)
-        cliped_disc_Y_grads = self.adaptive_gradient_clipping(
-            disc_Y_grads, self.discriminator_Y.trainable_variables)
+        if self.active_gradient_clip is True:
+            # Apply Active Gradient Clipping on discriminator's grad
+            disc_X_grads = adaptive_gradient_clipping(
+                disc_X_grads, self.discriminator_X.trainable_variables, lambda_clip=self.lambda_clip)
+            disc_Y_grads = adaptive_gradient_clipping(
+                disc_Y_grads, self.discriminator_Y.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
         self.discriminator_X_optimizer.apply_gradients(
-            zip(cliped_disc_X_grads, self.discriminator_X.trainable_variables)
+            zip(disc_X_grads, self.discriminator_X.trainable_variables)
         )
         self.discriminator_Y_optimizer.apply_gradients(
-            zip(cliped_disc_Y_grads, self.discriminator_Y.trainable_variables)
+            zip(disc_Y_grads, self.discriminator_Y.trainable_variables)
         )
 
         # =================================================================================== #
@@ -273,9 +232,11 @@ class CycleGan(Model):
             cycle_x = self.generator_F(fake_y, training=True)
             cycle_y = self.generator_G(fake_x, training=True)
 
-            # Identity mapping
-            same_x = self.generator_F(real_x, training=True)
-            same_y = self.generator_G(real_y, training=True)
+            if self.histogram_loss is True:
+                gen_G_histo_loss = self.lambda_histogram * \
+                    rgb_color_histogram_loss(real_y, fake_y)
+                gen_F_histo_loss = self.lambda_histogram * \
+                    rgb_color_histogram_loss(real_x, fake_x)
 
             # Discriminator output
             disc_fake_x = self.discriminator_X(fake_x)
@@ -284,31 +245,41 @@ class CycleGan(Model):
             disc_cycle_x = self.discriminator_X(cycle_x)
             disc_cycle_y = self.discriminator_Y(cycle_y)
 
-            disc_same_x = self.discriminator_X(same_x)
-            disc_same_y = self.discriminator_Y(same_y)
+            if self.identity_loss is True:
+                # Identity mapping
+                same_x = self.generator_F(real_x, training=True)
+                same_y = self.generator_G(real_y, training=True)
+
+                disc_same_x = self.discriminator_X(same_x)
+                disc_same_y = self.discriminator_Y(same_y)
+
+                gen_G_identity_image_loss = (
+                    self.identity_loss_fn(real_y, same_y)
+                    * self.lambda_cycle
+                    * self.lambda_identity
+                )
+                gen_F_identity_image_loss = (
+                    self.identity_loss_fn(real_x, same_x)
+                    * self.lambda_cycle
+                    * self.lambda_identity
+                )
+
+                # Generator adverserial loss
+                gen_G_identity_disc_loss = self.generator_loss_deceive_discriminator(
+                    disc_same_y)
+                gen_F_identity_disc_loss = self.generator_loss_deceive_discriminator(
+                    disc_same_x)
+            else:
+                gen_G_identity_image_loss = 0
+                gen_F_identity_image_loss = 0
+                gen_G_identity_disc_loss = 0
+                gen_F_identity_disc_loss = 0
 
             # Generator cycle loss
             gen_G_cycle_image_loss = self.cycle_loss_fn(
                 real_y, cycle_y) * self.lambda_cycle
             gen_F_cycle_image_loss = self.cycle_loss_fn(
                 real_x, cycle_x) * self.lambda_cycle
-
-            gen_G_identity_image_loss = (
-                self.identity_loss_fn(real_y, same_y)
-                * self.lambda_cycle
-                * self.lambda_identity
-            )
-            gen_F_identity_image_loss = (
-                self.identity_loss_fn(real_x, same_x)
-                * self.lambda_cycle
-                * self.lambda_identity
-            )
-
-            # Generator adverserial loss
-            gen_G_identity_disc_loss = self.generator_loss_deceive_discriminator(
-                disc_same_y)
-            gen_F_identity_disc_loss = self.generator_loss_deceive_discriminator(
-                disc_same_x)
 
             gen_G_fake_disc_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
@@ -328,24 +299,31 @@ class CycleGan(Model):
                 gen_F_cycle_image_loss + gen_F_cycle_disc_loss + \
                 gen_F_identity_image_loss + gen_F_identity_disc_loss
 
+            if self.histogram_loss is True:
+                gen_G_total_loss += gen_G_histo_loss
+                gen_F_total_loss += gen_F_histo_loss
+            else:
+                gen_G_histo_loss = 0
+                gen_F_histo_loss = 0
         # Get the gradients for the generators
         gen_G_grads = gen_tape.gradient(
             gen_G_total_loss, self.generator_G.trainable_variables)
         gen_F_grads = gen_tape.gradient(
             gen_F_total_loss, self.generator_F.trainable_variables)
 
-        # Apply Active Gradient Clipping on generator's grad
-        cliped_gen_G_grads = self.adaptive_gradient_clipping(
-            gen_G_grads, self.generator_G.trainable_variables)
-        cliped_gen_F_grads = self.adaptive_gradient_clipping(
-            gen_F_grads, self.generator_F.trainable_variables)
+        if self.active_gradient_clip is True:
+            # Apply Active Gradient Clipping on generator's grad
+            gen_G_grads = adaptive_gradient_clipping(
+                gen_G_grads, self.generator_G.trainable_variables, lambda_clip=self.lambda_clip)
+            gen_F_grads = adaptive_gradient_clipping(
+                gen_F_grads, self.generator_F.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators
         self.generator_G_optimizer.apply_gradients(
-            zip(cliped_gen_G_grads, self.generator_G.trainable_variables)
+            zip(gen_G_grads, self.generator_G.trainable_variables)
         )
         self.generator_F_optimizer.apply_gradients(
-            zip(cliped_gen_F_grads, self.generator_F.trainable_variables)
+            zip(gen_F_grads, self.generator_F.trainable_variables)
         )
 
         return {
@@ -355,6 +333,8 @@ class CycleGan(Model):
             "D_Y_loss": disc_Y_total_loss,
             "generator_G_loss": gen_G_fake_disc_loss,
             "generator_F_loss": gen_F_fake_disc_loss,
+            "generator_G_histo_loss": gen_G_histo_loss,
+            "generator_F_histo_loss": gen_F_histo_loss,
             "identity_loss_G": gen_G_identity_image_loss,
             "identity_loss_F": gen_F_identity_image_loss,
             "cycle_loss_G": gen_G_cycle_image_loss,

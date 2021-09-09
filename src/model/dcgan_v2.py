@@ -107,7 +107,7 @@ class DCGAN(Model):
         gp = tf.reduce_mean((norm - 1.0) ** 2)
         return gp
 
-    def active_gradient_clipping(self, grad_list, trainable_variable_list):
+    def adaptive_gradient_clipping(self, grad_list, trainable_variable_list):
 
         cliped_grad_list = []
 
@@ -156,7 +156,7 @@ class DCGAN(Model):
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(
             d_loss, self.discriminator.trainable_variables)
-        cliped_disc_grads = self.active_gradient_clipping(
+        cliped_disc_grads = self.adaptive_gradient_clipping(
             disc_grads, self.discriminator.trainable_variables)
 
         # Update the weights of the discriminators
@@ -174,7 +174,7 @@ class DCGAN(Model):
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(g_loss,
                                       self.generator.trainable_variables)
-        cliped_gen_grads = self.active_gradient_clipping(
+        cliped_gen_grads = self.adaptive_gradient_clipping(
             gen_grads, self.generator.trainable_variables)
 
         # Update the weights of the generators

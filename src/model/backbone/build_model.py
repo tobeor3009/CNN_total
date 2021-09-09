@@ -1,6 +1,9 @@
 # python baseModule
 from copy import deepcopy
 # tensorflow Module
+import tensorflow as tf
+from tensorflow.keras import backend as keras_backend
+from tensorflow.python.keras.engine import training
 from tensorflow.keras import layers
 from tensorflow.keras.layers import Input, GaussianNoise, GaussianDropout
 from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, GlobalMaxPooling2D, Dropout
@@ -26,7 +29,6 @@ def build_generator(
 
     # Image input
     input_image = Input(shape=input_image_shape)
-    input_image_noised = GaussianNoise(0.1)(input_image)
 
     if depth is None:
         image_size = input_image_shape[0]
@@ -39,7 +41,7 @@ def build_generator(
     down_sample_layers = []
 
     fix_shape_layer_1 = conv2d_bn(
-        x=input_image_noised,
+        x=input_image,
         filters=generator_power,
         kernel_size=KERNEL_SIZE,
         weight_decay=1e-4,
@@ -128,7 +130,142 @@ def build_generator(
         activation=activation,
         normalization=True
     )
-    return Model(input_image, output_layer)
+
+    model = training.Model(input_image, output_layer, name='residual_unet')
+    return model
+
+
+def build_generator_stargan(
+    input_image_shape,
+    label_input,
+    label_tensor,
+    target_label_input,
+    target_label_tensor,
+    mode="add",
+    output_channels=4,
+    depth=None,
+    generator_power=32,
+    activation="sigmoid"
+):
+    """U-Net Generator"""
+
+    # Image input
+    input_image = Input(shape=input_image_shape)
+    if mode == "add":
+        input_image_with_label = input_image + label_tensor
+    elif mode == "concatenate":
+        input_image_with_label = keras_backend.concatenate([input_image, label_tensor], axis=-1)
+
+    if depth is None:
+        image_size = input_image_shape[0]
+        depth = 0
+        while image_size != 1:
+            image_size //= 2
+            depth += 1
+        depth -= 3
+
+    down_sample_layers = []
+
+    fix_shape_layer_1 = conv2d_bn(
+        x=input_image_with_label,
+        filters=generator_power,
+        kernel_size=KERNEL_SIZE,
+        weight_decay=1e-4,
+        strides=(1, 1),
+        activation="leakyrelu"
+    )
+    fix_shape_layer_2 = residual_block(
+        x=fix_shape_layer_1,
+        filters=generator_power,
+        kernel_size=KERNEL_SIZE,
+        weight_decay=1e-4,
+        downsample=False,
+        activation="leakyrelu"
+    )
+    down_sample_layers.append((fix_shape_layer_1, fix_shape_layer_2))
+    # Downsampling
+    for depth_step in range(depth):
+        down_sample_layer = residual_block(
+            x=fix_shape_layer_2,
+            filters=generator_power * (2 ** depth_step),
+            kernel_size=KERNEL_SIZE,
+            weight_decay=1e-4,
+            downsample=True,
+            use_pooling_layer=True,
+            activation="leakyrelu"
+        )
+        fix_shape_layer_1 = residual_block(
+            x=down_sample_layer,
+            filters=generator_power * (2 ** depth_step),
+            kernel_size=KERNEL_SIZE,
+            weight_decay=1e-4,
+            downsample=False,
+            activation="leakyrelu"
+        )
+        fix_shape_layer_2 = residual_block(
+            x=fix_shape_layer_1,
+            filters=generator_power * (2 ** depth_step),
+            kernel_size=KERNEL_SIZE,
+            weight_decay=1e-4,
+            downsample=False,
+            activation="leakyrelu"
+        )
+        layer_collection = (down_sample_layer,
+                            fix_shape_layer_1, fix_shape_layer_2)
+        down_sample_layers.append(layer_collection)
+
+    if mode == "add":
+        fix_shape_layer_2 = fix_shape_layer_2 + target_label_tensor
+    elif mode == "concatenate":
+        fix_shape_layer_2 = keras_backend.concatenate([fix_shape_layer_2, target_label_tensor], axis=-1)
+
+    # upsampling
+    for depth_step in range(depth, 0, -1):
+        if depth_step == depth:
+            fix_shape_layer_1 = deconv2d(
+                down_sample_layers[depth_step][2],
+                down_sample_layers[depth_step][1],
+                generator_power * (2 ** depth_step),
+                kernel_size=KERNEL_SIZE,
+                upsample=False,
+            )
+        else:
+            fix_shape_layer_1 = deconv2d(
+                upsampling_layer,
+                down_sample_layers[depth_step][1],
+                generator_power * (2 ** depth_step),
+                kernel_size=KERNEL_SIZE,
+                upsample=False,
+            )
+        fix_shape_layer_2 = deconv2d(
+            fix_shape_layer_1,
+            down_sample_layers[depth_step][2],
+            generator_power * (2 ** depth_step),
+            kernel_size=KERNEL_SIZE,
+            upsample=False,
+        )
+        upsampling_layer = deconv2d(
+            fix_shape_layer_2,
+            down_sample_layers[depth_step - 1][0],
+            generator_power * (2 ** (depth_step - 1)),
+            kernel_size=KERNEL_SIZE,
+            upsample=True,
+            use_upsampling_layer=False,
+        )
+    # control output_channels
+    output_layer = residual_block_last(
+        x=upsampling_layer,
+        filters=output_channels,
+        kernel_size=KERNEL_SIZE,
+        weight_decay=WEIGHT_DECAY,
+        downsample=False,
+        activation=activation,
+        normalization=True
+    )
+
+    model = training.Model(
+        [input_image, label_input, target_label_input], output_layer, name='residual_unet')
+    return model
 
 
 def build_generator_non_unet(
@@ -237,126 +374,12 @@ def build_generator_non_unet(
     return Model(input_image, output_layer)
 
 
-# def build_generator_separate(
-#     input_image_shape,
-#     depth=None,
-#     generator_power=32,
-# ):
-#     """U-Net Generator"""
-
-#     # Image input
-#     input_image = Input(shape=input_image_shape)
-#     input_image_noised = GaussianNoise(0.1)(input_image)
-
-#     if depth is None:
-#         image_size = input_image_shape[0]
-#         depth = 0
-#         while image_size != 1:
-#             image_size //= 2
-#             depth += 1
-#         depth -= 3
-
-#     down_sample_layers = []
-
-#     fix_shape_layer_1 = conv2d_bn(
-#         x=input_image_noised,
-#         filters=generator_power,
-#         kernel_size=KERNEL_SIZE,
-#         weight_decay=1e-4,
-#         strides=(1, 1),
-#         activation="leakyrelu"
-#     )
-#     fix_shape_layer_2 = residual_block(
-#         x=fix_shape_layer_1,
-#         filters=generator_power,
-#         kernel_size=KERNEL_SIZE,
-#         weight_decay=1e-4,
-#         downsample=False,
-#         activation="leakyrelu"
-#     )
-#     down_sample_layers.append((fix_shape_layer_1, fix_shape_layer_2))
-#     # Downsampling
-#     for depth_step in range(depth):
-#         down_sample_layer = residual_block(
-#             x=fix_shape_layer_2,
-#             filters=generator_power * (2 ** depth_step),
-#             kernel_size=KERNEL_SIZE,
-#             weight_decay=1e-4,
-#             downsample=True,
-#             use_pooling_layer=True,
-#             activation="leakyrelu"
-#         )
-#         fix_shape_layer_1 = residual_block(
-#             x=down_sample_layer,
-#             filters=generator_power * (2 ** depth_step),
-#             kernel_size=KERNEL_SIZE,
-#             weight_decay=1e-4,
-#             downsample=False,
-#             activation="leakyrelu"
-#         )
-#         fix_shape_layer_2 = residual_block(
-#             x=fix_shape_layer_1,
-#             filters=generator_power * (2 ** depth_step),
-#             kernel_size=KERNEL_SIZE,
-#             weight_decay=1e-4,
-#             downsample=False,
-#             activation="leakyrelu"
-#         )
-#         layer_collection = (down_sample_layer,
-#                             fix_shape_layer_1, fix_shape_layer_2)
-#         down_sample_layers.append(layer_collection)
-#     # upsampling
-#     for depth_step in range(depth, 0, -1):
-#         if depth_step == depth:
-#             fix_shape_layer_1 = deconv2d(
-#                 down_sample_layers[depth_step][2],
-#                 down_sample_layers[depth_step][1],
-#                 generator_power * (2 ** depth_step),
-#                 kernel_size=KERNEL_SIZE,
-#                 upsample=False,
-#             )
-#         else:
-#             fix_shape_layer_1 = deconv2d(
-#                 upsampling_layer,
-#                 down_sample_layers[depth_step][1],
-#                 generator_power * (2 ** depth_step),
-#                 kernel_size=KERNEL_SIZE,
-#                 upsample=False,
-#             )
-#         fix_shape_layer_2 = deconv2d(
-#             fix_shape_layer_1,
-#             down_sample_layers[depth_step][2],
-#             generator_power * (2 ** depth_step),
-#             kernel_size=KERNEL_SIZE,
-#             upsample=False,
-#         )
-#         upsampling_layer = deconv2d(
-#             fix_shape_layer_2,
-#             down_sample_layers[depth_step - 1][0],
-#             generator_power * (2 ** (depth_step - 1)),
-#             kernel_size=KERNEL_SIZE,
-#             upsample=True,
-#             use_upsampling_layer=False,
-#         )
-#     # control output_channels
-#     restored_image = residual_block_last(
-#         x=upsampling_layer,
-#         filters=input_image_shape[-1],
-#         kernel_size=KERNEL_SIZE,
-#         weight_decay=WEIGHT_DECAY,
-#         downsample=False,
-#         activation="sigmoid",
-#         normalization=True
-#     )
-#     generated_mask = pixel_shuffle_block()
-#     return Model(input_image, [restored_image, ])
-
-
 def build_discriminator(
     input_image_shape,
     output_image_shape,
     depth=None,
     discriminator_power=32,
+    num_class=1,
 ):
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
@@ -414,7 +437,7 @@ def build_discriminator(
 
     validity = residual_block_last(
         x=down_sampled_layer,
-        filters=1,
+        filters=num_class,
         kernel_size=KERNEL_SIZE,
         weight_decay=WEIGHT_DECAY,
         downsample=False,
@@ -488,7 +511,7 @@ def build_classifier(
     output = Dense(units=num_class,
                    activation="sigmoid",
                    kernel_initializer="glorot_uniform")(output)
-    return Model(input_image, outputs=output)
+    return Model(input_image, output)
 
 
 def build_ensemble_discriminator(

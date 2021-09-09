@@ -3,7 +3,8 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 
 from .util.gan_loss import rgb_color_histogram_loss
-from .util.lsgan import base_generator_loss_deceive_discriminator, base_discriminator_loss_arrest_generator
+from .util.wgan_gp import base_generator_loss_deceive_discriminator, \
+    base_discriminator_loss_arrest_generator, gradient_penalty
 from .util.grad_clip import adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss
@@ -15,11 +16,13 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        gp_weight=10.0,
         lambda_histogram=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
+        self.gp_weight = gp_weight
         self.lambda_histogram = lambda_histogram
 
     def compile(
@@ -30,6 +33,7 @@ class Pix2PixGan(Model):
         image_loss=base_image_loss_fn,
         generator_against_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
+        adaptive_gradient_clipping=True,
         lambda_clip=0.1
     ):
         super(Pix2PixGan, self).compile()
@@ -39,6 +43,7 @@ class Pix2PixGan(Model):
         self.discriminator_loss_arrest_generator = discriminator_loss_arrest_generator
         self.image_loss = image_loss
         self.batch_size = batch_size
+        self.adaptive_gradient_clipping = adaptive_gradient_clipping
         self.lambda_clip = lambda_clip
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
 
@@ -67,6 +72,9 @@ class Pix2PixGan(Model):
             # Discriminator loss
             disc_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
+            disc_fake_y_gradient_panalty = gradient_penalty(
+                self.discriminator, self.batch_size, real_y, fake_y)
+            disc_loss += self.gp_weight * disc_fake_y_gradient_panalty
 
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(
@@ -90,7 +98,6 @@ class Pix2PixGan(Model):
             disc_fake_y = self.discriminator(fake_y)
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
-
             # Generator adverserial loss
             gen_loss_adverserial_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
@@ -106,8 +113,9 @@ class Pix2PixGan(Model):
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(
             total_generator_loss, self.generator.trainable_variables)
-        cliped_gen_grads = adaptive_gradient_clipping(
-            gen_grads, self.generator.trainable_variables, lambda_clip=self.lambda_clip)
+        if self.adaptive_gradient_clipping is True:
+            cliped_gen_grads = adaptive_gradient_clipping(
+                gen_grads, self.generator.trainable_variables, lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators
         self.generator_optimizer.apply_gradients(
