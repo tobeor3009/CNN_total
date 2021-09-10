@@ -85,6 +85,8 @@ class StarGan(Model):
         image_tensor, label_tensor = batch_data
         real_x = image_tensor[0]
         real_y = image_tensor[1]
+        real_x_gray = tf.image.rgb_to_grayscale(real_x)
+        real_x_gray = tf.image.grayscale_to_rgb(real_x_gray)
         label_x = label_tensor[0]
         label_y = label_tensor[1]
 
@@ -143,7 +145,7 @@ class StarGan(Model):
             disc_total_loss = disc_total_loss_x + disc_total_loss_y
 
             if self.identitiy_loss is True:
-                same_x = self.generator([real_x, label_x, label_x])
+                same_x = self.generator([real_x_gray, label_x, label_x])
 
                 disc_same_x, label_predicted_same_x = self.discriminator(
                     same_x, training=True)
@@ -220,19 +222,24 @@ class StarGan(Model):
 
             if self.identitiy_loss is True:
                 same_x = self.generator(
-                    [real_x, label_x, label_x], training=True)
+                    [real_x_gray, label_x, label_x], training=True)
 
                 disc_same_x, label_predicted_same_x = self.discriminator(
                     same_x)
                 gen_same_disc_loss_x = self.generator_loss_deceive_discriminator(
                     disc_same_x)
                 gen_same_class_loss_x = self.class_loss_fn(
-                    label_x, label_predicted_same_x)        
+                    label_x, label_predicted_same_x)
                 same_image_loss_x = self.reconstruct_loss_fn(
                     real_x, same_x) * self.lambda_reconstruct * self.lambda_identity
 
-                gen_total_loss += gen_same_disc_loss_x + gen_same_class_loss_x + same_image_loss_x
-                
+                gen_total_loss += gen_same_disc_loss_x + \
+                    gen_same_class_loss_x + same_image_loss_x
+            else:
+                gen_same_disc_loss_x = 0
+                gen_same_class_loss_x = 0
+                same_image_loss_x = 0
+
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(
             gen_total_loss, self.generator.trainable_variables)
@@ -255,4 +262,6 @@ class StarGan(Model):
             "gen_fake_class_loss_y": gen_fake_class_loss_y,
             "gen_reconstruct_loss_x": reconstruct_image_loss_x,
             "gen_reconstruct_class_loss_x": gen_reconstruct_class_loss_x,
+            "gen_identity_loss_x": same_image_loss_x,
+            "gen_identity_class_loss_x": gen_same_class_loss_x
         }

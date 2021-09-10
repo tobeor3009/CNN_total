@@ -20,9 +20,14 @@ Reference:
       http://arxiv.org/abs/1512.00567) (CVPR 2016)
 """
 import os
-from tensorflow_addons.layers import InstanceNormalization
+
 
 from tensorflow.python.keras import backend
+from tensorflow.python.keras import layers
+from tensorflow.python.keras import models
+from tensorflow.python.keras import utils as keras_utils
+
+from tensorflow_addons.layers import InstanceNormalization
 from tensorflow.python.keras.applications import imagenet_utils
 from tensorflow.python.keras.engine import training
 from tensorflow.python.keras.layers import VersionAwareLayers
@@ -166,7 +171,7 @@ def InceptionV3(include_top=True,
                          ' as true, `classes` should be 1000')
 
     # Determine proper input shape
-    input_shape = imagenet_utils._obtain_input_shape(
+    input_shape = imagenet_utils.obtain_input_shape(
         input_shape,
         default_size=299,
         min_size=75,
@@ -402,9 +407,6 @@ def InceptionV3(include_top=True,
         inputs = keras_utils.get_source_inputs(input_tensor)
     else:
         inputs = img_input
-    # Create model.
-    model = models.Model(inputs, x, name='inception_v3')
-
     if stargan_mode == "add":
         x = x + target_label_tensor
     elif stargan_mode == "concatenate":
