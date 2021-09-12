@@ -67,7 +67,7 @@ class SegDataGetter(BaseDataGetter):
                 0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
-            self.get_data_on_memory()
+            self.get_data_on_ram()
 
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
@@ -205,7 +205,7 @@ class SelfModifyDataGetter(BaseDataGetter):
             self.argumentation_method = SegArgumentationPolicy(0)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
-            self.get_data_on_memory()
+            self.get_data_on_ram()
 
         self.argumentation_method = SegArgumentationPolicy(argumentation_proba)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
@@ -246,7 +246,7 @@ class SelfModifyDataGetter(BaseDataGetter):
 
         return self.single_data_dict
 
-    def get_data_on_memory(self):
+    def get_data_on_ram(self):
         widgets = [
             ' [',
             progressbar.Counter(format=f'%(value)02d/%(max_value)d'),

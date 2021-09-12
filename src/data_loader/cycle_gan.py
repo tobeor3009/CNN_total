@@ -50,7 +50,7 @@ class CycleGanDataGetter(BaseDataGetter):
         self.target_data_len = len(self.target_image_path_dict)
         self.data_on_memory_dict = {
             index: None for index in range(self.data_len)}
-        self.target_data_on_memory_dict = {
+        self.target_data_on_ram_dict = {
             index: None for index in range(self.target_data_len)}
 
         self.on_memory = on_memory
@@ -96,7 +96,7 @@ class CycleGanDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array = self.data_on_memory_dict[current_index]
-            target_image_array = self.target_data_on_memory_dict[target_index]
+            target_image_array = self.target_data_on_ram_dict[target_index]
 
             image_array, target_image_array = self.argumentation_method(
                 image_array, target_image_array)
@@ -154,7 +154,7 @@ class CycleGanDataGetter(BaseDataGetter):
             target_image_array = imread(target_image_path, channel="rgb")
             target_image_array = self.resize_method(target_image_array)
 
-            self.target_data_on_memory_dict[index] = target_image_array
+            self.target_data_on_ram_dict[index] = target_image_array
 
         self.on_memory = True
 

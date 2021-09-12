@@ -64,7 +64,7 @@ class ClassifyDataGetter(BaseDataGetter):
             self.argumentation_method = ClassifyArgumentationPolicy(
                 0, argumentation_policy_dict)
             self.preprocess_method = PreprocessPolicy(None)
-            self.get_data_on_memory()
+            self.get_data_on_ram()
 
         self.argumentation_method = \
             ClassifyArgumentationPolicy(

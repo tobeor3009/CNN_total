@@ -15,6 +15,8 @@ base_argumentation_policy_dict = {
     "color": True,
     "to_jpeg": True
 }
+
+
 class BaseDataGetter():
 
     def __init__(self):
@@ -35,7 +37,7 @@ class BaseDataGetter():
         for index, shuffled_index in enumerate(data_index_list):
             self.data_index_dict[index] = shuffled_index
 
-    def get_data_on_memory(self):
+    def get_data_on_ram(self):
         widgets = [
             ' [',
             progressbar.Counter(format=f'%(value)02d/%(max_value)d'),

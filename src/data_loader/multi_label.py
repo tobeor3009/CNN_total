@@ -72,7 +72,7 @@ class MultiLabelDataGetter(BaseDataGetter):
                 0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
-            self.get_data_on_memory()
+            self.get_data_on_ram()
 
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
