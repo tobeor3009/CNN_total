@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.utils import shuffle as syncron_shuffle
 
 # this library module
-from .utils import imread, get_parent_dir_name, LazyDict
+from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -32,44 +32,6 @@ test - negative
 #     memmap_array = np.load(memmap_array_path)
 
 #     for index, item in enumerate()
-
-
-def get_npy_array(path, target_size, data_key, shape, dtype):
-
-    path_spliter = os.path.sep
-    abs_path = os.path.abspath(path)
-    data_sort_list = ["train", "valid", "test"]
-
-    splited_path = abs_path.split(path_spliter)
-    for index, folder in enumerate(splited_path):
-        if folder == "datasets":
-            break
-
-    for folder in splited_path:
-        find_data_sort = False
-
-        for data_sort in data_sort_list:
-            if folder == data_sort:
-                find_data_sort = True
-                break
-        if find_data_sort is True:
-            break
-
-    current_data_folder = path_spliter.join(splited_path[:index + 2])
-
-    common_path = f"{current_data_folder}/{target_size}_{data_key}"
-
-    memmap_npy_path = common_path + f"{data_sort}.npy"
-    lock_path = common_path + f"{data_sort}.lock"
-
-    if os.path.exists(lock_path):
-        memmap_array = \
-            np.memmap(memmap_npy_path, dtype=dtype, mode="r+", shape=shape)
-    else:
-        memmap_array = np.memmap(memmap_npy_path, dtype=dtype, mode="r")
-
-    return memmap_array, lock_path
-
 
 class StarGanDataGetter(BaseDataGetter):
 
@@ -149,7 +111,6 @@ class StarGanDataGetter(BaseDataGetter):
                 self.data_on_memory_dict[current_index].values()
             target_image_array, target_label = \
                 self.data_on_memory_dict[target_index].values()
-
             image_array = self.argumentation_method(image_array)
             target_image_array = self.argumentation_method(target_image_array)
 
@@ -225,13 +186,12 @@ class StarGanDataGetter(BaseDataGetter):
     def get_data_on_disk(self):
 
         single_data_dict, _ = self[0]
-
         image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple(len(self) + image_array_shape)
+        image_array_shape = tuple([len(self)] + image_array_shape)
         image_array_dtype = single_data_dict["image_array"].dtype
 
         label_array_shape = list(single_data_dict["label"].shape)
-        label_array_shape = tuple(len(self) + label_array_shape)
+        label_array_shape = tuple([len(self)] + label_array_shape)
         label_array_dtype = single_data_dict["label"].dtype
 
         # get_npy_array(path, target_size, data_key, shape, dtype)
@@ -267,9 +227,10 @@ class StarGanDataGetter(BaseDataGetter):
             with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
                 pass
 
-        # TBD: Think about how to make this memmap array writable to readable when on_memory=False
+        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
+                                              array_tuple=(image_memmap_array, label_memmap_array))
         self.data_on_memory_dict = LazyDict({
-            i: {"image_array": image_memmap_array[i], "label": label_memmap_array[i]} for i in range(len(self))
+            i: (array_dict_lazy, i) for i in range(len(self))
         })
         self.on_memory = True
 
@@ -346,9 +307,6 @@ class StarGanDataloader(BaseDataLoader):
 
         return np.array([self.batch_image_array, self.batch_target_image_array]), \
             np.array([self.batch_label_array, self.batch_target_label_array])
-
-        # return self.batch_image_array, self.batch_label_array, \
-        #     self.batch_target_image_array, self.batch_target_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

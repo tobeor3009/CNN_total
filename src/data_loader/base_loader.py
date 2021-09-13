@@ -184,7 +184,6 @@ class ClassifyArgumentationPolicy():
 
         final_transform = A.Compose(
             final_transform_list, p=argumentation_proba)
-
         if argumentation_proba:
             self.transform = lambda image_array: \
                 final_transform(image=image_array)['image']

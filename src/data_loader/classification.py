@@ -1,10 +1,11 @@
 # base module
 from copy import deepcopy
+import os
 # external module
 import numpy as np
 
 # this library module
-from .utils import imread, get_parent_dir_name
+from .utils import imread, get_parent_dir_name, LazyDict, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -105,6 +106,45 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict["label"] = label
 
         return self.single_data_dict
+
+    def get_data_on_disk(self):
+
+        single_data_dict = self[0]
+        image_array_shape = list(single_data_dict["image_array"].shape)
+        image_array_shape = tuple([len(self)] + image_array_shape)
+        image_array_dtype = single_data_dict["image_array"].dtype
+
+        label_array_shape = list(single_data_dict["label"].shape)
+        label_array_shape = tuple([len(self)] + label_array_shape)
+        label_array_dtype = single_data_dict["label"].dtype
+
+        # get_npy_array(path, target_size, data_key, shape, dtype)
+        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                            target_size=self.target_size,
+                                                            data_key="image",
+                                                            shape=image_array_shape,
+                                                            dtype=image_array_dtype)
+        label_memmap_array, label_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                            target_size=self.target_size,
+                                                            data_key="label",
+                                                            shape=label_array_shape,
+                                                            dtype=label_array_dtype)
+
+        if os.path.exists(image_lock_path) and os.path.exists(label_lock_path):
+            pass
+        else:
+            for index, single_data_dict in enumerate(self):
+                image_array, label = single_data_dict.values()
+                image_memmap_array[index] = image_array
+                label_memmap_array[index] = label
+
+            with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
+                pass
+
+        self.data_on_memory_dict = LazyDict({
+            i: {"image_array": image_memmap_array[i], "label": label_memmap_array[i]} for i in range(len(self))
+        })
+        self.on_memory = True
 
 
 class ClassifyDataloader(BaseDataLoader):
