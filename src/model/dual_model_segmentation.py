@@ -95,6 +95,26 @@ class DualModelSegmentation(Model):
     @tf.function
     def test_step(self, batch):
         real_images, mask_images = batch
+<<<<<<< HEAD
+=======
+
+        gen_A_mask = mask_images[:, :, :, :1]
+        gen_B_mask = mask_images[:, :, :, 1:]
+
+        gen_A_fake_mask = self.generator_A(real_images, training=False)
+        gen_B_fake_mask = self.generator_B(real_images, training=False)
+
+        gen_A_loss = self.image_loss(gen_A_mask, gen_A_fake_mask)
+        gen_A_metric = self.metric(gen_A_mask, gen_A_fake_mask)
+        gen_B_loss = self.image_loss(gen_B_mask, gen_B_fake_mask)
+        gen_B_metric = self.metric(gen_B_mask, gen_B_fake_mask)
+        return {
+            "val_gen_A_loss": gen_A_loss,
+            "val_gen_B_loss": gen_B_loss,
+            "val_gen_A_metric": gen_A_metric,
+            "val_gen_B_metric": gen_B_metric,
+        }
+>>>>>>> f5ba6d8a40b8972efd11302d4b6642a8c90157c2
 
         gen_A_mask = mask_images[:, :, :, :1]
         gen_B_mask = mask_images[:, :, :, 1:]
