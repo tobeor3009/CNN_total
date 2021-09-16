@@ -1,12 +1,14 @@
 # base module
 from collections import deque
+import os
+
 # external module
 import numpy as np
 from sklearn.utils import shuffle as syncron_shuffle
 from tqdm import tqdm
 
 # this library module
-from .utils import imread
+from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -15,11 +17,11 @@ from .base_loader import BaseDataGetter, BaseDataLoader, \
 Expected Data Path Structure
 
 train - image
-      - mask
+      - target_image
 valid - image
-      - mask
+      - target_image
 test  - image
-      - mask
+      - target_image
 """
 
 """
@@ -44,8 +46,8 @@ class CycleGanDataGetter(BaseDataGetter):
 
         self.image_path_dict = {index: image_path for index,
                                 image_path in enumerate(image_path_list)}
-        self.target_image_path_dict = {index: mask_path for index,
-                                       mask_path in enumerate(target_image_path_list)}
+        self.target_image_path_dict = {index: target_image_path for index,
+                                       target_image_path in enumerate(target_image_path_list)}
         self.data_len = len(self.image_path_dict)
         self.target_data_len = len(self.target_image_path_dict)
         self.data_on_memory_dict = {
@@ -73,7 +75,7 @@ class CycleGanDataGetter(BaseDataGetter):
             self.argumentation_method = SegArgumentationPolicy(
                 0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
-            self.get_unpaired_data_on_memory()
+            self.get_unpaired_data_on_ram()
 
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.argumentation_method = SegArgumentationPolicy(
@@ -135,7 +137,7 @@ class CycleGanDataGetter(BaseDataGetter):
         for index, shuffled_index in enumerate(target_data_index_list):
             self.target_data_index_dict[index] = shuffled_index
 
-    def get_unpaired_data_on_memory(self):
+    def get_unpaired_data_on_ram(self):
 
         self.on_memory = False
 
@@ -156,6 +158,48 @@ class CycleGanDataGetter(BaseDataGetter):
 
             self.target_data_on_ram_dict[index] = target_image_array
 
+        self.on_memory = True
+
+    def get_unpaired_data_on_dist(self):
+
+        single_data_dict = self[0]
+        image_array_shape = list(single_data_dict["image_array"].shape)
+        image_array_shape = tuple([len(self)] + image_array_shape)
+        image_array_dtype = single_data_dict["image_array"].dtype
+
+        target_image_array_shape = list(
+            single_data_dict["target_image_array"].shape)
+        target_image_array_shape = tuple(
+            [len(self)] + target_image_array_shape)
+        target_image_array_dtype = single_data_dict["target_image_array"].dtype
+
+        # get_npy_array(path, target_size, data_key, shape, dtype)
+        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                            target_size=self.target_size,
+                                                            data_key="image",
+                                                            shape=image_array_shape,
+                                                            dtype=image_array_dtype)
+        target_image_memmap_array, target_image_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                                          target_size=self.target_size,
+                                                                          data_key="target_image",
+                                                                          shape=target_image_array_shape,
+                                                                          dtype=target_image_array_dtype)
+
+        if os.path.exists(image_lock_path) and os.path.exists(target_image_lock_path):
+            pass
+        else:
+            for index, single_data_dict in enumerate(self):
+                image_array, target_image_array = single_data_dict.values()
+                image_memmap_array[index] = image_array
+                target_image_memmap_array[index] = target_image_array
+
+            with open(image_lock_path, "w") as _, open(target_image_lock_path, "w") as _:
+                pass
+        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "target_image_array"),
+                                              array_tuple=(image_memmap_array, target_image_memmap_array))
+        self.data_on_memory_dict = LazyDict({
+            i: (array_dict_lazy, i) for i in range(len(self))
+        })
         self.on_memory = True
 
 

@@ -1,11 +1,13 @@
 # base module
 from copy import deepcopy
+from tqdm import tqdm
+import os
 # external module
 import numpy as np
 import progressbar
 
 # this library module
-from .utils import imread
+from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -62,12 +64,14 @@ class SegDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
+        self.argumentation_method = SegArgumentationPolicy(
+            0, argumentation_policy_dict)
+        self.image_preprocess_method = PreprocessPolicy(None)
+        self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
-            self.argumentation_method = SegArgumentationPolicy(
-                0, argumentation_policy_dict)
-            self.image_preprocess_method = PreprocessPolicy(None)
-            self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
+        else:
+            self.get_data_on_disk()
 
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
@@ -114,6 +118,46 @@ class SegDataGetter(BaseDataGetter):
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
         return self.single_data_dict
+
+    def get_data_on_disk(self):
+
+        single_data_dict = self[0]
+        image_array_shape = list(single_data_dict["image_array"].shape)
+        image_array_shape = tuple([len(self)] + image_array_shape)
+        image_array_dtype = single_data_dict["image_array"].dtype
+
+        mask_array_shape = list(single_data_dict["mask_array"].shape)
+        mask_array_shape = tuple([len(self)] + mask_array_shape)
+        mask_array_dtype = single_data_dict["mask_array"].dtype
+
+        # get_npy_array(path, target_size, data_key, shape, dtype)
+        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                            target_size=self.target_size,
+                                                            data_key="image",
+                                                            shape=image_array_shape,
+                                                            dtype=image_array_dtype)
+        mask_memmap_array, mask_lock_path = get_npy_array(path=self.image_path_dict[0],
+                                                          target_size=self.target_size,
+                                                          data_key="mask",
+                                                          shape=mask_array_shape,
+                                                          dtype=mask_array_dtype)
+
+        if os.path.exists(image_lock_path) and os.path.exists(mask_lock_path):
+            pass
+        else:
+            for index, single_data_dict in tqdm(enumerate(self)):
+                image_array, mask_array = single_data_dict.values()
+                image_memmap_array[index] = image_array
+                mask_memmap_array[index] = mask_array
+
+            with open(image_lock_path, "w") as _, open(mask_lock_path, "w") as _:
+                pass
+        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "mask_array"),
+                                              array_tuple=(image_memmap_array, mask_memmap_array))
+        self.data_on_memory_dict = LazyDict({
+            i: (array_dict_lazy, i) for i in range(len(self))
+        })
+        self.on_memory = True
 
 
 class SegDataloader(BaseDataLoader):
@@ -180,6 +224,8 @@ class SelfModifyDataGetter(BaseDataGetter):
                  mask_path_list,
                  on_memory,
                  argumentation_proba,
+                 argumentation_policy_dict,
+                 image_channel_dict,
                  preprocess_input,
                  target_size,
                  interpolation
@@ -193,6 +239,10 @@ class SelfModifyDataGetter(BaseDataGetter):
         self.data_on_memory_dict = {index: None for index, _
                                     in enumerate(image_path_list)}
         self.on_memory = on_memory
+
+        self.image_channel = image_channel_dict["image"]
+        self.mask_channel = image_channel_dict["mask"]
+
         self.target_size = target_size
         self.interpolation = interpolation
 
@@ -202,12 +252,15 @@ class SelfModifyDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
-            self.argumentation_method = SegArgumentationPolicy(0)
+            self.argumentation_method = \
+                SegArgumentationPolicy(0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
 
-        self.argumentation_method = SegArgumentationPolicy(argumentation_proba)
+        self.argumentation_method = \
+            SegArgumentationPolicy(argumentation_proba,
+                                   argumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
 
@@ -277,6 +330,8 @@ class SelfModifyDataLoader(BaseDataLoader):
                  batch_size=4,
                  on_memory=False,
                  argumentation_proba=None,
+                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
@@ -286,6 +341,8 @@ class SelfModifyDataLoader(BaseDataLoader):
                                                 mask_path_list=mask_path_list,
                                                 on_memory=on_memory,
                                                 argumentation_proba=argumentation_proba,
+                                                argumentation_policy_dict=argumentation_policy_dict,
+                                                image_channel_dict=image_channel_dict,
                                                 preprocess_input=preprocess_input,
                                                 target_size=target_size,
                                                 interpolation=interpolation

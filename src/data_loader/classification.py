@@ -1,11 +1,12 @@
 # base module
 from copy import deepcopy
+from tqdm import tqdm
 import os
 # external module
 import numpy as np
 
 # this library module
-from .utils import imread, get_parent_dir_name, LazyDict, get_npy_array
+from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -61,11 +62,14 @@ class ClassifyDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
+
+        self.argumentation_method = ClassifyArgumentationPolicy(
+            0, argumentation_policy_dict)
+        self.preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
-            self.argumentation_method = ClassifyArgumentationPolicy(
-                0, argumentation_policy_dict)
-            self.preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
+        else:
+            self.get_data_on_disk()
 
         self.argumentation_method = \
             ClassifyArgumentationPolicy(
@@ -133,16 +137,17 @@ class ClassifyDataGetter(BaseDataGetter):
         if os.path.exists(image_lock_path) and os.path.exists(label_lock_path):
             pass
         else:
-            for index, single_data_dict in enumerate(self):
+            for index, single_data_dict in tqdm(enumerate(self)):
                 image_array, label = single_data_dict.values()
                 image_memmap_array[index] = image_array
                 label_memmap_array[index] = label
 
             with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
                 pass
-
+        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
+                                              array_tuple=(image_memmap_array, label_memmap_array))
         self.data_on_memory_dict = LazyDict({
-            i: {"image_array": image_memmap_array[i], "label": label_memmap_array[i]} for i in range(len(self))
+            i: (array_dict_lazy, i) for i in range(len(self))
         })
         self.on_memory = True
 
