@@ -51,6 +51,7 @@ class StarGan(Model):
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
         identitiy_loss=True,
         histogram_loss=True,
+        active_wgan_gradient_panelty=True,
         active_gradient_clip=True,
         lambda_clip=0.1
     ):
@@ -67,6 +68,7 @@ class StarGan(Model):
         self.class_loss_fn = class_loss_fn
         self.identitiy_loss = identitiy_loss,
         self.histogram_loss = histogram_loss
+        self.active_wgan_gradient_panelty = active_wgan_gradient_panelty
         self.active_gradient_clip = active_gradient_clip
         self.lambda_clip = lambda_clip
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
@@ -130,9 +132,10 @@ class StarGan(Model):
             # Compute Discriminator wgan_loss_y
             disc_fake_loss_y = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
-            disc_fake_y_gradient_panalty = gradient_penalty(
-                self.discriminator, self.batch_size, real_y, fake_y)
-            disc_fake_loss_y += self.gp_weight * disc_fake_y_gradient_panalty
+            if self.active_wgan_gradient_panelty is True:
+                disc_fake_y_gradient_panalty = gradient_penalty(
+                    self.discriminator, self.batch_size, real_y, fake_y)
+                disc_fake_loss_y += self.gp_weight * disc_fake_y_gradient_panalty
 
             disc_total_loss_x = disc_reconstruct_loss_x + \
                 disc_class_loss_real_x + \
@@ -151,9 +154,10 @@ class StarGan(Model):
             # Compute Discriminator wgan_loss_y
             disc_same_loss_x = self.discriminator_loss_arrest_generator(
                 disc_real_x, disc_same_x)
-            disc_same_x_gradient_panalty = gradient_penalty(
-                self.discriminator, self.batch_size, real_x, same_x)
-            disc_same_loss_x += self.gp_weight * disc_same_x_gradient_panalty
+            if self.active_wgan_gradient_panelty is True:
+                disc_same_x_gradient_panalty = gradient_penalty(
+                    self.discriminator, self.batch_size, real_x, same_x)
+                disc_same_loss_x += self.gp_weight * disc_same_x_gradient_panalty
 
             disc_total_loss += disc_same_class_loss_x + disc_same_loss_x
 
@@ -175,7 +179,8 @@ class StarGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_x, label_y], training=True)
+            fake_y = self.generator(
+                [real_x, label_x, label_y], training=True)
 
             # back to original domain mapping
             reconstruct_x = self.generator(

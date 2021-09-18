@@ -65,7 +65,7 @@ def tversky_loss(y_true, y_pred, per_image=False, beta=0.7, smooth=SMOOTH):
         return tversky_loss_per_image
 
 
-def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
+def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH, channel_weight=None):
 
     alpha = 1 - beta
     prevalence = K.mean(y_true, axis=AXIS)
@@ -79,7 +79,16 @@ def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH):
         / (tn + beta * fn + alpha * fp + smooth) * (smooth + 1 - prevalence)
     positive_score = (tp + smooth) \
         / (tp + alpha * fn + beta * fp + smooth) * (smooth + prevalence)
+
     total_score = (negative_score + positive_score)
+
+    if channel_weight is not None:
+        channel_weight = np.array(channel_weight)
+        channel_weight = K.constant(channel_weight)
+        channel_weight_shape = (-1, 1, 1, channel_weight.shape[0])
+        channel_weight = K.reshape(channel_weight, channel_weight_shape)
+        total_score = total_score * channel_weight
+
     total_score = -1 * tf.math.log(total_score)
     return K.mean(total_score)
 
@@ -124,12 +133,15 @@ class TverskyLoss(Loss):
 
 
 class BasePropotionalDiceLoss(Loss):
-    def __init__(self, beta=0.7, smooth=SMOOTH):
+    def __init__(self, beta=0.7, smooth=SMOOTH, channel_weight=None):
         super().__init__(name='propotional_dice_loss')
 
         self.loss_function = \
-            lambda y_true, y_pred: propotional_dice_loss(
-                y_true, y_pred, beta=beta, smooth=smooth)
+            lambda y_true, y_pred: propotional_dice_loss(y_true,
+                                                         y_pred,
+                                                         beta=beta,
+                                                         smooth=smooth,
+                                                         channel_weight=channel_weight)
 
     def __call__(self, y_true, y_pred):
 
@@ -139,11 +151,13 @@ class BasePropotionalDiceLoss(Loss):
 class PropotionalDiceLoss(Loss):
     def __init__(self, beta=0.7, smooth=SMOOTH,
                  alpha=0.25, gamma=4.0,
-                 include_focal=False, include_boundary=False):
+                 include_focal=False, include_boundary=False,
+                 channel_weight=None):
         super().__init__(name='propotional_dice_loss')
 
-        self.loss_function = \
-            BasePropotionalDiceLoss(beta=beta, smooth=smooth)
+        self.loss_function = BasePropotionalDiceLoss(beta=beta,
+                                                     smooth=smooth,
+                                                     channel_weight=channel_weight)
         if include_focal is True:
             self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
         if include_boundary is True:
