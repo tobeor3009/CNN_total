@@ -95,9 +95,6 @@ class DualModelSegmentation(Model):
     @tf.function
     def test_step(self, batch):
         real_images, mask_images = batch
-        gen_A_mask = mask_images[:, :, :, :1]
-        gen_B_mask = mask_images[:, :, :, 1:]
-
         gen_A_fake_mask = self.generator_A(real_images, training=False)
         gen_B_fake_mask = self.generator_B(real_images, training=False)
 
