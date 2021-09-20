@@ -81,7 +81,7 @@ def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH, channel_weigh
         / (tp + alpha * fn + beta * fp + smooth) * (smooth + prevalence)
 
     total_score = (negative_score + positive_score)
-
+    total_score = -1 * tf.math.log(total_score)
     if channel_weight is not None:
         channel_weight = np.array(channel_weight)
         channel_weight = K.constant(channel_weight)
@@ -89,7 +89,6 @@ def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH, channel_weigh
         channel_weight = K.reshape(channel_weight, channel_weight_shape)
         total_score = total_score * channel_weight
 
-    total_score = -1 * tf.math.log(total_score)
     return K.mean(total_score)
 
 
