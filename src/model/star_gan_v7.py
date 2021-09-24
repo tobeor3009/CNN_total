@@ -85,8 +85,6 @@ class StarGan(Model):
         image_tensor, label_tensor = batch_data
         real_x = image_tensor[0]
         real_y = image_tensor[1]
-        real_x_gray = tf.image.rgb_to_grayscale(real_x)
-        real_x_gray = tf.image.grayscale_to_rgb(real_x_gray)
         label_x = label_tensor[0]
         label_y = label_tensor[1]
 
@@ -145,7 +143,7 @@ class StarGan(Model):
 
             disc_total_loss = disc_total_loss_x + disc_total_loss_y
 
-            same_x = self.generator([real_x_gray, label_x, label_x])
+            same_x = self.generator([real_x, label_x, label_x])
 
             disc_same_x, label_predicted_same_x = self.discriminator(
                 same_x, training=True)
@@ -187,7 +185,7 @@ class StarGan(Model):
                 [fake_y, label_y, label_x], training=True)
 
             same_x = self.generator(
-                [real_x_gray, label_x, label_x], training=True)
+                [real_x, label_x, label_x], training=True)
 
             # Discriminator output
             disc_fake_y, label_predicted_fake_y = self.discriminator(fake_y)
