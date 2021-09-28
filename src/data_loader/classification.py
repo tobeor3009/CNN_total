@@ -117,10 +117,13 @@ class ClassifyDataGetter(BaseDataGetter):
         image_array_shape = list(single_data_dict["image_array"].shape)
         image_array_shape = tuple([len(self)] + image_array_shape)
         image_array_dtype = single_data_dict["image_array"].dtype
-
-        label_array_shape = list(single_data_dict["label"].shape)
-        label_array_shape = tuple([len(self)] + label_array_shape)
-        label_array_dtype = single_data_dict["label"].dtype
+        if self.class_mode == "categorical":
+            label_array_shape = list(single_data_dict["label"].shape)
+            label_array_shape = tuple([len(self)] + label_array_shape)
+            label_array_dtype = single_data_dict["label"].dtype
+        elif self.class_mode == "binary":
+            label_array_shape = tuple([len(self)])
+            label_array_dtype = np.int32
 
         # get_npy_array(path, target_size, data_key, shape, dtype)
         image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
