@@ -74,7 +74,7 @@ def get_npy_array(path, target_size, data_key, shape, dtype):
 
     if os.path.exists(lock_path):
         memmap_array = np.memmap(
-            memmap_npy_path, dtype=dtype, mode="r+", shape=shape)
+            memmap_npy_path, dtype=dtype, mode="r", shape=shape)
     else:
         memmap_array = \
             np.memmap(memmap_npy_path, dtype=dtype, mode="w+", shape=shape)
