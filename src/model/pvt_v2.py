@@ -1,4 +1,5 @@
 import math
+from re import X
 
 import numpy as np
 
@@ -247,7 +248,7 @@ class Block(layers.Layer):
                               attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio, linear=linear)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(
-            drop_path) if drop_path > 0. else identity_layer
+            drop_path, training=True) if drop_path > 0. else identity_layer
         self.norm2 = norm_layer()
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
@@ -348,23 +349,94 @@ def PyramidVisionTransformerV2(input_shape,
         H = input_shape[0] // (conv_stride ** (i + 1))
         W = input_shape[1] // (conv_stride ** (i + 1))
 
-        if H == 0:
-            H = 1
-        if W == 0:
-            W = 1
         for blk in block:
             x = blk(x, H, W)
         x = norm(x)
         if i != num_stages - 1:
             x = keras_backend.reshape(x, (-1, H, W, embed_dims[i]))
-            x = keras_backend.permute_dimensions(x, (0, 2, 1, 3))
-
     x = keras_backend.mean(x, axis=-1)
     x = head(x)
     x = activation(x)
 
     model = Model(input_tensor, x)
     return model
+
+
+class PyramidVisionTransformerV2_Layer(layers.Layer):
+    def __init__(self,
+                 input_shape,
+                 num_classes=1000, activation=None,
+                 patch_size=16, conv_stride=4,
+                 embed_dims=[64, 128, 256, 512], num_heads=[1, 2, 4, 8],
+                 mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=custom_init_layer_norm,
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False):
+        super(PyramidVisionTransformerV2_Layer, self).__init__()
+        self.x_shape = input_shape
+        self.num_classes = num_classes
+        self.activation = activation
+        self.depths = depths
+        self.num_stages = num_stages
+        self.conv_stride = conv_stride
+        # stochastic depth decay rule
+        dpr = [x.numpy()
+               for x in tf.linspace(0.0, drop_path_rate, sum(depths))]
+        cur = 0
+
+        for i in range(num_stages):
+            patch_size = 7 if i == 0 else 3
+            embed_dim = embed_dims[i]
+            patch_embed = OverlapPatchEmbed(
+                patch_size=patch_size,
+                stride=conv_stride,
+                embed_dim=embed_dim
+            )
+            block_list = [Block(dim=embed_dims[i],
+                                num_heads=num_heads[i],
+                                mlp_ratio=mlp_ratios[i],
+                                qkv_bias=qkv_bias,
+                                qk_scale=qk_scale,
+                                drop=drop_rate,
+                                attn_drop=attn_drop_rate,
+                                drop_path=dpr[cur + j],
+                                norm_layer=norm_layer,
+                                sr_ratio=sr_ratios[i], linear=linear) for j in range(depths[i])]
+
+            # block = keras.Sequential(block_list)
+            norm = norm_layer()
+            cur += depths[i]
+            setattr(self, f"patch_embed{i + 1}", patch_embed)
+            setattr(self, f"block{i + 1}", block_list)
+            setattr(self, f"norm{i + 1}", norm)
+            # classification head
+            self.head = custom_init_dense(
+                num_classes) if num_classes > 0 else identity_layer
+
+    def call(self, x):
+
+        for i in range(self.num_stages):
+            patch_embed = getattr(self, f"patch_embed{i + 1}")
+            block = getattr(self, f"block{i + 1}")
+            norm = getattr(self, f"norm{i + 1}")
+            x = patch_embed(x)
+            H = self.x_shape[0] // (self.conv_stride ** (i + 1))
+            W = self.x_shape[1] // (self.conv_stride ** (i + 1))
+            if H == 0:
+                H = 1
+            if W == 0:
+                W = 1
+            for blk in block:
+                x = blk(x, H, W)
+            x = norm(x)
+            if i != self.num_stages - 1:
+                print(x.shape)
+                x = layers.Reshape([H, W, -1])(x)
+                print(x.shape)
+        x = keras_backend.mean(x, axis=-1)
+        x = self.head(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        return x
 
 
 class DWConv(layers.Layer):
