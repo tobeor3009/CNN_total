@@ -70,8 +70,8 @@ class DropPath(layers.Layer):
 
     def build(self, input_shape):
         batch_size = input_shape[0]
-        channel_size = input_shape[-1]
-        self.shape = (batch_size, ) + (1, ) * (channel_size - 1)
+        ndim = len(input_shape)
+        self.shape = (batch_size, ) + (1, ) * (ndim - 1)
 
     def call(self, x):
         if self.drop_prob == 0. or not self.training:
@@ -185,11 +185,11 @@ class Attention(layers.Layer):
             else:
                 # shape: B, (H * W), (dim * 2) <=> B, N, (dim * 2)
                 kv = self.kv(x)
-            # shape: B, N, (dim * 2) => B, 2, self.num_heads, (self.C // num_heads), ?
+            # shape: B, N, (dim * 2) => B, ?, 2, self.num_heads, (self.C // num_heads)
             kv = layers.Reshape(
-                (2, self.num_heads, self.C // self.num_heads, -1))(kv)
+                (-1, 2, self.num_heads, self.C // self.num_heads))(kv)
             # shape: 2, B, self.num_heads, ?, (self.C // num_heads)
-            kv = keras_backend.permute_dimensions(kv, (1, 0, 2, 4, 3))
+            kv = keras_backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
         else:
             # shape: B, N, self.C => B, H, W, self.C
             x_ = layers.Reshape((H, W, self.C))(x)
@@ -203,17 +203,16 @@ class Attention(layers.Layer):
             x_ = self.act(x_)
             # shape: B, H, W, (dim * 2)
             kv = self.kv(x_)
-            # shape: ?, 2, B, self.num_heads, (self.num_heads // self.C)
+            # shape: B, N, (dim * 2) => B, ?, 2, self.num_heads, (self.C // num_heads)
             kv = layers.Reshape(
-                (-1, 2, self.num_heads, self.num_heads // self.C))(kv)
+                (-1, 2, self.num_heads, self.C // self.num_heads))(kv)
             # shape: 2, B, self.num_heads, ?, (self.C // num_heads)
-            kv = keras_backend.permute_dimensions(kv, (1, 0, 2, 4, 3))
+            kv = keras_backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
 
         # k shape: B, self.num_heads, (self.C // num_heads), ?
         # v shape: B, self.num_heads, ?, (self.C // num_heads)
         k = keras_backend.permute_dimensions(kv[0], (0, 1, 3, 2))
         v = kv[1]
-
         # shape: (B, self.num_heads, N, (self.C // self.num_heads)) @ (B, self.num_heads, (self.C // num_heads), ?)
         # shape: B, self.num_heads, N, ?
         attn = tf.matmul(q, k) * self.scale
@@ -221,7 +220,7 @@ class Attention(layers.Layer):
         attn = activations.softmax(attn, axis=-1)
         attn = self.attn_drop(attn)
         # shape: (B, self.num_heads, N, ?) @ (B, self.num_heads, ?, self.C // num_heads)
-        # shape: B, self.num_heads, ?, (self.C // num_heads)
+        # shape: B, self.num_heads, N, (self.C // num_heads)
         out = tf.matmul(attn, v)
         # shape: B, N, self.num_heads, ?
         out = keras_backend.permute_dimensions(out, (0, 2, 1, 3))
@@ -354,7 +353,8 @@ def PyramidVisionTransformerV2(input_shape,
         x = norm(x)
         if i != num_stages - 1:
             x = keras_backend.reshape(x, (-1, H, W, embed_dims[i]))
-    x = keras_backend.mean(x, axis=-1)
+    # x = keras_backend.mean(x, axis=-1)
+    x = layers.Flatten()(x)
     x = head(x)
     x = activation(x)
 
@@ -429,9 +429,7 @@ class PyramidVisionTransformerV2_Layer(layers.Layer):
                 x = blk(x, H, W)
             x = norm(x)
             if i != self.num_stages - 1:
-                print(x.shape)
                 x = layers.Reshape([H, W, -1])(x)
-                print(x.shape)
         x = keras_backend.mean(x, axis=-1)
         x = self.head(x)
         if self.activation is not None:
