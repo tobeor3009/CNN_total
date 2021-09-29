@@ -160,8 +160,9 @@ def get_pvt(img_size, num_classes, block_depth, mlp_ratio, drop_path_rate, first
 
 
 class PVTNet():
-    def __init__(self, img_size=224, classes=2, type='tiny', pretrain=None):
+    def __init__(self, img_size=224, patch_size=4, classes=2, type='tiny', pretrain=None):
         self.img_size = img_size
+        self.patch_size = patch_size
         self.classes = classes
         self.pretrain = pretrain
         self.type = type
@@ -169,26 +170,26 @@ class PVTNet():
     def get_model(self):
         if self.type == 'tiny':
             model = get_pvt(img_size=(self.img_size, self.img_size), num_classes=self.classes,
-                            first_level_patch_size=4,
+                            first_level_patch_size=self.patch_size,
                             block_depth=[2, 2, 2, 2], mlp_ratio=[8, 8, 4, 4],
                             embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], sr_ratio=[8, 4, 2, 1],
                             drop_path_rate=0.1, attention_drop_rate=0.0, drop_rate=0.02)
         elif self.type == 'small':
             model = get_pvt(img_size=(self.img_size, self.img_size), num_classes=self.classes,
-                            first_level_patch_size=4,
+                            first_level_patch_size=self.patch_size,
                             block_depth=[3, 4, 6, 3], mlp_ratio=[8, 8, 4, 4],
                             embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], sr_ratio=[8, 4, 2, 1],
                             drop_path_rate=0.1, attention_drop_rate=0.0, drop_rate=0.0)
 
         elif self.type == 'medium':
             model = get_pvt(img_size=(self.img_size, self.img_size), num_classes=self.classes,
-                            first_level_patch_size=4,
+                            first_level_patch_size=self.patch_size,
                             block_depth=[3, 4, 18, 3], mlp_ratio=[8, 8, 4, 4],
                             embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], sr_ratio=[8, 4, 2, 1],
                             drop_path_rate=0.1, attention_drop_rate=0.0, drop_rate=0.0)
         elif self.type == 'large':
             model = get_pvt(img_size=(self.img_size, self.img_size), num_classes=self.classes,
-                            first_level_patch_size=4,
+                            first_level_patch_size=self.patch_size,
                             block_depth=[3, 8, 27, 3], mlp_ratio=[8, 8, 4, 4],
                             embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], sr_ratio=[8, 4, 2, 1],
                             drop_path_rate=0.1, attention_drop_rate=0.0, drop_rate=0.02)
