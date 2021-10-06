@@ -83,8 +83,8 @@ class StarGanDataGetter(BaseDataGetter):
 
         if self.on_memory is True:
             self.get_data_on_ram()
-        else:
-            self.get_data_on_disk()
+        # else:
+        #     self.get_data_on_disk()
 
         self.argumentation_method = \
             ClassifyArgumentationPolicy(

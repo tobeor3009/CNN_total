@@ -68,8 +68,8 @@ class ClassifyDataGetter(BaseDataGetter):
         self.preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
-        else:
-            self.get_data_on_disk()
+        # else:
+        #     self.get_data_on_disk()
 
         self.argumentation_method = \
             ClassifyArgumentationPolicy(

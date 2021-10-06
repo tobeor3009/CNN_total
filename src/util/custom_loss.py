@@ -102,6 +102,21 @@ class BoundaryLoss(Loss):
         return self.loss_function(y_true, y_pred)
 
 
+class ChannelWiseFocalLoss(Loss):
+    def __init__(self, alpha=0.25, gamma=4.0, channel_weight=None):
+        self.base_focal_function = BinaryFocalLoss(alpha=alpha, gamma=gamma)
+        self.channel_weight_list = channel_weight
+
+    def __call__(self, y_true, y_pred):
+        loss = 0
+        for index, channel_weight in enumerate(self.channel_weight_list):
+            y_true_partial = y_true[:, :, :, index]
+            y_pred_partial = y_pred[:, :, :, index]
+            loss += self.base_focal_function(y_true_partial,
+                                             y_pred_partial) * channel_weight
+        return loss
+
+
 class BaseTverskyLoss(Loss):
     def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH):
         super().__init__(name='tversky_loss')
@@ -158,7 +173,12 @@ class PropotionalDiceLoss(Loss):
                                                      smooth=smooth,
                                                      channel_weight=channel_weight)
         if include_focal is True:
-            self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+            if channel_weight is not None:
+                self.loss_function = ChannelWiseFocalLoss(
+                    alpha=alpha, gamma=gamma, channel_weight=channel_weight)
+            else:
+                self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+
         if include_boundary is True:
             self.loss_function += BoundaryLoss()
 
