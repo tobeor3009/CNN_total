@@ -42,7 +42,6 @@ class StarGan(Model):
         self,
         batch_size,
         image_shape,
-        label_num,
         generator_optimizer,
         discriminator_optimizer,
         image_loss_fn=base_image_loss_fn,
@@ -58,7 +57,6 @@ class StarGan(Model):
         super(StarGan, self).compile()
         self.batch_size = batch_size
         self.image_shape = image_shape
-        self.label_num = label_num
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.generator_loss_deceive_discriminator = generator_against_discriminator

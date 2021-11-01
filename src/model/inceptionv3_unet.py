@@ -49,6 +49,7 @@ def get_feature_layers(backbone_name, n=5):
 
         # Inception
         'inceptionv3': (228, 86, 16, 9),
+        'inceptionv3_revised': (238, 96, 26, 19)
 
     }
 

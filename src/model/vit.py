@@ -93,7 +93,7 @@ def create_vit_classifier(input_shape,
                    dropout_rate=0.5)
     # Classify outputs.
     logits = layers.Dense(num_classes)(features)
-    logits = activation(logits)
+    # logits = activation(logits)
     # Create the Keras model.
     model = Model(inputs=inputs, outputs=logits)
     return model

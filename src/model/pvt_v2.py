@@ -268,7 +268,6 @@ class Block(layers.Layer):
         x_norm2 = self.norm2(x)
         x_attn2 = self.mlp(x_norm2, H, W)
         x_drop_path2 = self.drop_path(x_attn2)
-
         out = x + x_drop_path1 + x_drop_path2
 
         return out
@@ -315,10 +314,11 @@ def PyramidVisionTransformerV2(input_shape,
     layer_archive = LayerArchive()
     for i in range(num_stages):
         patch_size = 7 if i == 0 else 3
+        stride = 4 if i == 0 else conv_stride
         embed_dim = embed_dims[i]
         patch_embed = OverlapPatchEmbed(
             patch_size=patch_size,
-            stride=conv_stride,
+            stride=stride,
             embed_dim=embed_dim
         )
         block_list = [Block(dim=embed_dims[i],
@@ -352,16 +352,17 @@ def PyramidVisionTransformerV2(input_shape,
             x = patch_embed(input_tensor)
         else:
             x = patch_embed(x)
-        H = input_shape[0] // (conv_stride ** (i + 1))
-        W = input_shape[1] // (conv_stride ** (i + 1))
+        stride = 4 if i == 0 else conv_stride
+        H = input_shape[0] // 4 // (conv_stride ** (i))
+        W = input_shape[1] // 4 // (conv_stride ** (i))
 
         for blk in block:
             x = blk(x, H, W)
         x = norm(x)
         if i != num_stages - 1:
             x = keras_backend.reshape(x, (-1, H, W, embed_dims[i]))
-    # x = keras_backend.mean(x, axis=-1)
-    x = layers.Flatten()(x)
+    x = keras_backend.mean(x, axis=-1)
+    # x = layers.Flatten()(x)
     x = head(x)
     x = activation(x)
 
