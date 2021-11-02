@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras import layers, activations, Sequential, Model
@@ -77,7 +78,6 @@ class HighWayResnetEncoder(layers.Layer):
         super(HighWayResnetEncoder, self).__init__()
         # Define Base Model Params
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.pooling_layer = layers.AveragePooling2D(pool_size=(2, 2))
         self.padding_layer = ReflectionPadding2D()
         self.conv2d = layers.Conv2D(filters=filters,
                                     kernel_size=(3, 3), strides=2,
@@ -102,6 +102,7 @@ class HighWayResnetEncoder(layers.Layer):
 class HighWayResnetDecoder(layers.Layer):
     def __init__(self, filters):
         super(HighWayResnetDecoder, self).__init__()
+        self.unsharp_mask_layer = UnshapeMasking2D(filters, filters)
         # Define Base Model Params
         # kernel_init = RandomNormal(mean=0.0, stddev=0.02)
         # self.conv2d = layers.Conv2DTranspose(filters=filters,
@@ -116,12 +117,39 @@ class HighWayResnetDecoder(layers.Layer):
     def call(self, input_tensor, mask=None):
 
         pixel_shuffle = tf.nn.depth_to_space(input_tensor, block_size=2)
+        pixel_shuffle = self.unsharp_mask_layer(pixel_shuffle)
         # x = self.conv2d(input_tensor)
         # x = self.norm(x)
         # x = self.activation(x)
 
         return pixel_shuffle
         # return self.highway_coef * x + (1 - self.highway_coef) * pixel_shuffle
+
+
+class UnshapeMasking2D(layers.Layer):
+    def __init__(self, in_channel, out_channel):
+        unsharp_kernel = [[0, -1, 0],
+                          [-1, 5, -1],
+                          [0, -1, 0]]
+
+        kernel = []
+        kernel_row = []
+
+        for _ in range(in_channel):
+            kernel_row.append(unsharp_kernel)
+
+        for _ in range(out_channel):
+            kernel.append(kernel_row)
+
+        self.unsharp_kernel = keras_backend.constant(np.array(kernel).T)
+
+    def call(self, input_tensor, mask=None):
+
+        return tf.nn.convolution(input=input_tensor,
+                                 filters=self.unsharp_kernel,
+                                 strides=1,
+                                 padding="SAME"
+                                 )
 
 
 def get_highway_resnet_generator(input_shape, init_filters, encoder_depth, middle_depth, last_channel_num):
