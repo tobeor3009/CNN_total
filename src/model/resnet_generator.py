@@ -5,6 +5,83 @@ from tensorflow.keras import layers, activations, Sequential, Model
 from tensorflow.keras.initializers import RandomNormal
 from .coord import CoordinateChannel2D
 
+from tensorflow.keras.layers import Dense, Activation, Multiply, Add, Lambda
+from tensorflow.keras.initializers import Constant
+
+
+class HighwayMulti(layers.Layer):
+
+    activation = None
+    transform_gate_bias = None
+
+    def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
+        self.activation = activation
+        self.transform_gate_bias = transform_gate_bias
+        transform_gate_bias_initializer = Constant(self.transform_gate_bias)
+        self.dim = dim
+        self.dense_1 = Dense(
+            units=self.dim, bias_initializer=transform_gate_bias_initializer)
+
+        super(HighwayMulti, self).__init__(**kwargs)
+
+    def call(self, x, y):
+        gate_input = layers.Concatenate(axis=-1)([x, y])
+        transform_gate = self.dense_1(gate_input)
+        transform_gate = Activation("sigmoid")(transform_gate)
+        carry_gate = Lambda(lambda x: 1.0 - x,
+                            output_shape=(self.dim,))(transform_gate)
+        transformed_gated = Multiply()([transform_gate, x])
+        identity_gated = Multiply()([carry_gate, y])
+        value = Add()([transformed_gated, identity_gated])
+        return value
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = super(HighwayMulti, self).get_config()
+        config['activation'] = self.activation
+        config['transform_gate_bias'] = self.transform_gate_bias
+        return config
+
+
+class Highway(layers.Layer):
+
+    activation = None
+    transform_gate_bias = None
+
+    def __init__(self, dim, activation='relu', transform_gate_bias=-1, **kwargs):
+        self.activation = activation
+        self.transform_gate_bias = transform_gate_bias
+        transform_gate_bias_initializer = Constant(self.transform_gate_bias)
+        self.dim = dim
+        self.dense_1 = Dense(
+            units=self.dim, bias_initializer=transform_gate_bias_initializer)
+        self.dense_2 = Dense(units=self.dim)
+
+        super(Highway, self).__init__(**kwargs)
+
+    def call(self, x):
+        transform_gate = self.dense_1(x)
+        transform_gate = Activation("sigmoid")(transform_gate)
+        carry_gate = Lambda(lambda x: 1.0 - x,
+                            output_shape=(self.dim,))(transform_gate)
+        transformed_data = self.dense_2(x)
+        transformed_data = Activation(self.activation)(transformed_data)
+        transformed_gated = Multiply()([transform_gate, transformed_data])
+        identity_gated = Multiply()([carry_gate, x])
+        value = Add()([transformed_gated, identity_gated])
+        return value
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        config = super(Highway, self).get_config()
+        config['activation'] = self.activation
+        config['transform_gate_bias'] = self.transform_gate_bias
+        return config
+
 
 class ReflectionPadding2D(layers.Layer):
     """Implements Reflection Padding as a layer.
@@ -21,7 +98,7 @@ class ReflectionPadding2D(layers.Layer):
         self.padding = tuple(padding)
         super(ReflectionPadding2D, self).__init__(**kwargs)
 
-    def call(self, input_tensor, mask=None):
+    def call(self, input_tensor):
         padding_width, padding_height = self.padding
         padding_tensor = [
             [0, 0],
@@ -34,103 +111,17 @@ class ReflectionPadding2D(layers.Layer):
                       mode="REFLECT")
 
 
-# class UnsharpMasking2D(layers.Layer):
-#     def __init__(self):
-#         super(UnsharpMasking2D, self).__init__()
-#         self.unsharp_kernel = keras_backend.constant([[0, -1, 0],
-#                                                       [-1, 5, 1],
-#                                                       [0, -1, 0]])
-
-#     def call(self, input_tensor, mask=None):
-
-
-class HighWayResnetBlock(layers.Layer):
-    def __init__(self, filters, use_highway=True):
-        super(HighWayResnetBlock, self).__init__()
-        # Define Base Model Params
-        self.use_highway = use_highway
-        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.padding_layer = ReflectionPadding2D()
-        self.conv2d = layers.Conv2D(filters=filters,
-                                    kernel_size=(3, 3), strides=1,
-                                    padding="valid", kernel_initializer=kernel_init)
-        self.norm = layers.BatchNormalization()
-        self.activation = layers.LeakyReLU(alpha=0.25)
-        initializer = tf.zeros_initializer()
-        # if self.use_highway is True:
-        #     self.highway_coef = tf.Variable(
-        #         initial_value=initializer(shape=(1,)), trainable=True)
-
-    def call(self, input_tensor, mask=None):
-
-        x = self.padding_layer(input_tensor)
-        x = self.conv2d(x)
-        x = self.norm(x)
-        x = self.activation(x)
-        # if self.use_highway is True:
-        #     return self.highway_coef * x + (1 - self.highway_coef) * input_tensor
-        # else:
-        return x
-
-
-class HighWayResnetEncoder(layers.Layer):
-    def __init__(self, filters):
-        super(HighWayResnetEncoder, self).__init__()
-        # Define Base Model Params
-        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.padding_layer = ReflectionPadding2D()
-        self.conv2d = layers.Conv2D(filters=filters,
-                                    kernel_size=(3, 3), strides=2,
-                                    padding="valid", kernel_initializer=kernel_init)
-        self.norm = layers.BatchNormalization()
-        self.activation = layers.LeakyReLU(alpha=0.25)
-        initializer = tf.zeros_initializer()
-        # self.highway_coef = tf.Variable(
-        #     initial_value=initializer(shape=(1,)), trainable=True)
-
-    def call(self, input_tensor, mask=None):
-
-        # source = self.pooling_layer(input_tensor)
-        x = self.padding_layer(input_tensor)
-        x = self.conv2d(x)
-        x = self.norm(x)
-        x = self.activation(x)
-        return x
-        # return self.highway_coef * x + (1 - self.highway_coef) * source
-
-
-class HighWayResnetDecoder(layers.Layer):
-    def __init__(self, filters):
-        super(HighWayResnetDecoder, self).__init__()
-        self.unsharp_mask_layer = UnshapeMasking2D(filters, filters)
-        # Define Base Model Params
-        # kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        # self.conv2d = layers.Conv2DTranspose(filters=filters,
-        #                                      kernel_size=(3, 3), strides=2,
-        #                                      padding="same", kernel_initializer=kernel_init)
-        # self.norm = layers.BatchNormalization()
-        # self.activation = layers.LeakyReLU(alpha=0.25)
-        # initializer = tf.zeros_initializer()
-        # self.highway_coef = tf.Variable(
-        #     initial_value=initializer(shape=(1,)), trainable=True)
-
-    def call(self, input_tensor, mask=None):
-
-        pixel_shuffle = tf.nn.depth_to_space(input_tensor, block_size=2)
-        pixel_shuffle = self.unsharp_mask_layer(pixel_shuffle)
-        # x = self.conv2d(input_tensor)
-        # x = self.norm(x)
-        # x = self.activation(x)
-
-        return pixel_shuffle
-        # return self.highway_coef * x + (1 - self.highway_coef) * pixel_shuffle
-
-
 class UnshapeMasking2D(layers.Layer):
     def __init__(self, in_channel, out_channel):
+        super(UnshapeMasking2D, self).__init__()
         unsharp_kernel = [[0, -1, 0],
                           [-1, 5, -1],
                           [0, -1, 0]]
+        unsharp_kernel = [[1, 4, 6, 4, 1],
+                          [4, 16, 24, 16, 4],
+                          [6, 24, -476, 24, 6],
+                          [4, 16, 24, 16, 4],
+                          [1, 4, 6, 4, 1]]
 
         kernel = []
         kernel_row = []
@@ -141,15 +132,144 @@ class UnshapeMasking2D(layers.Layer):
         for _ in range(out_channel):
             kernel.append(kernel_row)
 
-        self.unsharp_kernel = keras_backend.constant(np.array(kernel).T)
+        self.unsharp_kernel = keras_backend.constant(np.array(kernel).T / -256)
 
-    def call(self, input_tensor, mask=None):
+    def call(self, input_tensor):
 
         return tf.nn.convolution(input=input_tensor,
                                  filters=self.unsharp_kernel,
                                  strides=1,
                                  padding="SAME"
                                  )
+
+
+def DecoderTransposeX2Block(filters):
+    return layers.Conv2DTranspose(
+        filters,
+        kernel_size=(4, 4),
+        strides=(2, 2),
+        padding='same',
+        use_bias=False,
+    )
+
+
+def get_input_label2image_tensor(label_len, target_shape,
+                                 activation="tanh", negative_ratio=0.25,
+                                 dropout_ratio=0.5, reduce_level=5):
+
+    target_channel = target_shape[-1]
+    reduce_size = (2 ** reduce_level)
+    reduced_shape = (target_shape[0] // reduce_size,
+                     target_shape[1] // reduce_size,
+                     32)
+
+    class_input = layers.Input(shape=(label_len,))
+    class_tensor = layers.Dense(target_shape[0] * 2)(class_input)
+
+    class_tensor = layers.Flatten()(class_tensor)
+    class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+    class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
+    class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
+    class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+    class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
+    class_tensor = layers.Reshape(reduced_shape)(class_tensor)
+    for index in range(1, reduce_level):
+        class_tensor = DecoderTransposeX2Block(32 * index)(class_tensor)
+        class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+
+    class_tensor = DecoderTransposeX2Block(target_channel)(class_tensor)
+    class_tensor = layers.Reshape(target_shape)(class_tensor)
+    class_tensor = Activation(activation)(class_tensor)
+
+    return class_input, class_tensor
+
+
+class HighwayResnetBlock(layers.Layer):
+    def __init__(self, filters, use_highway=True):
+        super(HighwayResnetBlock, self).__init__()
+        # Define Base Model Params
+        self.use_highway = use_highway
+        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
+        self.padding_layer = ReflectionPadding2D()
+        self.conv2d = layers.Conv2D(filters=filters,
+                                    kernel_size=(3, 3), strides=1,
+                                    padding="valid", kernel_initializer=kernel_init)
+        self.norm = layers.BatchNormalization()
+        self.activation = layers.LeakyReLU(alpha=0.25)
+        if self.use_highway is True:
+            self.highway_layer = HighwayMulti(dim=filters)
+
+    def call(self, input_tensor):
+
+        x = self.padding_layer(input_tensor)
+        x = self.conv2d(x)
+        x = self.norm(x)
+        x = self.activation(x)
+        if self.use_highway is True:
+            x = self.highway_layer(x, input_tensor)
+        return x
+
+
+class HighwayResnetEncoder(layers.Layer):
+    def __init__(self, filters, use_highway=True):
+        super(HighwayResnetEncoder, self).__init__()
+        # Define Base Model Params
+        self.use_highway = use_highway
+        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
+        self.padding_layer = ReflectionPadding2D()
+        self.conv2d = layers.Conv2D(filters=filters,
+                                    kernel_size=(3, 3), strides=2,
+                                    padding="valid", kernel_initializer=kernel_init)
+        self.norm = layers.BatchNormalization()
+        self.activation = layers.LeakyReLU(alpha=0.25)
+        if self.use_highway is True:
+            self.pooling_layer = layers.AveragePooling2D(
+                pool_size=2, strides=2, padding="same")
+            self.highway_layer = HighwayMulti(dim=filters)
+
+    def call(self, input_tensor):
+
+        x = self.padding_layer(input_tensor)
+        x = self.conv2d(x)
+        x = self.norm(x)
+        x = self.activation(x)
+        if self.use_highway is True:
+            source = self.pooling_layer(input_tensor)
+            x = self.highway_layer(x, source)
+        return x
+
+
+class HighwayResnetDecoder(layers.Layer):
+    def __init__(self, filters):
+        super(HighwayResnetDecoder, self).__init__()
+        self.unsharp_mask_layer = UnshapeMasking2D(filters, filters)
+        # Define Base Model Params
+        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
+        self.padding_layer = ReflectionPadding2D()
+        self.conv2d = layers.Conv2D(filters=filters * 4,
+                                    kernel_size=(3, 3), strides=1,
+                                    padding="valid", kernel_initializer=kernel_init)
+        self.norm_conv = layers.BatchNormalization()
+        self.conv2d_trans = layers.Conv2DTranspose(filters=filters,
+                                                   kernel_size=(3, 3), strides=2,
+                                                   padding="same", kernel_initializer=kernel_init)
+        self.norm_conv_trans = layers.BatchNormalization()
+        self.activation = layers.LeakyReLU(alpha=0.25)
+        self.highway_layer = HighwayMulti(dim=filters)
+
+    def call(self, input_tensor):
+
+        pixel_shuffle = self.padding_layer(input_tensor)
+        pixel_shuffle = self.conv2d(pixel_shuffle)
+        pixel_shuffle = self.norm_conv(pixel_shuffle)
+        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, block_size=2)
+        pixel_shuffle = self.unsharp_mask_layer(pixel_shuffle)
+
+        x = self.conv2d_trans(input_tensor)
+        x = self.norm_conv_trans(x)
+        x = self.activation(x)
+        output = self.highway_layer(pixel_shuffle, x)
+        return output
 
 
 def get_highway_resnet_generator(input_shape, init_filters, encoder_depth, middle_depth, last_channel_num):
@@ -159,37 +279,114 @@ def get_highway_resnet_generator(input_shape, init_filters, encoder_depth, middl
 
     encoder_layers = []
     for index in range(1, encoder_depth + 1):
-        encoder_layers.append(HighWayResnetBlock(
+        encoder_layers.append(HighwayResnetBlock(
             init_filters * index, use_highway=False))
-        encoder_layers.append(HighWayResnetBlock(init_filters * index))
-        encoder_layers.append(HighWayResnetEncoder(init_filters * index))
+        encoder_layers.append(HighwayResnetBlock(init_filters * index))
+        encoder_layers.append(HighwayResnetEncoder(init_filters * index))
     encoder_layers = Sequential(encoder_layers)
 
     middle_layers = []
-
     for _ in range(1, middle_depth + 1):
-        middle_layers.append(HighWayResnetBlock(init_filters * index))
+        middle_layers.append(HighwayResnetBlock(init_filters * index))
     middle_layers = Sequential(middle_layers)
 
     decoder_layers = []
     for index in range(decoder_depth, 0, -1):
-        decoder_layers.append(HighWayResnetBlock(
-            init_filters * index * 4, use_highway=False))
-        decoder_layers.append(HighWayResnetBlock(init_filters * index * 4))
-        decoder_layers.append(HighWayResnetDecoder(init_filters * index))
+        decoder_layers.append(HighwayResnetBlock(
+            init_filters * index, use_highway=False))
+        decoder_layers.append(HighwayResnetBlock(init_filters * index))
+        decoder_layers.append(HighwayResnetDecoder(
+            init_filters * index, use_highway=False))
     decoder_layers = Sequential(decoder_layers)
 
     # model start
     input_tensor = layers.Input(shape=input_shape)
     coorded_tensor = CoordinateChannel2D(use_radius=True)(input_tensor)
-    conved_tensor = HighWayResnetBlock(
+    conved_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(coorded_tensor)
 
     encoded_tensor = encoder_layers(conved_tensor)
     feature_selcted_tensor = middle_layers(encoded_tensor)
     decoded_tensor = decoder_layers(feature_selcted_tensor)
+
+    # decoded_tensor = layers.Concatenate(
+    #     axis=-1)([decoded_tensor, coorded_tensor])
+    last_modified_tensor = HighwayResnetBlock(
+        init_filters, use_highway=False)(decoded_tensor)
+
     last_modified_tensor = layers.Conv2D(filters=last_channel_num,
                                          kernel_size=(3, 3), strides=1,
-                                         padding="same", kernel_initializer=kernel_init)(decoded_tensor)
+                                         padding="same", kernel_initializer=kernel_init)(last_modified_tensor)
     last_modified_tensor = activations.tanh(last_modified_tensor)
     return Model(input_tensor, last_modified_tensor)
+
+
+def get_highway_resnet_generator_stargan(input_shape, label_len, target_label_len,
+                                         init_filters, encoder_depth, middle_depth, last_channel_num):
+
+    decoder_depth = encoder_depth
+    kernel_init = RandomNormal(mean=0.0, stddev=0.02)
+
+    input_label_shape = (input_shape[0] // (2 ** encoder_depth),
+                         input_shape[1] // (2 ** encoder_depth),
+                         init_filters * encoder_depth)
+
+    target_label_shape = (input_shape[0] // (2 ** encoder_depth),
+                          input_shape[1] // (2 ** encoder_depth),
+                          init_filters * encoder_depth)
+    class_input, class_tensor = get_input_label2image_tensor(label_len=label_len, target_shape=input_label_shape,
+                                                             activation="tanh", negative_ratio=0.25,
+                                                             dropout_ratio=0.5, reduce_level=5)
+    target_class_input, target_class_tensor = get_input_label2image_tensor(label_len=target_label_len, target_shape=target_label_shape,
+                                                                           activation="tanh", negative_ratio=0.25,
+                                                                           dropout_ratio=0.5, reduce_level=5)
+    encoder_layers = []
+    for index in range(1, encoder_depth + 1):
+        encoder_layers.append(HighwayResnetBlock(
+            init_filters * index, use_highway=False))
+        encoder_layers.append(HighwayResnetBlock(init_filters * index))
+        encoder_layers.append(HighwayResnetEncoder(init_filters * index))
+    encoder_layers = Sequential(encoder_layers)
+
+    middle_layers = []
+    for middle_index in range(1, middle_depth + 1):
+        if middle_index == 1:
+            use_highway = False
+        else:
+            use_highway = True
+        middle_layers.append(HighwayResnetBlock(
+            init_filters * index, use_highway=use_highway))
+    middle_layers = Sequential(middle_layers)
+
+    decoder_layers = []
+    for index in range(decoder_depth, 0, -1):
+        decoder_layers.append(HighwayResnetBlock(
+            init_filters * index, use_highway=False))
+        decoder_layers.append(HighwayResnetBlock(init_filters * index))
+        decoder_layers.append(HighwayResnetDecoder(init_filters * index))
+    decoder_layers = Sequential(decoder_layers)
+
+    # model start
+    input_tensor = layers.Input(shape=input_shape)
+    coorded_tensor = CoordinateChannel2D(use_radius=True)(input_tensor)
+    conved_tensor = HighwayResnetBlock(
+        init_filters, use_highway=False)(coorded_tensor)
+
+    encoded_tensor = encoder_layers(conved_tensor)
+    encoded_tensor = layers.Concatenate(
+        axis=-1)([encoded_tensor, class_tensor])
+    feature_selcted_tensor = middle_layers(encoded_tensor)
+    feature_selcted_tensor = layers.Concatenate(
+        axis=-1)([feature_selcted_tensor, target_class_tensor])
+    decoded_tensor = decoder_layers(feature_selcted_tensor)
+
+    # decoded_tensor = layers.Concatenate(
+    #     axis=-1)([decoded_tensor, coorded_tensor])
+    last_modified_tensor = HighwayResnetBlock(
+        init_filters, use_highway=False)(decoded_tensor)
+
+    last_modified_tensor = layers.Conv2D(filters=last_channel_num,
+                                         kernel_size=(3, 3), strides=1,
+                                         padding="same", kernel_initializer=kernel_init)(last_modified_tensor)
+    last_modified_tensor = activations.tanh(last_modified_tensor)
+    return Model([input_tensor, class_input, target_class_input], last_modified_tensor)

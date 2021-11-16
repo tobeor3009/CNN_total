@@ -114,7 +114,7 @@ class CycleGan(Model):
     def call(self, x):
         return x
 
-    @tf.function
+    # @tf.function
     def train_step(self, batch_data):
         # =================================================================================== #
         #                             1. Preprocess input data                                #

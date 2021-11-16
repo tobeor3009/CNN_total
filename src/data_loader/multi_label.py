@@ -49,7 +49,7 @@ class MultiLabelDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
-        self.data_on_memory_dict = {}
+        self.data_on_ram_dict = {}
         self.label_to_index_dict = label_to_index_dict
         self.num_classes = len(self.label_to_index_dict)
         self.on_memory = on_memory
@@ -87,7 +87,7 @@ class MultiLabelDataGetter(BaseDataGetter):
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
-            image_array, mask_array, label, preserve = self.data_on_memory_dict[current_index]
+            image_array, mask_array, label, preserve = self.data_on_ram_dict[current_index]
             image_array, mask_array = \
                 self.argumentation_method(image_array, mask_array)
             image_array = self.image_preprocess_method(image_array)

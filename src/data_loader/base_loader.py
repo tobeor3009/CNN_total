@@ -11,6 +11,7 @@ import albumentations as A
 base_argumentation_policy_dict = {
     "positional": True,
     "noise": True,
+    "elastic": True,
     "brightness_contrast": True,
     "color": True,
     "to_jpeg": True
@@ -21,7 +22,7 @@ class BaseDataGetter():
 
     def __init__(self):
         self.image_path_dict = None
-        self.data_on_memory_dict = None
+        self.data_on_ram_dict = None
         self.on_memory = False
         self.data_len = None
         self.data_index_dict = None
@@ -52,7 +53,7 @@ class BaseDataGetter():
 
         self.on_memory = False
         for index, single_data_dict in enumerate(self):
-            self.data_on_memory_dict[index] = single_data_dict
+            self.data_on_ram_dict[index] = single_data_dict
             progressbar_displayed.update(value=index + 1)
 
         self.single_data_dict = deepcopy(self.single_data_dict)
@@ -155,6 +156,8 @@ class ClassifyArgumentationPolicy():
             A.GaussNoise(var_limit=(0.01, 5), p=1),
         ], p=0.5)
 
+        elastic_tranform = A.ElasticTransform(p=0.5)
+
         brightness_value = 0.2
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
@@ -175,6 +178,8 @@ class ClassifyArgumentationPolicy():
             final_transform_list.append(positional_transform)
         if argumentation_policy_dict["noise"] is True:
             final_transform_list.append(noise_transform)
+        if argumentation_policy_dict["elastic"] is True:
+            final_transform_list.append(elastic_tranform)
         if argumentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
         if argumentation_policy_dict["color"] is True:
@@ -212,19 +217,36 @@ class SegArgumentationPolicy():
             A.GaussNoise(var_limit=(0.01, 5), p=1),
         ], p=0.5)
 
-        brightness_value = 0.1
+        elastic_tranform = A.ElasticTransform(p=0.5)
+
+        brightness_value = 0.2
         brightness_contrast_transform = A.OneOf([
             A.RandomBrightnessContrast(
                 brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
         ], p=0.5)
+
+        color_transform = A.OneOf([
+            A.ChannelShuffle(p=1),
+            A.ToGray(p=1),
+            A.ToSepia(p=1),
+        ], p=0.5)
+
+        to_jpeg_transform = A.ImageCompression(
+            quality_lower=99, quality_upper=100, p=0.5)
 
         final_transform_list = []
         if argumentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
         if argumentation_policy_dict["noise"] is True:
             final_transform_list.append(noise_transform)
+        if argumentation_policy_dict["elastic"] is True:
+            final_transform_list.append(elastic_tranform)
         if argumentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
+        if argumentation_policy_dict["color"] is True:
+            final_transform_list.append(color_transform)
+        if argumentation_policy_dict["to_jpeg"] is True:
+            final_transform_list.append(to_jpeg_transform)
 
         self.final_transform = A.Sequential(
             final_transform_list, p=argumentation_proba)

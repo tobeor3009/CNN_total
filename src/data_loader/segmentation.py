@@ -49,8 +49,8 @@ class SegDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
-        self.data_on_memory_dict = {index: None for index, _
-                                    in enumerate(image_path_list)}
+        self.data_on_ram_dict = {index: None for index, _
+                                 in enumerate(image_path_list)}
         self.on_memory = on_memory
 
         self.image_channel = image_channel_dict["image"]
@@ -90,7 +90,7 @@ class SegDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array, mask_array = \
-                self.data_on_memory_dict[current_index].values()
+                self.data_on_ram_dict[current_index].values()
             image_array, mask_array = \
                 self.argumentation_method(image_array, mask_array)
             image_array = self.image_preprocess_method(image_array)
@@ -113,7 +113,7 @@ class SegDataGetter(BaseDataGetter):
 
             if self.is_cached is False:
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_cached = None not in self.data_on_memory_dict.values()
+                self.is_cached = None not in self.data_on_ram_dict.values()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
@@ -154,7 +154,7 @@ class SegDataGetter(BaseDataGetter):
                 pass
         array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "mask_array"),
                                               array_tuple=(image_memmap_array, mask_memmap_array))
-        self.data_on_memory_dict = LazyDict({
+        self.data_on_ram_dict = LazyDict({
             i: (array_dict_lazy, i) for i in range(len(self))
         })
         self.on_memory = True
@@ -236,8 +236,8 @@ class SelfModifyDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
-        self.data_on_memory_dict = {index: None for index, _
-                                    in enumerate(image_path_list)}
+        self.data_on_ram_dict = {index: None for index, _
+                                 in enumerate(image_path_list)}
         self.on_memory = on_memory
 
         self.image_channel = image_channel_dict["image"]
@@ -275,14 +275,14 @@ class SelfModifyDataGetter(BaseDataGetter):
         current_index = self.data_index_dict[i]
 
         if self.on_memory:
-            image_array = self.data_on_memory_dict[current_index]
+            image_array = self.data_on_ram_dict[current_index]
         else:
             image_path = self.image_path_dict[current_index]
             image_array = imread(image_path, channel="rgb")
             image_array = self.resize_method(image_array)
 
             if self.is_cached is False:
-                self.is_cached = None not in self.data_on_memory_dict.values()
+                self.is_cached = None not in self.data_on_ram_dict.values()
 
         mask_path = self.mask_path_dict[current_index]
         mask_array = imread(mask_path)
@@ -314,7 +314,7 @@ class SelfModifyDataGetter(BaseDataGetter):
 
         self.on_memory = False
         for index, single_data_dict in enumerate(self):
-            self.data_on_memory_dict[index] = \
+            self.data_on_ram_dict[index] = \
                 deepcopy(single_data_dict["image_array"])
             progressbar_displayed.update(value=index + 1)
 

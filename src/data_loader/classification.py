@@ -44,7 +44,7 @@ class ClassifyDataGetter(BaseDataGetter):
 
         self.image_path_dict = {index: image_path for index,
                                 image_path in enumerate(image_path_list)}
-        self.data_on_memory_dict = {}
+        self.data_on_ram_dict = {}
         self.label_to_index_dict = label_to_index_dict
         self.label_level = label_level
         self.num_classes = len(self.label_to_index_dict)
@@ -85,7 +85,7 @@ class ClassifyDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array, label = \
-                self.data_on_memory_dict[current_index].values()
+                self.data_on_ram_dict[current_index].values()
             image_array = self.argumentation_method(image_array)
             image_array = self.preprocess_method(image_array)
         else:
@@ -149,7 +149,7 @@ class ClassifyDataGetter(BaseDataGetter):
                 pass
         array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
                                               array_tuple=(image_memmap_array, label_memmap_array))
-        self.data_on_memory_dict = LazyDict({
+        self.data_on_ram_dict = LazyDict({
             i: (array_dict_lazy, i) for i in range(len(self))
         })
         self.on_memory = True

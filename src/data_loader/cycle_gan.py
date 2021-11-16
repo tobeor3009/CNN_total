@@ -39,6 +39,7 @@ class CycleGanDataGetter(BaseDataGetter):
                  argumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
+                 target_preprocess_input,
                  target_size,
                  interpolation
                  ):
@@ -50,7 +51,7 @@ class CycleGanDataGetter(BaseDataGetter):
                                        target_image_path in enumerate(target_image_path_list)}
         self.data_len = len(self.image_path_dict)
         self.target_data_len = len(self.target_image_path_dict)
-        self.data_on_memory_dict = {
+        self.data_on_ram_dict = {
             index: None for index in range(self.data_len)}
         self.target_data_on_ram_dict = {
             index: None for index in range(self.target_data_len)}
@@ -75,9 +76,13 @@ class CycleGanDataGetter(BaseDataGetter):
             self.argumentation_method = SegArgumentationPolicy(
                 0, argumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
+            self.target_image_preprocess_method = PreprocessPolicy(
+                None)
             self.get_unpaired_data_on_ram()
 
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
+        self.target_image_preprocess_method = PreprocessPolicy(
+            target_preprocess_input)
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
 
@@ -97,7 +102,7 @@ class CycleGanDataGetter(BaseDataGetter):
         target_index = self.target_data_index_quque.pop()
 
         if self.on_memory:
-            image_array = self.data_on_memory_dict[current_index]
+            image_array = self.data_on_ram_dict[current_index]
             target_image_array = self.target_data_on_ram_dict[target_index]
 
             image_array, target_image_array = self.argumentation_method(
@@ -105,7 +110,7 @@ class CycleGanDataGetter(BaseDataGetter):
             image_array = \
                 self.image_preprocess_method(image_array)
             target_image_array = \
-                self.image_preprocess_method(target_image_array)
+                self.target_image_preprocess_method(target_image_array)
         else:
             image_path = self.image_path_dict[current_index]
             target_image_path = self.target_image_path_dict[target_index]
@@ -123,7 +128,7 @@ class CycleGanDataGetter(BaseDataGetter):
             image_array = \
                 self.image_preprocess_method(image_array)
             target_image_array = \
-                self.image_preprocess_method(target_image_array)
+                self.target_image_preprocess_method(target_image_array)
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["target_image_array"] = target_image_array
@@ -146,60 +151,19 @@ class CycleGanDataGetter(BaseDataGetter):
 
         for index in tqdm(image_range):
             image_path = self.image_path_dict[index]
-            image_array = imread(image_path, channel="rgb")
+            image_array = imread(image_path, channel=self.image_channel)
             image_array = self.resize_method(image_array)
 
-            self.data_on_memory_dict[index] = image_array
+            self.data_on_ram_dict[index] = image_array
 
         for index in tqdm(target_image_range):
             target_image_path = self.target_image_path_dict[index]
-            target_image_array = imread(target_image_path, channel="rgb")
+            target_image_array = imread(
+                target_image_path, channel=self.target_image_channel)
             target_image_array = self.resize_method(target_image_array)
 
             self.target_data_on_ram_dict[index] = target_image_array
 
-        self.on_memory = True
-
-    def get_unpaired_data_on_dist(self):
-
-        single_data_dict = self[0]
-        image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple([len(self)] + image_array_shape)
-        image_array_dtype = single_data_dict["image_array"].dtype
-
-        target_image_array_shape = list(
-            single_data_dict["target_image_array"].shape)
-        target_image_array_shape = tuple(
-            [len(self)] + target_image_array_shape)
-        target_image_array_dtype = single_data_dict["target_image_array"].dtype
-
-        # get_npy_array(path, target_size, data_key, shape, dtype)
-        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="image",
-                                                            shape=image_array_shape,
-                                                            dtype=image_array_dtype)
-        target_image_memmap_array, target_image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                                          target_size=self.target_size,
-                                                                          data_key="target_image",
-                                                                          shape=target_image_array_shape,
-                                                                          dtype=target_image_array_dtype)
-
-        if os.path.exists(image_lock_path) and os.path.exists(target_image_lock_path):
-            pass
-        else:
-            for index, single_data_dict in enumerate(self):
-                image_array, target_image_array = single_data_dict.values()
-                image_memmap_array[index] = image_array
-                target_image_memmap_array[index] = target_image_array
-
-            with open(image_lock_path, "w") as _, open(target_image_lock_path, "w") as _:
-                pass
-        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "target_image_array"),
-                                              array_tuple=(image_memmap_array, target_image_memmap_array))
-        self.data_on_memory_dict = LazyDict({
-            i: (array_dict_lazy, i) for i in range(len(self))
-        })
         self.on_memory = True
 
 
@@ -214,6 +178,7 @@ class CycleGanDataloader(BaseDataLoader):
                  argumentation_policy_dict=base_argumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "target_image": "rgb"},
                  preprocess_input="-1~1",
+                 target_preprocess_input="-1~1",
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -225,6 +190,7 @@ class CycleGanDataloader(BaseDataLoader):
                                               argumentation_policy_dict=argumentation_policy_dict,
                                               image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
+                                              target_preprocess_input=target_preprocess_input,
                                               target_size=target_size,
                                               interpolation=interpolation
                                               )

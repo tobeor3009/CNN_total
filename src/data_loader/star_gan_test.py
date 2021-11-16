@@ -51,7 +51,7 @@ class StarGanDataGetter(BaseDataGetter):
 
         self.image_path_dict = {index: image_path for index,
                                 image_path in enumerate(image_path_list)}
-        self.data_on_memory_dict = {}
+        self.data_on_ram_dict = {}
         self.label_policy = label_policy
         self.on_memory = on_memory
         self.image_channel = image_channel_dict["image"]
@@ -103,9 +103,9 @@ class StarGanDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array, label = \
-                self.data_on_memory_dict[current_index].values()
+                self.data_on_ram_dict[current_index].values()
             target_image_array, target_label = \
-                self.data_on_memory_dict[target_index].values()
+                self.data_on_ram_dict[target_index].values()
             image_array = self.argumentation_method(image_array)
             target_image_array = self.argumentation_method(target_image_array)
 
@@ -163,7 +163,7 @@ class StarGanDataGetter(BaseDataGetter):
 
             label = self.label_policy(image_path)
 
-            self.data_on_memory_dict[index] = \
+            self.data_on_ram_dict[index] = \
                 {"image_array": image_array, "label": label}
 
         self.on_memory = True
@@ -211,7 +211,7 @@ class StarGanDataGetter(BaseDataGetter):
 
         array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
                                               array_tuple=(image_memmap_array, label_memmap_array))
-        self.data_on_memory_dict = LazyDict({
+        self.data_on_ram_dict = LazyDict({
             i: (array_dict_lazy, i) for i in range(len(self))
         })
         self.on_memory = True

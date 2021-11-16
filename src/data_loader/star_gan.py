@@ -52,7 +52,7 @@ class StarGanDataGetter(BaseDataGetter):
 
         self.image_path_dict = {index: image_path for index,
                                 image_path in enumerate(image_path_list)}
-        self.data_on_memory_dict = {}
+        self.data_on_ram_dict = {}
         self.label_to_index_dict = label_to_index_dict
         self.label_level = label_level
         self.num_classes = len(self.label_to_index_dict)
@@ -83,8 +83,6 @@ class StarGanDataGetter(BaseDataGetter):
 
         if self.on_memory is True:
             self.get_data_on_ram()
-        # else:
-        #     self.get_data_on_disk()
 
         self.argumentation_method = \
             ClassifyArgumentationPolicy(
@@ -108,9 +106,9 @@ class StarGanDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array, label = \
-                self.data_on_memory_dict[current_index].values()
+                self.data_on_ram_dict[current_index].values()
             target_image_array, target_label = \
-                self.data_on_memory_dict[target_index].values()
+                self.data_on_ram_dict[target_index].values()
             image_array = self.argumentation_method(image_array)
             target_image_array = self.argumentation_method(target_image_array)
 
@@ -178,60 +176,9 @@ class StarGanDataGetter(BaseDataGetter):
             label = self.label_to_index_dict[image_dir_name]
             label = self.categorize_method(label)
 
-            self.data_on_memory_dict[index] = \
+            self.data_on_ram_dict[index] = \
                 {"image_array": image_array, "label": label}
 
-        self.on_memory = True
-
-    def get_data_on_disk(self):
-
-        single_data_dict, _ = self[0]
-        image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple([len(self)] + image_array_shape)
-        image_array_dtype = single_data_dict["image_array"].dtype
-
-        label_array_shape = list(single_data_dict["label"].shape)
-        label_array_shape = tuple([len(self)] + label_array_shape)
-        label_array_dtype = single_data_dict["label"].dtype
-
-        # get_npy_array(path, target_size, data_key, shape, dtype)
-        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="image",
-                                                            shape=image_array_shape,
-                                                            dtype=image_array_dtype)
-        label_memmap_array, label_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="label",
-                                                            shape=label_array_shape,
-                                                            dtype=label_array_dtype)
-
-        if os.path.exists(image_lock_path) and os.path.exists(label_lock_path):
-            pass
-        else:
-            image_range = range(self.data_len)
-
-            for index in tqdm(image_range):
-                image_path = self.image_path_dict[index]
-                image_array = imread(image_path, channel=self.image_channel)
-                image_array = self.resize_method(image_array)
-
-                image_dir_name = get_parent_dir_name(
-                    image_path, self.label_level)
-                label = self.label_to_index_dict[image_dir_name]
-                label = self.categorize_method(label)
-
-                image_memmap_array[index] = image_array
-                label_memmap_array[index] = label
-
-            with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
-                pass
-
-        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
-                                              array_tuple=(image_memmap_array, label_memmap_array))
-        self.data_on_memory_dict = LazyDict({
-            i: (array_dict_lazy, i) for i in range(len(self))
-        })
         self.on_memory = True
 
 
