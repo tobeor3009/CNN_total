@@ -114,15 +114,15 @@ class ReflectionPadding2D(layers.Layer):
 
 
 class UnsharpMasking2D(layers.Layer):
-    def __init__(self):
+    def __init__(self, filters):
         super(UnsharpMasking2D, self).__init__()
         gauss_kernel_2d = get_gaussian_kernel(2, 0.0, 1.0)
         self.gauss_kernel = tf.tile(
-            gauss_kernel_2d[:, :, tf.newaxis, tf.newaxis], [1, 1, 3, 1])
-        self.pointwise_filter = tf.eye(3, batch_shape=[1, 1])
+            gauss_kernel_2d[:, :, tf.newaxis, tf.newaxis], [1, 1, filters, 1])
+
+        self.pointwise_filter = tf.eye(filters, batch_shape=[1, 1])
 
     def call(self, input_tensor):
-
         blur_tensor = tf.nn.separable_conv2d(input_tensor,
                                              self.gauss_kernel,
                                              self.pointwise_filter,
@@ -232,7 +232,7 @@ class HighwayResnetEncoder(layers.Layer):
 class HighwayResnetDecoder(layers.Layer):
     def __init__(self, filters):
         super(HighwayResnetDecoder, self).__init__()
-        self.unsharp_mask_layer = UnsharpMasking2D()
+        self.unsharp_mask_layer = UnsharpMasking2D(filters)
         # Define Base Model Params
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
         self.padding_layer = ReflectionPadding2D()
