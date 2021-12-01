@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-import tensorflow_addons as tfa
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras import layers, activations, Sequential, Model
 from tensorflow.keras.initializers import RandomNormal
@@ -52,7 +51,7 @@ class Highway(layers.Layer):
     activation = None
     transform_gate_bias = None
 
-    def __init__(self, dim, activation='relu', transform_gate_bias=-1, **kwargs):
+    def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
         self.activation = activation
         self.transform_gate_bias = transform_gate_bias
         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
@@ -230,8 +229,9 @@ class HighwayResnetEncoder(layers.Layer):
 
 
 class HighwayResnetDecoder(layers.Layer):
-    def __init__(self, filters):
+    def __init__(self, filters, unsharp=False):
         super(HighwayResnetDecoder, self).__init__()
+        self.unsharp = unsharp
         self.unsharp_mask_layer = UnsharpMasking2D(filters)
         # Define Base Model Params
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
@@ -269,7 +269,8 @@ class HighwayResnetDecoder(layers.Layer):
         output = self.highway_layer(pixel_shuffle, x)
         output = self.norm_layer(output)
         output = self.act_layer(output)
-        output = self.unsharp_mask_layer(output)
+        if self.unsharp:
+            output = self.unsharp_mask_layer(output)
         return output
 
 
@@ -323,8 +324,12 @@ def get_highway_resnet_generator_unet(input_shape,
             skip_connection_target = encoder_tensor_list[target_layer_num]
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
-        decoded_tensor = HighwayResnetDecoder(
-            init_filters * index)(decoded_tensor)
+        if index > 1:
+            decoded_tensor = HighwayResnetDecoder(
+                init_filters * index, unsharp=True)(decoded_tensor)
+        else:
+            decoded_tensor = HighwayResnetDecoder(
+                init_filters * index)(decoded_tensor)
 
     last_modified_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(decoded_tensor)
@@ -422,6 +427,8 @@ def get_discriminator(
     output_img_shape,
     depth=None,
     init_filters=32,
+    num_class=None,
+    include_classifier=False
 ):
 
     # this model output range [0, 1]. control by ResidualLastBlock's sigmiod activation
@@ -451,7 +458,17 @@ def get_discriminator(
 
     validity = HighwayResnetBlock(1, use_highway=False)(decoded_tensor)
     validity = activations.sigmoid(validity)
-    return Model([original_image, predicted_image], validity)
+
+    if include_classifier is True:
+        predictions = layers.GlobalAveragePooling2D()(decoded_tensor)
+        predictions = layers.Dense(1024)(predictions)
+        predictions = layers.ReLU()(predictions)
+        predictions = layers.Dropout(0.5)(predictions)
+        predictions = layers.Dense(
+            num_class, activation='softmax')(predictions)
+        return Model([original_image, predicted_image], [validity, predictions])
+    else:
+        return Model([original_image, predicted_image], validity)
 
 
 def get_gaussian_kernel(size=2, mean=0.0, std=1.0):
