@@ -56,7 +56,7 @@ class CycleGan(Model):
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
         identity_loss=True,
         histogram_loss=True,
-        active_gradient_clip=True,
+        active_gradient_clip=False,
         lambda_clip=0.1,
     ):
         super(CycleGan, self).compile()
