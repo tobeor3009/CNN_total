@@ -150,12 +150,9 @@ def get_input_label2image_tensor(label_len, target_shape,
     reduce_size = (2 ** reduce_level)
     reduced_shape = (target_shape[0] // reduce_size,
                      target_shape[1] // reduce_size,
-                     32)
-
+                     target_shape[2])
     class_input = layers.Input(shape=(label_len,))
-    class_tensor = layers.Dense(target_shape[0] * 2)(class_input)
-
-    class_tensor = layers.Flatten()(class_tensor)
+    class_tensor = layers.Dense(np.prod(reduced_shape) // 2)(class_input)
     class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
@@ -163,9 +160,9 @@ def get_input_label2image_tensor(label_len, target_shape,
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Reshape(reduced_shape)(class_tensor)
     for index in range(1, reduce_level):
-        class_tensor = DecoderTransposeX2Block(32 * index)(class_tensor)
+        class_tensor = DecoderTransposeX2Block(
+            target_shape[2] * index)(class_tensor)
         class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
-
     class_tensor = DecoderTransposeX2Block(target_channel)(class_tensor)
     class_tensor = layers.Reshape(target_shape)(class_tensor)
     class_tensor = Activation(activation)(class_tensor)
@@ -462,11 +459,14 @@ def get_discriminator(
 
     if include_classifier is True:
         predictions = layers.Flatten()(decoded_tensor)
+        predictions = layers.Dense(2048)(predictions)
+        predictions = layers.ReLU()(predictions)
+        predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(1024)(predictions)
         predictions = layers.ReLU()(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(
-            num_class, activation='softmax')(predictions)
+            num_class, activation='sigmoid')(predictions)
         return Model([original_image, predicted_image], [validity, predictions])
     else:
         return Model([original_image, predicted_image], validity)
