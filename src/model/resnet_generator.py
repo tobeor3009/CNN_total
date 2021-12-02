@@ -45,44 +45,6 @@ class HighwayMulti(layers.Layer):
         return config
 
 
-class Highway(layers.Layer):
-
-    activation = None
-    transform_gate_bias = None
-
-    def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
-        self.activation = activation
-        self.transform_gate_bias = transform_gate_bias
-        transform_gate_bias_initializer = Constant(self.transform_gate_bias)
-        self.dim = dim
-        self.dense_1 = Dense(
-            units=self.dim, bias_initializer=transform_gate_bias_initializer)
-        self.dense_2 = Dense(units=self.dim)
-
-        super(Highway, self).__init__(**kwargs)
-
-    def call(self, x):
-        transform_gate = self.dense_1(x)
-        transform_gate = Activation("sigmoid")(transform_gate)
-        carry_gate = Lambda(lambda x: 1.0 - x,
-                            output_shape=(self.dim,))(transform_gate)
-        transformed_data = self.dense_2(x)
-        transformed_data = Activation(self.activation)(transformed_data)
-        transformed_gated = Multiply()([transform_gate, transformed_data])
-        identity_gated = Multiply()([carry_gate, x])
-        value = Add()([transformed_gated, identity_gated])
-        return value
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
-
-    def get_config(self):
-        config = super(Highway, self).get_config()
-        config['activation'] = self.activation
-        config['transform_gate_bias'] = self.transform_gate_bias
-        return config
-
-
 class ReflectionPadding2D(layers.Layer):
     """Implements Reflection Padding as a layer.
 
@@ -170,7 +132,7 @@ def get_input_label2image_tensor(label_len, target_shape,
 
 
 class HighwayResnetBlock(layers.Layer):
-    def __init__(self, filters, use_highway=True):
+    def __init__(self, filters, use_highway=True, norm="batch", activation="relu"):
         super(HighwayResnetBlock, self).__init__()
         # Define Base Model Params
         self.use_highway = use_highway
@@ -179,8 +141,14 @@ class HighwayResnetBlock(layers.Layer):
         self.conv2d = layers.Conv2D(filters=filters,
                                     kernel_size=(3, 3), strides=1,
                                     padding="valid", kernel_initializer=kernel_init)
-        self.norm = layers.BatchNormalization()
-        self.activation = layers.ReLU()
+        if norm == "batch":
+            self.norm = layers.BatchNormalization()
+        else:
+            pass
+        if activation == "relu":
+            self.activation = layers.ReLU()
+        elif activation == "tanh":
+            self.activation = tanh
         if self.use_highway is True:
             self.highway_layer = HighwayMulti(dim=filters)
 
@@ -231,20 +199,17 @@ class HighwayResnetDecoder(layers.Layer):
         self.unsharp_mask_layer = UnsharpMasking2D(filters)
         # Define Base Model Params
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.padding_layer = ReflectionPadding2D()
 
-        self.conv2d = layers.Conv2D(filters=filters * 4,
-                                    kernel_size=(3, 3), strides=1,
-                                    padding="valid", kernel_initializer=kernel_init)
-        self.conv_after_pixel_shffle = layers.Conv2D(filters=filters, kernel_size=(1, 1), strides=1,
-                                                     padding="same", kernel_initializer=kernel_init)
+        self.conv2d = HighwayResnetBlock(filters * 4, use_highway=False)
+        self.conv_after_pixel_shffle = HighwayResnetBlock(
+            filters, use_highway=False)
 
-        self.conv_before_upsample = layers.Conv2D(filters=filters, kernel_size=(1, 1), strides=1,
-                                                  padding="same", kernel_initializer=kernel_init)
+        self.conv_before_upsample = HighwayResnetBlock(
+            filters, use_highway=False)
         self.upsample_layer = layers.UpSampling2D(
             size=2, interpolation="bilinear")
-        self.conv_after_upsample = layers.Conv2D(filters=filters, kernel_size=(1, 1), strides=1,
-                                                 padding="same", kernel_initializer=kernel_init)
+        self.conv_after_upsample = HighwayResnetBlock(
+            filters, use_highway=False)
 
         self.norm_layer = layers.BatchNormalization()
         self.act_layer = tanh
@@ -252,8 +217,7 @@ class HighwayResnetDecoder(layers.Layer):
 
     def call(self, input_tensor):
 
-        pixel_shuffle = self.padding_layer(input_tensor)
-        pixel_shuffle = self.conv2d(pixel_shuffle)
+        pixel_shuffle = self.conv2d(input_tensor)
         pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, block_size=2)
         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
 
@@ -263,7 +227,7 @@ class HighwayResnetDecoder(layers.Layer):
 
         output = self.highway_layer(pixel_shuffle, x)
         output = self.norm_layer(output)
-        output = self.act_layer(pixel_shuffle)
+        output = self.act_layer(output)
         if self.unsharp:
             output = self.unsharp_mask_layer(output)
         return output
@@ -313,14 +277,14 @@ def get_highway_resnet_generator_unet(input_shape,
         decoded_tensor = HighwayResnetBlock(
             init_filters * index, use_highway=False)(decoded_tensor)
         decoded_tensor = HighwayResnetBlock(
-            init_filters * index)(decoded_tensor)
+            init_filters * index, use_highway=True)(decoded_tensor)
         if skip_connection is True:
             target_layer_num = index * 3 - 1
             skip_connection_target = encoder_tensor_list[target_layer_num]
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
-            decoded_tensor = HighwayResnetDecoder(
-                init_filters * index, unsharp=True)(decoded_tensor)
+        decoded_tensor = HighwayResnetDecoder(
+            init_filters * index, unsharp=True)(decoded_tensor)
 
     last_modified_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(decoded_tensor)
