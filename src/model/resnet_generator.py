@@ -26,8 +26,7 @@ class HighwayMulti(layers.Layer):
         super(HighwayMulti, self).__init__(**kwargs)
 
     def call(self, x, y):
-        gate_input = layers.Concatenate(axis=-1)([x, y])
-        transform_gate = self.dense_1(gate_input)
+        transform_gate = self.dense_1(x)
         transform_gate = Activation("sigmoid")(transform_gate)
         carry_gate = Lambda(lambda x: 1.0 - x,
                             output_shape=(self.dim,))(transform_gate)
@@ -153,16 +152,16 @@ def get_input_label2image_tensor(label_len, target_shape,
                      target_shape[2])
     class_input = layers.Input(shape=(label_len,))
     class_tensor = layers.Dense(np.prod(reduced_shape) // 2)(class_input)
-    class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+    class_tensor = layers.ReLU()(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
-    class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+    class_tensor = layers.ReLU()(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Reshape(reduced_shape)(class_tensor)
     for index in range(1, reduce_level):
         class_tensor = DecoderTransposeX2Block(
             target_shape[2] * index)(class_tensor)
-        class_tensor = layers.LeakyReLU(negative_ratio)(class_tensor)
+        class_tensor = layers.ReLU()(class_tensor)
     class_tensor = DecoderTransposeX2Block(target_channel)(class_tensor)
     class_tensor = layers.Reshape(target_shape)(class_tensor)
     class_tensor = Activation(activation)(class_tensor)
@@ -181,7 +180,7 @@ class HighwayResnetBlock(layers.Layer):
                                     kernel_size=(3, 3), strides=1,
                                     padding="valid", kernel_initializer=kernel_init)
         self.norm = layers.BatchNormalization()
-        self.activation = layers.LeakyReLU(alpha=0.25)
+        self.activation = layers.ReLU()
         if self.use_highway is True:
             self.highway_layer = HighwayMulti(dim=filters)
 
@@ -207,7 +206,7 @@ class HighwayResnetEncoder(layers.Layer):
                                     kernel_size=(3, 3), strides=2,
                                     padding="valid", kernel_initializer=kernel_init)
         self.norm = layers.BatchNormalization()
-        self.activation = layers.LeakyReLU(alpha=0.25)
+        self.activation = layers.ReLU()
         if self.use_highway is True:
             self.pooling_layer = layers.AveragePooling2D(
                 pool_size=2, strides=2, padding="same")
@@ -248,7 +247,6 @@ class HighwayResnetDecoder(layers.Layer):
                                                  padding="same", kernel_initializer=kernel_init)
 
         self.norm_layer = layers.BatchNormalization()
-        # self.act_layer = layers.LeakyReLU(alpha=0.25)
         self.act_layer = tanh
         self.highway_layer = HighwayMulti(dim=filters)
 
@@ -265,7 +263,7 @@ class HighwayResnetDecoder(layers.Layer):
 
         output = self.highway_layer(pixel_shuffle, x)
         output = self.norm_layer(output)
-        output = self.act_layer(output)
+        output = self.act_layer(pixel_shuffle)
         if self.unsharp:
             output = self.unsharp_mask_layer(output)
         return output
@@ -321,12 +319,8 @@ def get_highway_resnet_generator_unet(input_shape,
             skip_connection_target = encoder_tensor_list[target_layer_num]
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
-        if index > 0:
             decoded_tensor = HighwayResnetDecoder(
                 init_filters * index, unsharp=True)(decoded_tensor)
-        else:
-            decoded_tensor = HighwayResnetDecoder(
-                init_filters * index)(decoded_tensor)
 
     last_modified_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(decoded_tensor)
@@ -444,6 +438,10 @@ def get_discriminator(
             img_size //= 2
             depth += 1
         depth -= 3
+    decoded_shape = (input_img_shape[0] // (2 ** depth),
+                     input_img_shape[1] // (2 ** depth),
+                     init_filters * (2 ** (depth // 2)))
+    decoded_element_num = np.prod(decoded_shape)
     decoded_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(combined_imgs)
     for depth_step in range(depth):
@@ -458,11 +456,11 @@ def get_discriminator(
     validity = activations.sigmoid(validity)
 
     if include_classifier is True:
-        predictions = layers.Flatten()(decoded_tensor)
-        predictions = layers.Dense(2048)(predictions)
+        predictions = layers.GlobalAveragePooling2D()(decoded_tensor)
+        predictions = layers.Dense(decoded_element_num // 8)(predictions)
         predictions = layers.ReLU()(predictions)
         predictions = layers.Dropout(0.5)(predictions)
-        predictions = layers.Dense(1024)(predictions)
+        predictions = layers.Dense(decoded_element_num // 16)(predictions)
         predictions = layers.ReLU()(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(
