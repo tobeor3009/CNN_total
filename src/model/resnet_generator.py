@@ -324,7 +324,7 @@ def get_highway_resnet_generator_unet(input_shape,
             skip_connection_target = encoder_tensor_list[target_layer_num]
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
-        if index > 1:
+        if index > 0:
             decoded_tensor = HighwayResnetDecoder(
                 init_filters * index, unsharp=True)(decoded_tensor)
         else:
@@ -436,6 +436,7 @@ def get_discriminator(
     original_image = layers.Input(shape=input_img_shape)
     predicted_image = layers.Input(shape=output_img_shape)
     # Concatenate image and conditioning image by channels to produce input
+
     combined_imgs = layers.Concatenate(
         axis=-1)([original_image, predicted_image])
 
@@ -453,14 +454,14 @@ def get_discriminator(
             init_filters * (2 ** ((depth_step + 1) // 2)), use_highway=False)(decoded_tensor)
         decoded_tensor = HighwayResnetBlock(
             init_filters * (2 ** ((depth_step + 1) // 2)), use_highway=True)(decoded_tensor)
-        decoded_tensor = HighwayResnetBlock(
-            init_filters * (2 ** ((depth_step + 1) // 2)), use_highway=False)(decoded_tensor)
+        decoded_tensor = HighwayResnetEncoder(
+            init_filters * (2 ** ((depth_step + 1) // 2)), use_highway=True)(decoded_tensor)
 
     validity = HighwayResnetBlock(1, use_highway=False)(decoded_tensor)
     validity = activations.sigmoid(validity)
 
     if include_classifier is True:
-        predictions = layers.GlobalAveragePooling2D()(decoded_tensor)
+        predictions = layers.Flatten()(decoded_tensor)
         predictions = layers.Dense(1024)(predictions)
         predictions = layers.ReLU()(predictions)
         predictions = layers.Dropout(0.5)(predictions)
