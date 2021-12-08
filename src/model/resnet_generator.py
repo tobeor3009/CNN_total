@@ -197,8 +197,6 @@ class HighwayResnetDecoder(layers.Layer):
         super(HighwayResnetDecoder, self).__init__()
         self.unsharp = unsharp
         self.unsharp_mask_layer = UnsharpMasking2D(filters)
-        # Define Base Model Params
-        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
 
         self.conv2d = HighwayResnetBlock(filters * 4, use_highway=False)
         self.conv_after_pixel_shffle = HighwayResnetBlock(
