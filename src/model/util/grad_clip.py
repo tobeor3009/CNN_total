@@ -20,7 +20,7 @@ def adaptive_gradient_clipping(grad_list, trainable_variable_list, lambda_clip=1
         trainable_variable_l2_norm = compute_l2_norm(trainable_variable)
 
         clip_value = lambda_clip * \
-            (trainable_variable_l2_norm / grad_l2_norm)
+            (trainable_variable_l2_norm / grad_l2_norm + keras_backend.epsilon())
         cliped_grad = keras_backend.clip(grad, -clip_value, clip_value)
 
         cliped_grad_list.append(cliped_grad)
