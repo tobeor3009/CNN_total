@@ -233,7 +233,7 @@ class HighwayResnetDecoder(layers.Layer):
 
 def get_highway_resnet_generator_unet(input_shape,
                                       init_filters, encoder_depth, middle_depth, last_channel_num,
-                                      skip_connection=True):
+                                      activation="tanh", skip_connection=True):
 
     decoder_depth = encoder_depth
     kernel_init = RandomNormal(mean=0.0, stddev=0.02)
@@ -290,7 +290,7 @@ def get_highway_resnet_generator_unet(input_shape,
     last_modified_tensor = layers.Conv2D(filters=last_channel_num,
                                          kernel_size=(3, 3), strides=1,
                                          padding="same", kernel_initializer=kernel_init)(last_modified_tensor)
-    last_modified_tensor = activations.tanh(last_modified_tensor)
+    last_modified_tensor = layers.Activation(activation)(last_modified_tensor)
     return Model(input_tensor, last_modified_tensor)
 
 

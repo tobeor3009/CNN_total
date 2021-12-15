@@ -7,8 +7,9 @@ from collections.abc import Mapping
 def imread(img_path, channel=None):
     extension = os.path.splitext(img_path)[1]
     if extension == ".npy":
-        img_numpy_array = np.load(img_path).astype("float32")
-    else:        
+        img_numpy_array = np.load(
+            img_path, allow_pickle=True).astype("float32")
+    else:
         img_byte_stream = open(img_path.encode("utf-8"), "rb")
         img_byte_array = bytearray(img_byte_stream.read())
         img_numpy_array = np.asarray(img_byte_array, dtype=np.uint8)
