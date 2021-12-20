@@ -8,6 +8,10 @@ from .coord import CoordinateChannel2D
 from tensorflow.keras.layers import Dense, Activation, Multiply, Add, Lambda
 from tensorflow.keras.initializers import Constant
 from tensorflow.keras.activations import tanh
+from tensorflow_addons.activations import mish
+
+# def mish(x):
+#     return x * tf.nn.tanh(tf.nn.softplus(x))
 
 
 class HighwayMulti(layers.Layer):
@@ -114,16 +118,16 @@ def get_input_label2image_tensor(label_len, target_shape,
                      target_shape[2])
     class_input = layers.Input(shape=(label_len,))
     class_tensor = layers.Dense(np.prod(reduced_shape) // 2)(class_input)
-    class_tensor = layers.ReLU()(class_tensor)
+    class_tensor = mish(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
-    class_tensor = layers.ReLU()(class_tensor)
+    class_tensor = mish(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Reshape(reduced_shape)(class_tensor)
     for index in range(1, reduce_level):
         class_tensor = DecoderTransposeX2Block(
             target_shape[2] * index)(class_tensor)
-        class_tensor = layers.ReLU()(class_tensor)
+        class_tensor = Activation(activation)(class_tensor)
     class_tensor = DecoderTransposeX2Block(target_channel)(class_tensor)
     class_tensor = layers.Reshape(target_shape)(class_tensor)
     class_tensor = Activation(activation)(class_tensor)
@@ -131,33 +135,38 @@ def get_input_label2image_tensor(label_len, target_shape,
     return class_input, class_tensor
 
 
-class HighwayResnetBlock(layers.Layer):
-    def __init__(self, filters, use_highway=True, norm="batch", activation="relu"):
-        super(HighwayResnetBlock, self).__init__()
-        # Define Base Model Params
-        self.use_highway = use_highway
+class ConvBlock(layers.Layer):
+    def __init__(self, filters, stride):
+        super(ConvBlock, self).__init__()
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
         self.padding_layer = ReflectionPadding2D()
         self.conv2d = layers.Conv2D(filters=filters,
-                                    kernel_size=(3, 3), strides=1,
+                                    kernel_size=(3, 3), strides=stride,
                                     padding="valid", kernel_initializer=kernel_init)
-        if norm == "batch":
-            self.norm = layers.BatchNormalization()
-        else:
-            pass
-        if activation == "relu":
-            self.activation = layers.ReLU()
-        elif activation == "tanh":
-            self.activation = tanh
+        self.batch_norm_1 = layers.BatchNormalization()
+        self.act_1 = mish
+
+    def call(self, input_tensor):
+        x = self.padding_layer(input_tensor)
+        x = self.conv2d(x)
+        x = self.batch_norm_1(x)
+        x = self.act_1(x)
+        return x
+
+
+class HighwayResnetBlock(layers.Layer):
+    def __init__(self, filters, use_highway=True):
+        super(HighwayResnetBlock, self).__init__()
+        # Define Base Model Params
+        self.use_highway = use_highway
+        self.depthwise_separable_conv = ConvBlock(
+            filters=filters, stride=1)
         if self.use_highway is True:
             self.highway_layer = HighwayMulti(dim=filters)
 
     def call(self, input_tensor):
 
-        x = self.padding_layer(input_tensor)
-        x = self.conv2d(x)
-        x = self.norm(x)
-        x = self.activation(x)
+        x = self.depthwise_separable_conv(input_tensor)
         if self.use_highway is True:
             x = self.highway_layer(x, input_tensor)
         return x
@@ -168,13 +177,8 @@ class HighwayResnetEncoder(layers.Layer):
         super(HighwayResnetEncoder, self).__init__()
         # Define Base Model Params
         self.use_highway = use_highway
-        kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.padding_layer = ReflectionPadding2D()
-        self.conv2d = layers.Conv2D(filters=filters,
-                                    kernel_size=(3, 3), strides=2,
-                                    padding="valid", kernel_initializer=kernel_init)
-        self.norm = layers.BatchNormalization()
-        self.activation = layers.ReLU()
+        self.depthwise_separable_conv = ConvBlock(
+            filters=filters, stride=2)
         if self.use_highway is True:
             self.pooling_layer = layers.AveragePooling2D(
                 pool_size=2, strides=2, padding="same")
@@ -182,10 +186,7 @@ class HighwayResnetEncoder(layers.Layer):
 
     def call(self, input_tensor):
 
-        x = self.padding_layer(input_tensor)
-        x = self.conv2d(x)
-        x = self.norm(x)
-        x = self.activation(x)
+        x = self.depthwise_separable_conv(input_tensor)
         if self.use_highway is True:
             source = self.pooling_layer(input_tensor)
             x = self.highway_layer(x, source)
@@ -232,8 +233,9 @@ class HighwayResnetDecoder(layers.Layer):
 
 
 def get_highway_resnet_generator_unet(input_shape,
-                                      init_filters, encoder_depth, middle_depth, last_channel_num,
-                                      activation="tanh", skip_connection=True):
+                                      init_filters, encoder_depth, middle_depth,
+                                      last_channel_num, last_channel_activation="tanh",
+                                      skip_connection=True):
 
     decoder_depth = encoder_depth
     kernel_init = RandomNormal(mean=0.0, stddev=0.02)
@@ -290,12 +292,14 @@ def get_highway_resnet_generator_unet(input_shape,
     last_modified_tensor = layers.Conv2D(filters=last_channel_num,
                                          kernel_size=(3, 3), strides=1,
                                          padding="same", kernel_initializer=kernel_init)(last_modified_tensor)
-    last_modified_tensor = layers.Activation(activation)(last_modified_tensor)
+    last_modified_tensor = layers.Activation(
+        last_channel_activation)(last_modified_tensor)
     return Model(input_tensor, last_modified_tensor)
 
 
 def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_label_len,
-                                              init_filters, encoder_depth, middle_depth, last_channel_num,
+                                              init_filters, encoder_depth, middle_depth,
+                                              last_channel_num, last_channel_activation="tanh",
                                               skip_connection=True):
 
     decoder_depth = encoder_depth
@@ -371,7 +375,8 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
     last_modified_tensor = layers.Conv2D(filters=last_channel_num,
                                          kernel_size=(3, 3), strides=1,
                                          padding="same", kernel_initializer=kernel_init)(last_modified_tensor)
-    last_modified_tensor = activations.tanh(last_modified_tensor)
+    last_modified_tensor = layers.Activation(
+        last_channel_activation)(last_modified_tensor)
     return Model([input_tensor, class_input, target_class_input], last_modified_tensor)
 
 
@@ -420,10 +425,10 @@ def get_discriminator(
     if include_classifier is True:
         predictions = layers.GlobalAveragePooling2D()(decoded_tensor)
         predictions = layers.Dense(decoded_element_num // 8)(predictions)
-        predictions = layers.ReLU()(predictions)
+        predictions = mish(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(decoded_element_num // 16)(predictions)
-        predictions = layers.ReLU()(predictions)
+        predictions = mish(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(
             num_class, activation='sigmoid')(predictions)
