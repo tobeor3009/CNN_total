@@ -178,7 +178,7 @@ class Attention(layers.Layer):
         if self.linear is False:
             if self.sr_ratio > 1:
                 # shape: B, N, self.C => B, H, W, self.C
-                x_ = keras_backend.reshape(x, (-1, H, W, self.C))
+                x_ = layers.Reshape((H, W, self.C))(x)
                 # shape: B, H, W, dim
                 x_ = self.sr(x_)
                 # shape: B, self.C, ?
@@ -360,7 +360,7 @@ def PyramidVisionTransformerV2(input_shape,
             x = blk(x, H, W)
         x = norm(x)
         if i != num_stages - 1:
-            x = keras_backend.reshape(x, (-1, H, W, embed_dims[i]))
+            x = layers.Reshape((-1, H, W, embed_dims[i]))(x)
     x = keras_backend.mean(x, axis=-1)
     # x = layers.Flatten()(x)
     x = head(x)
@@ -454,22 +454,21 @@ class DWConv(layers.Layer):
         fan_out = (kernel_size ** 2) * dim
         fan_out //= dim
         normal_scale = math.sqrt(2.0 / fan_out)
-        self.dwconv = layers.Conv2D(filters=dim,
-                                    kernel_size=kernel_size,
-                                    strides=1,
-                                    padding="same",
-                                    use_bias=True,
-                                    groups=dim,
-                                    kernel_initializer=initializers.TruncatedNormal(
-                                        mean=0, stddev=normal_scale),
-                                    bias_initializer=dense_bias_init)
+        self.dwconv = layers.DepthwiseConv2D(kernel_size=kernel_size,
+                                             strides=1,
+                                             padding="same",
+                                             use_bias=True,
+                                             groups=dim,
+                                             kernel_initializer=initializers.TruncatedNormal(
+                                                 mean=0, stddev=normal_scale),
+                                             bias_initializer=dense_bias_init)
 
     def build(self, input_shape):
         self.C = input_shape[2]
 
     def call(self, inputs, H, W):
         # shape: B, H, W, C
-        x = keras_backend.reshape(inputs, (-1, H, W, self.C))
+        x = layers.Reshape((H, W, -1))(inputs)
         # shape: B, H, W, dim
         x = self.dwconv(x)
         # in pytorch, flatten(2)
