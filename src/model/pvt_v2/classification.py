@@ -162,78 +162,68 @@ class Attention(layers.Layer):
 
     def build(self, input_shape):
         self.N = input_shape[1]
+        self.Down_N = self.N // (self.sr_ratio ** 2)
         self.C = input_shape[2]
-        # self.C = self.dim
 
     def call(self, x, H, W):
         # x.shape => B, N, C
-        # C = H * W
-        # H * W = N
+        # N = H * W
+        # Down_N = H * W // (sr_ratio ** 2)
+        # q.shape: B, N, dim
         q = self.q(x)
-        # shape: B, N, self.num_heads, (self.C // self.num_heads)
+        # q.shape: B, N, self.num_heads, (self.dim // self.num_heads)
         q = layers.Reshape(
-            (self.N, self.num_heads, self.C // self.num_heads))(q)
-        # shape: B, self.num_heads, N, (self.C // self.num_heads)
+            (self.N, self.num_heads, self.dim // self.num_heads))(q)
+        # q.shape: B, self.num_heads, N, (self.dim // self.num_heads)
         q = keras_backend.permute_dimensions(q, (0, 2, 1, 3))
         if self.linear is False:
             if self.sr_ratio > 1:
-                # shape: B, self.num_heads, N, self.C => B, H, W, self.C
+                # x.shape: B, N, self.C => x_.shape: B, H, W, self.C
                 x_ = layers.Reshape((H, W, self.C))(x)
-                # shape: B, H, W, dim
+                # x_shape: B, H, W, dim
                 x_ = self.sr(x_)
-                # shape: B, self.C, dim
-                x_ = layers.Reshape((self.C, -1))(x_)
-                # shape: B, dim, self.C
-                x_ = keras_backend.permute_dimensions(x_, (0, 2, 1))
+                # shape: B, (H * W) // (sr_ratio ** 2), dim
+                x_ = layers.Reshape((self.Down_N, self.dim))(x_)
                 x_ = self.norm(x_)
-                # shape: B, (H * W), (dim * 2)
+                # shape: B, (H * W) // (sr_ratio ** 2), (dim * 2)
                 kv = self.kv(x_)
-
             else:
-                # shape: B, (H * W), (dim * 2) <=> B, N, (dim * 2)
+                # shape: B, N, (dim * 2) <=> B, (H * W), (dim * 2)
                 kv = self.kv(x)
-            # shape: B, N, (dim * 2) => B, ?, 2, self.num_heads, (self.C // num_heads)
-            kv = layers.Reshape(
-                (-1, 2, self.num_heads, self.C // self.num_heads))(kv)
-            # shape: 2, B, self.num_heads, ?, (self.C // num_heads)
-            kv = keras_backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
         else:
             # shape: B, N, self.C => B, H, W, self.C
             x_ = layers.Reshape((H, W, self.C))(x)
-            # shape: B, H, W, dim
+            # shape: B, H, W, self.dim
             x_ = self.sr(x_)
-            # shape: B, self.C, ?
-            x_ = layers.Reshape((self.C, -1))(x_)
-            # shape: B, ?, self.C
-            x_ = keras_backend.permute_dimensions(x_, (0, 2, 1))
+            # shape: B, (H * W) // (sr_ratio ** 2), self.dim
+            x_ = layers.Reshape((self.Down_N, self.dim))(x_)
             x_ = self.norm(x_)
             x_ = self.act(x_)
-            # shape: B, H, W, (dim * 2)
+            # shape: B, (H * W) // (sr_ratio ** 2), (dim * 2)
             kv = self.kv(x_)
-            # shape: B, N, (dim * 2) => B, ?, 2, self.num_heads, (self.C // num_heads)
-            kv = layers.Reshape(
-                (-1, 2, self.num_heads, self.C // self.num_heads))(kv)
-            # shape: 2, B, self.num_heads, ?, (self.C // num_heads)
-            kv = keras_backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
 
-        # k shape: B, self.num_heads, (self.C // num_heads), ?
-        # v shape: B, self.num_heads, ?, (self.C // num_heads)
+        # shape: B, self.Down_N, (dim * 2) => B, self.Down_N, 2, self.num_heads, (self.dim // num_heads)
+        kv = layers.Reshape(
+            (self.Down_N, 2, self.num_heads, self.dim // self.num_heads))(kv)
+        # shape: 2, B, self.num_heads, self.Down_N, (self.dim // num_heads)
+        kv = keras_backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
+
+        # k shape: B, self.num_heads, (self.dim // num_heads), self.Down_N
+        # v shape: B, self.num_heads, self.Down_N, (self.dim // num_heads)
         k = keras_backend.permute_dimensions(kv[0], (0, 1, 3, 2))
         v = kv[1]
-        # shape: (B, self.num_heads, N, (self.C // self.num_heads)) @ (B, self.num_heads, (self.C // num_heads), ?)
-        # shape: B, self.num_heads, N, ?
+        # matmul shape: (B, self.num_heads, N, (self.dim // self.num_heads)) @ (B, self.num_heads, (self.dim // num_heads), self.Down_N)
+        # attn.shape: B, self.num_heads, N, self.Down_N
         attn = tf.matmul(q, k) * self.scale
-        # TBD: what axis of softmax?
         attn = activations.softmax(attn, axis=-1)
         attn = self.attn_drop(attn)
-        # shape: (B, self.num_heads, N, ?) @ (B, self.num_heads, ?, self.C // num_heads)
-        # shape: B, self.num_heads, N, (self.C // num_heads)
+        # matmul shape: (B, self.num_heads, N, self.Down_N) @ (B, self.num_heads, self.Down_N, (self.dim // num_heads)
+        # out.shape: B, self.num_heads, N, (self.dim // num_heads)
         out = tf.matmul(attn, v)
-        # shape: B, N, self.num_heads, ?
+        # shape: B, N, self.num_heads, (self.dim // num_heads)
         out = keras_backend.permute_dimensions(out, (0, 2, 1, 3))
-        # C = num_heads * ?
-        # shape: B, N, C
-        out = layers.Reshape((self.N, self.C))(out)
+        # shape: B, N, dim
+        out = layers.Reshape((self.N, self.dim))(out)
         # shape: B, N, dim
         out = self.proj(out)
         out = self.proj_drop(out)

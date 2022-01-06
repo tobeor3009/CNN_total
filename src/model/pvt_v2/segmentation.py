@@ -61,28 +61,35 @@ class LayerArchive:
         pass
 
 
+def drop_path_(inputs, drop_prob, is_training):
+
+    # Bypass in non-training mode
+    if (not is_training) or (drop_prob == 0.):
+        return inputs
+
+    # Compute keep_prob
+    keep_prob = 1.0 - drop_prob
+
+    # Compute drop_connect tensor
+    input_shape = tf.shape(inputs)
+    batch_num = input_shape[0]
+    rank = len(input_shape)
+
+    shape = (batch_num,) + (1,) * (rank - 1)
+    random_tensor = keep_prob + tf.random.uniform(shape, dtype=inputs.dtype)
+    path_mask = tf.floor(random_tensor)
+    output = tf.math.divide(inputs, keep_prob) * path_mask
+    return output
+
+
 class DropPath(layers.Layer):
-    def __init__(self, drop_prob=0., training=False):
-        super(DropPath, self).__init__()
+    def __init__(self, drop_prob=None, training=None):
+        super().__init__()
         self.drop_prob = drop_prob
         self.training = training
-        self.keep_prob = 1 - self.drop_prob
-
-    def build(self, input_shape):
-        batch_size = input_shape[0]
-        ndim = len(input_shape)
-        self.shape = (batch_size, ) + (1, ) * (ndim - 1)
 
     def call(self, x):
-        if self.drop_prob == 0. or not self.training:
-            return x
-
-        random_tensor = self.keep_prob + \
-            tf.random.normal(self.shape, 0.0, 1.0)
-        random_tensor = tf.math.floor(random_tensor)
-        output = (x / self.keep_prob) * random_tensor
-
-        return output
+        return drop_path_(x, self.drop_prob, self.training)
 
 
 class Mlp(layers.Layer):
@@ -141,7 +148,7 @@ class Attention(layers.Layer):
             if sr_ratio > 1:
                 self.sr = custom_init_conv2d(dim=dim,
                                              kernel_size=sr_ratio,
-                                             stride=1)
+                                             stride=sr_ratio)
                 self.norm = custom_init_layer_norm()
         else:
             # in pytorch, nn.AdaptiveAvgPool2d(7)
@@ -160,24 +167,24 @@ class Attention(layers.Layer):
 
     def call(self, x, H, W):
         # x.shape => B, N, C
-        # C * 2 == dim ?
+        # C = H * W
         # H * W = N
         q = self.q(x)
         # shape: B, N, self.num_heads, (self.C // self.num_heads)
         q = layers.Reshape(
             (self.N, self.num_heads, self.C // self.num_heads))(q)
         # shape: B, self.num_heads, N, (self.C // self.num_heads)
-        q = layers.Permute((2, 1, 3))(q)
+        q = keras_backend.permute_dimensions(q, (0, 2, 1, 3))
         if self.linear is False:
             if self.sr_ratio > 1:
-                # shape: B, N, self.C => B, H, W, self.C
+                # shape: B, self.num_heads, N, self.C => B, H, W, self.C
                 x_ = layers.Reshape((H, W, self.C))(x)
                 # shape: B, H, W, dim
                 x_ = self.sr(x_)
-                # shape: B, self.C, ?
+                # shape: B, self.C, dim
                 x_ = layers.Reshape((self.C, -1))(x_)
-                # shape: B, ?, self.C
-                x_ = layers.Permute((2, 1))(x_)
+                # shape: B, dim, self.C
+                x_ = keras_backend.permute_dimensions(x_, (0, 2, 1))
                 x_ = self.norm(x_)
                 # shape: B, (H * W), (dim * 2)
                 kv = self.kv(x_)
@@ -261,7 +268,6 @@ class Block(layers.Layer):
         x_norm2 = self.norm2(x)
         x_attn2 = self.mlp(x_norm2, H, W)
         x_drop_path2 = self.drop_path(x_attn2)
-
         out = x + x_drop_path1 + x_drop_path2
 
         return out
@@ -273,6 +279,7 @@ class OverlapPatchEmbed(layers.Layer):
         self.stride = stride
         self.embed_dim = embed_dim
         self.patch_size = to2_tuple(patch_size)
+        self.stride = stride
         self.proj = layers.Conv2D(filters=embed_dim,
                                   kernel_size=patch_size,
                                   strides=stride,
@@ -280,14 +287,16 @@ class OverlapPatchEmbed(layers.Layer):
                                   use_bias=True,
                                   kernel_initializer=dense_init,
                                   bias_initializer=dense_bias_init)
+        self.positional_encode = AddPositionEmbs()
         self.norm = custom_init_layer_norm()
 
     def call(self, inputs):
         # input shape: B, H, W, ?
         # x shape: B, H, W, self.embed_dim
         x = self.proj(inputs)
-        # shape: B, (H * W), self.embed_dim
+        # shape: B, (H * W) // stride, self.embed_dim
         x = layers.Reshape((-1, self.embed_dim))(x)
+        x = self.positional_encode(x)
         x = self.norm(x)
 
         return x
@@ -308,11 +317,11 @@ def PyramidVisionTransformerV2(input_shape,
     layer_archive = LayerArchive()
     for i in range(num_stages):
         patch_size = 7 if i == 0 else 3
-        embed_dim = embed_dims[i]
+        stride = conv_stride * 2 if i == 0 else conv_stride
         patch_embed = OverlapPatchEmbed(
             patch_size=patch_size,
-            stride=conv_stride,
-            embed_dim=embed_dim
+            stride=stride,
+            embed_dim=embed_dims[i]
         )
         block_list = [Block(dim=embed_dims[i],
                             num_heads=num_heads[i],
@@ -336,7 +345,7 @@ def PyramidVisionTransformerV2(input_shape,
             num_classes) if num_classes > 0 else identity_layer
 
     input_tensor = layers.Input(shape=input_shape)
-
+    input_shape = np.array(input_shape)
     for i in range(num_stages):
         patch_embed = getattr(layer_archive, f"patch_embed{i + 1}")
         block = getattr(layer_archive, f"block{i + 1}")
@@ -345,96 +354,20 @@ def PyramidVisionTransformerV2(input_shape,
             x = patch_embed(input_tensor)
         else:
             x = patch_embed(x)
-        H = input_shape[0] // (conv_stride ** (i + 1))
-        W = input_shape[1] // (conv_stride ** (i + 1))
-
+        input_shape //= conv_stride * 2 if i == 0 else conv_stride
+        H, W, _ = input_shape
         for blk in block:
             x = blk(x, H, W)
         x = norm(x)
         if i != num_stages - 1:
-            x = keras_backend.reshape(x, (-1, H, W, embed_dims[i]))
+            x = layers.Reshape((H, W, embed_dims[i]))(x)
     x = keras_backend.mean(x, axis=-1)
+    # x = layers.Flatten()(x)
     x = head(x)
     x = activation(x)
 
     model = Model(input_tensor, x)
     return model
-
-
-class PyramidVisionTransformerV2_Layer(layers.Layer):
-    def __init__(self,
-                 input_shape,
-                 num_classes=1000, activation=None,
-                 patch_size=16, conv_stride=4,
-                 embed_dims=[64, 128, 256, 512], num_heads=[1, 2, 4, 8],
-                 mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=custom_init_layer_norm,
-                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], num_stages=4, linear=False):
-        super(PyramidVisionTransformerV2_Layer, self).__init__()
-        self.x_shape = input_shape
-        self.num_classes = num_classes
-        self.activation = activation
-        self.depths = depths
-        self.num_stages = num_stages
-        self.conv_stride = conv_stride
-        # stochastic depth decay rule
-        dpr = [x.numpy()
-               for x in tf.linspace(0.0, drop_path_rate, sum(depths))]
-        cur = 0
-
-        for i in range(num_stages):
-            patch_size = 7 if i == 0 else 3
-            embed_dim = embed_dims[i]
-            patch_embed = OverlapPatchEmbed(
-                patch_size=patch_size,
-                stride=conv_stride,
-                embed_dim=embed_dim
-            )
-            block_list = [Block(dim=embed_dims[i],
-                                num_heads=num_heads[i],
-                                mlp_ratio=mlp_ratios[i],
-                                qkv_bias=qkv_bias,
-                                qk_scale=qk_scale,
-                                drop=drop_rate,
-                                attn_drop=attn_drop_rate,
-                                drop_path=dpr[cur + j],
-                                norm_layer=norm_layer,
-                                sr_ratio=sr_ratios[i], linear=linear) for j in range(depths[i])]
-
-            # block = keras.Sequential(block_list)
-            norm = norm_layer()
-            cur += depths[i]
-            setattr(self, f"patch_embed{i + 1}", patch_embed)
-            setattr(self, f"block{i + 1}", block_list)
-            setattr(self, f"norm{i + 1}", norm)
-            # classification head
-            self.head = custom_init_dense(
-                num_classes) if num_classes > 0 else identity_layer
-
-    def call(self, x):
-
-        for i in range(self.num_stages):
-            patch_embed = getattr(self, f"patch_embed{i + 1}")
-            block = getattr(self, f"block{i + 1}")
-            norm = getattr(self, f"norm{i + 1}")
-            x = patch_embed(x)
-            H = self.x_shape[0] // (self.conv_stride ** (i + 1))
-            W = self.x_shape[1] // (self.conv_stride ** (i + 1))
-            if H == 0:
-                H = 1
-            if W == 0:
-                W = 1
-            for blk in block:
-                x = blk(x, H, W)
-            x = norm(x)
-            if i != self.num_stages - 1:
-                x = layers.Reshape([H, W, -1])(x)
-        # x = keras_backend.mean(x, axis=-1)
-        x = layers.Flatten()(x)
-        x = self.head(x)
-        if self.activation is not None:
-            x = self.activation(x)
-        return x
 
 
 class DWConv(layers.Layer):
@@ -446,26 +379,40 @@ class DWConv(layers.Layer):
         fan_out = (kernel_size ** 2) * dim
         fan_out //= dim
         normal_scale = math.sqrt(2.0 / fan_out)
-        self.dwconv = layers.Conv2D(filters=dim,
-                                    kernel_size=kernel_size,
-                                    strides=1,
-                                    padding="same",
-                                    use_bias=True,
-                                    groups=dim,
-                                    kernel_initializer=initializers.TruncatedNormal(
-                                        mean=0, stddev=normal_scale),
-                                    bias_initializer=dense_bias_init)
+        self.dwconv = layers.DepthwiseConv2D(kernel_size=kernel_size,
+                                             strides=1,
+                                             padding="same",
+                                             use_bias=True,
+                                             groups=dim,
+                                             kernel_initializer=initializers.TruncatedNormal(
+                                                 mean=0, stddev=normal_scale),
+                                             bias_initializer=dense_bias_init)
+
+
+@tf.keras.utils.register_keras_serializable()
+class AddPositionEmbs(layers.Layer):
+    """Adds (optionally learned) positional embeddings to the inputs."""
 
     def build(self, input_shape):
-        self.C = input_shape[2]
+        assert (
+            len(input_shape) == 3
+        ), f"Number of dimensions should be 3, got {len(input_shape)}"
+        self.pe = tf.Variable(
+            name="pos_embedding",
+            initial_value=tf.random_normal_initializer(stddev=0.06)(
+                shape=(1, input_shape[1], input_shape[2])
+            ),
+            dtype="float32",
+            trainable=True,
+        )
 
-    def call(self, inputs, H, W):
-        # shape: B, H, W, C
-        x = keras_backend.reshape(inputs, (-1, H, W, self.C))
-        # shape: B, H, W, dim
-        x = self.dwconv(x)
-        # in pytorch, flatten(2)
-        # shape: B, (H * W), C
-        x = layers.Reshape((-1, self.dim))(x)
+    def call(self, inputs):
+        return inputs + tf.cast(self.pe, dtype=inputs.dtype)
 
-        return x
+    def get_config(self):
+        config = super().get_config()
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)

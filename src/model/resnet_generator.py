@@ -7,12 +7,10 @@ from tensorflow.python.ops.gen_array_ops import size
 from .coord import CoordinateChannel2D
 from tensorflow.keras.layers import Dense, Activation, Multiply, Add, Lambda
 from tensorflow.keras.initializers import Constant
-from tensorflow.keras.activations import tanh
+from tensorflow.keras.activations import tanh, gelu
 from tensorflow_addons.activations import mish
 
-# def mish(x):
-#     return x * tf.nn.tanh(tf.nn.softplus(x))
-
+base_act = gelu
 
 class HighwayMulti(layers.Layer):
 
@@ -118,10 +116,10 @@ def get_input_label2image_tensor(label_len, target_shape,
                      target_shape[2])
     class_input = layers.Input(shape=(label_len,))
     class_tensor = layers.Dense(np.prod(reduced_shape) // 2)(class_input)
-    class_tensor = mish(class_tensor)
+    class_tensor = base_act(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
-    class_tensor = mish(class_tensor)
+    class_tensor = base_act(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Reshape(reduced_shape)(class_tensor)
     for index in range(1, reduce_level):
@@ -144,7 +142,7 @@ class ConvBlock(layers.Layer):
                                     kernel_size=(3, 3), strides=stride,
                                     padding="valid", kernel_initializer=kernel_init)
         self.batch_norm_1 = layers.BatchNormalization()
-        self.act_1 = mish
+        self.act_1 = base_act
 
     def call(self, input_tensor):
         x = self.padding_layer(input_tensor)
@@ -425,10 +423,10 @@ def get_discriminator(
     if include_classifier is True:
         predictions = layers.GlobalAveragePooling2D()(decoded_tensor)
         predictions = layers.Dense(decoded_element_num // 8)(predictions)
-        predictions = mish(predictions)
+        predictions = base_act(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(decoded_element_num // 16)(predictions)
-        predictions = mish(predictions)
+        predictions = base_act(predictions)
         predictions = layers.Dropout(0.5)(predictions)
         predictions = layers.Dense(
             num_class, activation='sigmoid')(predictions)
