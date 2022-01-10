@@ -358,53 +358,41 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
                                                              dropout_ratio=0.5, reduce_level=5)
     target_class_input, target_class_tensor = get_input_label2image_tensor(label_len=target_label_len, target_shape=target_label_shape,
                                                                            activation="tanh", negative_ratio=0.25,
+                                                                           dropout_ratio=0.5, reduce_level=5)
+    ##############################################################
+    ######################## Define Layer ########################
+    ##############################################################
+    for encode_i in range(1, encoder_depth + 1):
+        encode_layer_1 = HighwayResnetBlock(
+            init_filters * encode_i, use_highway=False)
+        encode_layer_2 = HighwayResnetBlock(init_filters * encode_i)
+        encode_layer_3 = HighwayResnetEncoder(init_filters * encode_i)
+        setattr(layer_archive, f"encode_{encode_i}_1", encode_layer_1)
+        setattr(layer_archive, f"encode_{encode_i}_2", encode_layer_2)
+        setattr(layer_archive, f"encode_{encode_i}_3", encode_layer_3)
 
-                                                                           layer_archive=LayerArchive()
-                                                                           tensor_archive=TensorArchive()
-                                                                           ##############################################################
-                                                                           ######################## Define Layer ########################
-                                                                           ##############################################################
-                                                                           for encode_i in range(1, encoder_depth + 1):
-                                                                           encode_layer_1=HighwayResnetBlock(
-                                                                               init_filters * encode_i, use_highway=False)
-                                                                           encode_layer_2=HighwayResnetBlock(
-                                                                               init_filters * encode_i)
-                                                                           encode_layer_3=HighwayResnetEncoder(
-                                                                               init_filters * encode_i)
-                                                                           setattr(
-                                                                               layer_archive, f"encode_{encode_i}_1", encode_layer_1)
-                                                                           setattr(
-                                                                               layer_archive, f"encode_{encode_i}_2", encode_layer_2)
-                                                                           setattr(
-                                                                               layer_archive, f"encode_{encode_i}_3", encode_layer_3)
+    middle_layers = []
+    for middle_index in range(1, middle_depth + 1):
+        if middle_index == 1:
+            use_highway = False
+        else:
+            use_highway = True
+        middle_layer = HighwayResnetBlock(
+            init_filters * encoder_depth, use_highway=use_highway)
+        middle_layers.append(middle_layer)
+    middle_layers = Sequential(middle_layers)
 
-                                                                           middle_layers=[]
-                                                                           for middle_index in range(1, middle_depth + 1):
-                                                                           if middle_index == 1:
-                                                                           use_highway=False
-                                                                           else:
-                                                                           use_highway=True
-                                                                           middle_layer=HighwayResnetBlock(
-                                                                               init_filters * encoder_depth, use_highway=use_highway)
-                                                                           middle_layers.append(
-                                                                               middle_layer)
-                                                                           middle_layers=Sequential(
-                                                                               middle_layers)
+    for decode_i in range(decoder_depth, 0, -1):
 
-                                                                           for decode_i in range(decoder_depth, 0, -1):
-
-                                                                           decoded_layer_1=HighwayResnetBlock(
-                                                                               init_filters * decode_i, use_highway=False)
-                                                                           decoded_layer_2=HighwayResnetBlock(
-                                                                               init_filters * decode_i, use_highway=True)
-                                                                           decoded_layer_3=HighwayResnetDecoder(
-                                                                               init_filters * decode_i, unsharp=True)(decoded_tensor)
-                                                                           setattr(
-                                                                               layer_archive, f"decode_{decode_i}_1", decode_layer_1)
-                                                                           setattr(
-                                                                               layer_archive, f"decode_{decode_i}_2", decode_layer_2)
-                                                                           setattr(layer_archive, f"decode_{decode_i}_3", decode_layer_3)                                                                           dropout_ratio=0.5, reduce_level=5)
-
+        decoded_layer_1 = HighwayResnetBlock(
+            init_filters * decode_i, use_highway=False)
+        decoded_layer_2 = HighwayResnetBlock(
+            init_filters * decode_i, use_highway=True)
+        decoded_layer_3 = HighwayResnetDecoder(
+            init_filters * decode_i, unsharp=True)(decoded_tensor)
+        setattr(layer_archive, f"decode_{decode_i}_1", decode_layer_1)
+        setattr(layer_archive, f"decode_{decode_i}_2", decode_layer_2)
+        setattr(layer_archive, f"decode_{decode_i}_3", decode_layer_3)
     ##############################################################
     ######################### Model Start ########################
     ##############################################################
