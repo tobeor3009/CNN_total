@@ -70,7 +70,7 @@ def pairwise_dist(A, B):
 
     # return pairwise euclidean difference matrix
     D = 2 * tf.matmul(A, B, transpose_a=False, transpose_b=True)
-    D = tf.maximum(na + nb - D, 1e-16)
+    D = tf.maximum(na + nb - D, 1e-25)
     D = tf.sqrt(D)
     return D
 
