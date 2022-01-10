@@ -65,8 +65,8 @@ def pairwise_dist(A, B):
     nb = tf.reduce_sum(tf.square(B), -1)
 
     # na as a row and nb as a column vectors
-    na = tf.reshape(na, [-1, 1])
-    nb = tf.reshape(nb, [1, -1])
+    na = tf.expand_dims(na, axis=-1)
+    nb = tf.expand_dims(nb, axis=-2)
 
     # return pairwise euclidean difference matrix
     D = 2 * tf.matmul(A, B, transpose_a=False, transpose_b=True)
@@ -169,7 +169,7 @@ class DecoderMlp(EncoderMlp):
 
 class SelfAttention(layers.Layer):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
-                 attn_drop=0., proj_drop=0., sr_ratio=1, linear=False, distance=False):
+                 attn_drop=0., proj_drop=0., sr_ratio=1, linear=False, distance=True):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
