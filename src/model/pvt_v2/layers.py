@@ -51,6 +51,30 @@ def custom_init_conv2d(dim, kernel_size, stride, groups=1):
                          bias_initializer=conv_bias_init)
 
 
+def pairwise_dist(A, B):
+    """
+    Computes pairwise distances between each elements of A and each elements of B.
+    Args:
+    A,    [m,d] matrix
+    B,    [n,d] matrix
+    Returns:
+    D,    [m,n] matrix of pairwise distances
+    """
+    # squared norms of each row in A and B
+    na = tf.reduce_sum(tf.square(A), -1)
+    nb = tf.reduce_sum(tf.square(B), -1)
+
+    # na as a row and nb as a column vectors
+    na = tf.reshape(na, [-1, 1])
+    nb = tf.reshape(nb, [1, -1])
+
+    # return pairwise euclidean difference matrix
+    D = 2 * tf.matmul(A, B, transpose_a=False, transpose_b=True)
+    D = tf.maximum(na - D + nb, 0.0)
+    D = tf.sqrt(D)
+    return D
+
+
 class LayerArchive:
     def __init__(self):
         pass
@@ -145,7 +169,7 @@ class DecoderMlp(EncoderMlp):
 
 class SelfAttention(layers.Layer):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None,
-                 attn_drop=0., proj_drop=0., sr_ratio=1, linear=False):
+                 attn_drop=0., proj_drop=0., sr_ratio=1, linear=False, distance=False):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
 
@@ -177,6 +201,8 @@ class SelfAttention(layers.Layer):
                                          stride=1)
             self.norm = custom_init_layer_norm()
             self.act = activations.gelu
+
+        self.distance = distance
 
     def build(self, input_shape):
         self.N = input_shape[1]
@@ -218,13 +244,17 @@ class SelfAttention(layers.Layer):
 
         # k shape: B, self.num_heads, (self.dim // num_heads), self.Down_N
         # v shape: B, self.num_heads, self.Down_N, (self.dim // num_heads)
-        k = keras_backend.permute_dimensions(kv[0], (0, 1, 3, 2))
-        v = kv[1]
+        k, v = kv[0], kv[1]
         # matmul shape: (B, self.num_heads, N, (self.dim // self.num_heads)) @ (B, self.num_heads, (self.dim // num_heads), self.Down_N)
         # attn.shape: B, self.num_heads, N, self.Down_N
-        attn = tf.matmul(q, k) * self.scale
+        if self.distance is True:
+            attn = pairwise_dist(q, k) * self.scale
+        else:
+            k = keras_backend.permute_dimensions(k, (0, 1, 3, 2))
+            attn = tf.matmul(q, k) * self.scale
         attn = activations.softmax(attn, axis=-1)
         attn = self.attn_drop(attn)
+
         # matmul shape: (B, self.num_heads, N, self.Down_N) @ (B, self.num_heads, self.Down_N, (self.dim // num_heads)
         # out.shape: B, self.num_heads, N, (self.dim // num_heads)
         out = tf.matmul(attn, v)
