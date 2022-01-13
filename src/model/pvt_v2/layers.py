@@ -417,7 +417,7 @@ class OverlapPatchEmbed(layers.Layer):
                                   use_bias=True,
                                   kernel_initializer=dense_init,
                                   bias_initializer=dense_bias_init)
-        self.positional_encode = AddPositionEmbs()
+        self.positional_emb = AddPositionEmbs()
         self.norm = custom_init_layer_norm()
 
     def call(self, inputs):
@@ -426,7 +426,7 @@ class OverlapPatchEmbed(layers.Layer):
         x = self.proj(inputs)
         # shape: B, (H * W) // stride, self.embed_dim
         x = layers.Reshape((-1, self.embed_dim))(x)
-        x = self.positional_encode(x)
+        x = self.positional_emb(x)
         x = self.norm(x)
 
         return x

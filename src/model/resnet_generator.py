@@ -280,12 +280,12 @@ def get_highway_resnet_generator_unet(input_shape,
 
     for decode_i in range(decoder_depth, 0, -1):
 
-        decoded_layer_1 = HighwayResnetBlock(
+        decode_layer_1 = HighwayResnetBlock(
             init_filters * decode_i, use_highway=False)
-        decoded_layer_2 = HighwayResnetBlock(
+        decode_layer_2 = HighwayResnetBlock(
             init_filters * decode_i, use_highway=True)
-        decoded_layer_3 = HighwayResnetDecoder(
-            init_filters * decode_i, unsharp=True)(decoded_tensor)
+        decode_layer_3 = HighwayResnetDecoder(
+            init_filters * decode_i, unsharp=True)
         setattr(layer_archive, f"decode_{decode_i}_1", decode_layer_1)
         setattr(layer_archive, f"decode_{decode_i}_2", decode_layer_2)
         setattr(layer_archive, f"decode_{decode_i}_3", decode_layer_3)
@@ -322,7 +322,7 @@ def get_highway_resnet_generator_unet(input_shape,
 
         if skip_connection is True:
             skip_connection_target = getattr(
-                layer_archive, f"encode_{decode_i}")
+                tensor_archive, f"encode_{decode_i}")
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
         decoded_tensor = decode_layer_3(decoded_tensor)
@@ -345,7 +345,8 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
 
     decoder_depth = encoder_depth
     kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-
+    layer_archive = LayerArchive()
+    tensor_archive = TensorArchive()
     input_label_shape = (input_shape[0] // (2 ** encoder_depth),
                          input_shape[1] // (2 ** encoder_depth),
                          init_filters * encoder_depth)
@@ -384,12 +385,12 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
 
     for decode_i in range(decoder_depth, 0, -1):
 
-        decoded_layer_1 = HighwayResnetBlock(
+        decode_layer_1 = HighwayResnetBlock(
             init_filters * decode_i, use_highway=False)
-        decoded_layer_2 = HighwayResnetBlock(
+        decode_layer_2 = HighwayResnetBlock(
             init_filters * decode_i, use_highway=True)
-        decoded_layer_3 = HighwayResnetDecoder(
-            init_filters * decode_i, unsharp=True)(decoded_tensor)
+        decode_layer_3 = HighwayResnetDecoder(
+            init_filters * decode_i, unsharp=True)
         setattr(layer_archive, f"decode_{decode_i}_1", decode_layer_1)
         setattr(layer_archive, f"decode_{decode_i}_2", decode_layer_2)
         setattr(layer_archive, f"decode_{decode_i}_3", decode_layer_3)
@@ -431,7 +432,7 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
 
         if skip_connection is True:
             skip_connection_target = getattr(
-                layer_archive, f"encode_{decode_i}")
+                tensor_archive, f"encode_{decode_i}")
             decoded_tensor = layers.Concatenate(
                 axis=-1)([decoded_tensor, skip_connection_target])
         decoded_tensor = decode_layer_3(decoded_tensor)
