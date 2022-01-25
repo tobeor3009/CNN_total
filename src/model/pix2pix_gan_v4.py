@@ -3,8 +3,8 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 
 from .util.gan_loss import rgb_color_histogram_loss
-from .util.wgan_gp import base_generator_loss_deceive_discriminator, \
-    base_discriminator_loss_arrest_generator, gradient_penalty
+from .util.lsgan import base_generator_loss_deceive_discriminator, \
+    base_discriminator_loss_arrest_generator
 from .util.grad_clip import adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss
@@ -16,13 +16,11 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
-        gp_weight=10.0,
         lambda_histogram=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
-        self.gp_weight = gp_weight
         self.lambda_histogram = lambda_histogram
 
     def compile(
@@ -72,9 +70,6 @@ class Pix2PixGan(Model):
             # Discriminator loss
             disc_loss = self.discriminator_loss_arrest_generator(
                 disc_real_y, disc_fake_y)
-            disc_fake_y_gradient_panalty = gradient_penalty(
-                self.discriminator, self.batch_size, real_y, fake_y)
-            disc_loss += self.gp_weight * disc_fake_y_gradient_panalty
 
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(
