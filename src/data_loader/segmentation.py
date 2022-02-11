@@ -70,8 +70,6 @@ class SegDataGetter(BaseDataGetter):
         self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
-        # else:
-        #     self.get_data_on_disk()
 
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)

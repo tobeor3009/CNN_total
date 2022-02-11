@@ -53,7 +53,7 @@ class DualModelSegmentation(Model):
         real_images, mask_images = batch
 
         gen_A_mask = mask_images[:, :, :, :1]
-        gen_B_mask = mask_images[:, :, :, 1:]
+        gen_B_mask = mask_images[:, :, :, 1:2]
         with tf.GradientTape(persistent=True) as gen_tape:
             # =================================================================================== #
             #                             2. Train the discriminator                              #

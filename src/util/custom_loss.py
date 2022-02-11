@@ -5,6 +5,7 @@ import segmentation_models as sm
 from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
 from segmentation_models.losses import BinaryFocalLoss
+from tensorflow.keras.metrics import mean_absolute_error
 
 AXIS = [1, 2]
 PIE_VALUE = np.pi
@@ -90,6 +91,29 @@ def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH, channel_weigh
         total_score = total_score * channel_weight
 
     return K.mean(total_score)
+
+
+def x2ct_loss(y_true, y_pred):
+
+    mae_error = mean_absolute_error(y_true, y_pred)
+
+    gt_lat_projection = K.mean(y_true, axis=1)
+    pred_lat_projection = K.mean(y_pred, axis=1)
+    gt_ap_projection = K.mean(y_true, axis=2)
+    pred_ap_projection = K.mean(y_pred, axis=2)
+    gt_axial_projection = K.mean(y_true, axis=3)
+    pred_axial_projection = K.mean(y_pred, axis=3)
+
+    lat_projection_loss = mean_absolute_error(
+        gt_lat_projection, pred_lat_projection)
+    ap_projection_loss = mean_absolute_error(
+        gt_ap_projection, pred_ap_projection)
+    axial_projection_loss = mean_absolute_error(
+        gt_axial_projection, pred_axial_projection)
+
+    projection_loss = (ap_projection_loss +
+                       lat_projection_loss + axial_projection_loss) / 3
+    return mae_error + projection_loss
 
 
 class BoundaryLoss(Loss):

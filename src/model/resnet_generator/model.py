@@ -7,7 +7,7 @@ from tensorflow.python.ops.gen_array_ops import size
 from tensorflow.keras.activations import tanh, gelu
 from tensorflow_addons.activations import mish
 
-from .layers import LayerArchive, TensorArchive, HighwayResnetBlock, HighwayResnetEncoder, HighwayResnetDecoder, get_input_label2image_tensor
+from .layers import LayerArchive, TensorArchive, HighwayResnetBlock, HighwayResnetEncoder, HighwayResnetDecoder, AddPositionEmbs2D, get_input_label2image_tensor
 
 base_act = gelu
 
@@ -60,6 +60,7 @@ def get_highway_resnet_generator_unet(input_shape,
     ######################### Model Start ########################
     ##############################################################
     input_tensor = layers.Input(shape=input_shape)
+    # encoded_tensor = AddPositionEmbs2D()(input_tensor)
     encoded_tensor = HighwayResnetBlock(
         init_filters, use_highway=False)(input_tensor)
 
@@ -76,6 +77,7 @@ def get_highway_resnet_generator_unet(input_shape,
             setattr(tensor_archive, f"encode_{encode_i}", encoded_tensor)
 
     decoded_tensor = middle_layers(encoded_tensor)
+    # decoded_tensor = AddPositionEmbs2D()(decoded_tensor)
 
     for decode_i in range(decoder_depth, 0, -1):
         decode_layer_1 = getattr(layer_archive, f"decode_{decode_i}_1")
@@ -93,9 +95,11 @@ def get_highway_resnet_generator_unet(input_shape,
         decoded_tensor = decode_layer_3(decoded_tensor)
 
     last_modified_tensor = HighwayResnetBlock(
-        init_filters, use_highway=False)(decoded_tensor)
+        init_filters, use_highway=True)(decoded_tensor)
     last_modified_tensor = HighwayResnetBlock(
-        last_channel_num, use_highway=False)(decoded_tensor)
+        init_filters, use_highway=True)(last_modified_tensor)
+    last_modified_tensor = HighwayResnetBlock(out_channel=last_channel_num,
+                                              use_highway=False, use_act=False)(last_modified_tensor)
     last_modified_tensor = layers.Activation(
         last_channel_activation)(last_modified_tensor)
 
@@ -231,6 +235,7 @@ def get_discriminator(
         combined_imgs = layers.Concatenate(
             axis=-1)([original_image, predicted_image])
         model_input = [original_image, predicted_image]
+    combined_imgs = AddPositionEmbs2D()(combined_imgs)
 
     if depth is None:
         img_size = input_img_shape[0]
@@ -254,7 +259,8 @@ def get_discriminator(
 
     if include_validity is True:
         validity = HighwayResnetBlock(out_channel=1,
-                                      use_highway=False)(decoded_tensor)
+                                      use_highway=True,
+                                      use_act=False)(decoded_tensor)
         validity = activations.sigmoid(validity)
         model_output.append(validity)
     if include_classifier is True:

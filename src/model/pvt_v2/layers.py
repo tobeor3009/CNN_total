@@ -6,7 +6,8 @@ from tensorflow.keras import layers
 from tensorflow.keras import activations
 from tensorflow.keras import initializers
 
-
+USE_CONV_BIAS = False
+USE_DENSE_BIAS = False
 dense_init = initializers.TruncatedNormal(mean=0, stddev=0.02)
 dense_bias_init = initializers.Zeros()
 identity_layer = layers.Lambda(lambda x: x)
@@ -19,7 +20,7 @@ def to2_tuple(int_or_tuple):
         return (int_or_tuple, int_or_tuple)
 
 
-def custom_init_dense(units, use_bias=True):
+def custom_init_dense(units, use_bias=USE_DENSE_BIAS):
 
     return layers.Dense(units,
                         use_bias=use_bias,
@@ -47,6 +48,7 @@ def custom_init_conv2d(dim, kernel_size, stride, groups=1):
                          padding='same',
                          strides=stride,
                          groups=groups,
+                         use_bias=USE_CONV_BIAS,
                          kernel_initializer=conv_init,
                          bias_initializer=conv_bias_init)
 
@@ -414,7 +416,7 @@ class OverlapPatchEmbed(layers.Layer):
                                   kernel_size=patch_size,
                                   strides=stride,
                                   padding="same",
-                                  use_bias=True,
+                                  use_bias=USE_CONV_BIAS,
                                   kernel_initializer=dense_init,
                                   bias_initializer=dense_bias_init)
         self.positional_emb = AddPositionEmbs()
@@ -444,7 +446,7 @@ class DWConv(layers.Layer):
         self.dwconv = layers.DepthwiseConv2D(kernel_size=kernel_size,
                                              strides=1,
                                              padding="same",
-                                             use_bias=True,
+                                             use_bias=USE_CONV_BIAS,
                                              kernel_initializer=initializers.TruncatedNormal(
                                                  mean=0, stddev=normal_scale),
                                              bias_initializer=dense_bias_init)
@@ -477,115 +479,3 @@ class AddPositionEmbs(layers.Layer):
     @classmethod
     def from_config(cls, config):
         return cls(**config)
-
-
-# class UnsharpMasking2D(layers.Layer):
-#     def __init__(self, filters):
-#         super(UnsharpMasking2D, self).__init__()
-#         gauss_kernel_2d = get_gaussian_kernel(2, 0.0, 1.0)
-#         self.gauss_kernel = tf.tile(
-#             gauss_kernel_2d[:, :, tf.newaxis, tf.newaxis], [1, 1, filters, 1])
-
-#         self.pointwise_filter = tf.eye(filters, batch_shape=[1, 1])
-
-#     def call(self, input_tensor):
-#         blur_tensor = tf.nn.separable_conv2d(input_tensor,
-#                                              self.gauss_kernel,
-#                                              self.pointwise_filter,
-#                                              strides=[1, 1, 1, 1], padding='SAME')
-#         unsharp_mask_tensor = 2 * input_tensor - blur_tensor
-#         # because it used after tanh
-#         unsharp_mask_tensor = tf.clip_by_value(unsharp_mask_tensor, -1, 1)
-#         return unsharp_mask_tensor
-
-
-# class HighwayMulti(layers.Layer):
-
-#     activation = None
-#     transform_gate_bias = None
-
-#     def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
-#         self.activation = activation
-#         self.transform_gate_bias = transform_gate_bias
-#         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
-#         self.dim = dim
-#         self.dense_1 = Dense(
-#             units=self.dim, bias_initializer=transform_gate_bias_initializer)
-
-#         super(HighwayMulti, self).__init__(**kwargs)
-
-#     def call(self, x, y):
-#         transform_gate = self.dense_1(x)
-#         transform_gate = layers.Activation("sigmoid")(transform_gate)
-#         carry_gate = layers.Lambda(lambda x: 1.0 - x,
-#                                    output_shape=(self.dim,))(transform_gate)
-#         transformed_gated = layers.Multiply()([transform_gate, x])
-#         identity_gated = layers.Multiply()([carry_gate, y])
-#         value = Add()([transformed_gated, identity_gated])
-#         return value
-
-#     def compute_output_shape(self, input_shape):
-#         return input_shape
-
-#     def get_config(self):
-#         config = super(HighwayMulti, self).get_config()
-#         config['activation'] = self.activation
-#         config['transform_gate_bias'] = self.transform_gate_bias
-#         return config
-
-
-# class HighwayResnetBlock(layers.Layer):
-#     def __init__(self, filters, use_highway=True):
-#         super(HighwayResnetBlock, self).__init__()
-#         # Define Base Model Params
-#         self.use_highway = use_highway
-#         self.depthwise_separable_conv = ConvBlock(
-#             filters=filters, stride=1)
-#         if self.use_highway is True:
-#             self.highway_layer = HighwayMulti(dim=filters)
-
-#     def call(self, input_tensor):
-
-#         x = self.depthwise_separable_conv(input_tensor)
-#         if self.use_highway is True:
-#             x = self.highway_layer(x, input_tensor)
-#         return x
-
-
-# class HighwayResnetDecoder(layers.Layer):
-#     def __init__(self, filters, unsharp=False):
-#         super(HighwayResnetDecoder, self).__init__()
-#         self.unsharp = unsharp
-#         self.unsharp_mask_layer = UnsharpMasking2D(filters)
-
-#         self.conv2d = HighwayResnetBlock(filters * 4, use_highway=False)
-#         self.conv_after_pixel_shffle = HighwayResnetBlock(
-#             filters, use_highway=False)
-
-#         self.conv_before_upsample = HighwayResnetBlock(
-#             filters, use_highway=False)
-#         self.upsample_layer = layers.UpSampling2D(
-#             size=2, interpolation="bilinear")
-#         self.conv_after_upsample = HighwayResnetBlock(
-#             filters, use_highway=False)
-
-#         self.norm_layer = layers.BatchNormalization()
-#         self.act_layer = tanh
-#         self.highway_layer = HighwayMulti(dim=filters)
-
-#     def call(self, input_tensor):
-
-#         pixel_shuffle = self.conv2d(input_tensor)
-#         pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, block_size=2)
-#         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
-
-#         x = self.conv_before_upsample(input_tensor)
-#         x = self.upsample_layer(x)
-#         x = self.conv_after_upsample(x)
-
-#         output = self.highway_layer(pixel_shuffle, x)
-#         output = self.norm_layer(output)
-#         output = self.act_layer(output)
-#         if self.unsharp:
-#             output = self.unsharp_mask_layer(output)
-#         return output

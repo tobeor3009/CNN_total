@@ -66,7 +66,10 @@ class _CoordinateChannel(Layer):
         self.built = True
         self.after_build_input_shape = input_shape
 
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, dtype=None, training=None, mask=None):
+        if dtype is not None:
+            inputs = tf.cast(inputs, dtype)
+
         input_shape = tf.shape(inputs)
 
         if self.rank == 1:

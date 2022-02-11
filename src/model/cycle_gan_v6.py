@@ -7,7 +7,7 @@ from tensorflow.keras import activations
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.keras.initializers import RandomNormal
 
-from .util.gan_loss import rgb_color_histogram_loss
+from .util.gan_loss import rgb_color_histogram_loss, gray_histogram_loss
 from .util.lsgan import base_generator_loss_deceive_discriminator, base_discriminator_loss_arrest_generator
 from .util.grad_clip import adaptive_gradient_clipping
 
@@ -26,6 +26,7 @@ class CycleGan(Model):
         generator_F,
         discriminator_X,
         discriminator_Y,
+        lambda_gen_2_disc=1.0,
         lambda_cycle=10.0,
         lambda_identity=0.5,
         lambda_histogram=0.,
@@ -38,6 +39,7 @@ class CycleGan(Model):
         self.discriminator_X = discriminator_X
         self.discriminator_Y = discriminator_Y
 
+        self.lambda_gen_2_disc = lambda_gen_2_disc
         self.lambda_cycle = lambda_cycle
         self.lambda_identity = lambda_identity
         self.lambda_histogram = lambda_histogram
@@ -55,7 +57,7 @@ class CycleGan(Model):
         generator_loss_deceive_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
         identity_loss=True,
-        histogram_loss=True,
+        histogram_loss=None,
         active_gradient_clip=True,
         lambda_clip=0.1,
     ):
@@ -69,7 +71,12 @@ class CycleGan(Model):
         self.cycle_loss_fn = image_loss_fn
         self.identity_loss_fn = image_loss_fn
         self.identity_loss = identity_loss
-        self.histogram_loss = histogram_loss
+        if histogram_loss == "gray":
+            self.histogram_loss = gray_histogram_loss
+        elif histogram_loss == "rgb":
+            self.histogram_loss = rgb_color_histogram_loss
+        else:
+            self.histogram_loss = histogram_loss
         self.active_gradient_clip = active_gradient_clip
         self.lambda_clip = lambda_clip
 
@@ -83,7 +90,6 @@ class CycleGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
-        batch_size = tf.shape(real_x)[0]
 
         # =================================================================================== #
         #                             2. Train the discriminator                              #
@@ -176,11 +182,11 @@ class CycleGan(Model):
             cycle_x = self.generator_F(fake_y, training=True)
             cycle_y = self.generator_G(fake_x, training=True)
 
-            if self.histogram_loss is True:
+            if self.histogram_loss is not None:
                 gen_G_histo_loss = self.lambda_histogram * \
-                    rgb_color_histogram_loss(real_y, fake_y)
+                    self.histogram_loss(real_y, fake_y)
                 gen_F_histo_loss = self.lambda_histogram * \
-                    rgb_color_histogram_loss(real_x, fake_x)
+                    self.histogram_loss(real_x, fake_x)
 
             # Discriminator output
             disc_fake_x = self.discriminator_X([real_x, fake_x])
@@ -235,15 +241,20 @@ class CycleGan(Model):
             gen_F_cycle_disc_loss = self.generator_loss_deceive_discriminator(
                 disc_cycle_x)
 
-            # Total generator loss
-            gen_G_total_loss = gen_G_fake_disc_loss + \
-                gen_G_cycle_image_loss + gen_G_cycle_disc_loss + \
-                gen_G_identity_image_loss + gen_G_identity_disc_loss
-            gen_F_total_loss = gen_F_fake_disc_loss + \
-                gen_F_cycle_image_loss + gen_F_cycle_disc_loss + \
-                gen_F_identity_image_loss + gen_F_identity_disc_loss
+            gen_G_image_loss = gen_G_cycle_image_loss + gen_G_identity_image_loss
+            gen_F_image_loss = gen_F_cycle_image_loss + gen_F_identity_image_loss
 
-            if self.histogram_loss is True:
+            gen_G_disc_loss = (gen_G_fake_disc_loss + gen_G_cycle_disc_loss +
+                               gen_G_identity_disc_loss) * self.lambda_gen_2_disc
+            gen_F_disc_loss = (gen_F_fake_disc_loss + gen_F_cycle_disc_loss +
+                               gen_F_identity_disc_loss) * self.lambda_gen_2_disc
+
+            # Total generator loss
+            gen_G_total_loss = gen_G_image_loss + gen_G_disc_loss
+
+            gen_F_total_loss = gen_F_image_loss + gen_F_disc_loss
+
+            if self.histogram_loss is not None:
                 gen_G_total_loss += gen_G_histo_loss
                 gen_F_total_loss += gen_F_histo_loss
             else:
@@ -269,7 +280,6 @@ class CycleGan(Model):
         self.generator_F_optimizer.apply_gradients(
             zip(gen_F_grads, self.generator_F.trainable_variables)
         )
-
         return {
             "total_loss_G": gen_G_total_loss,
             "total_loss_F": gen_F_total_loss,

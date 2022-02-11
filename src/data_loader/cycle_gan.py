@@ -1,7 +1,7 @@
 # base module
 from collections import deque
 import os
-
+import random
 # external module
 import numpy as np
 from sklearn.utils import shuffle as syncron_shuffle
@@ -67,8 +67,9 @@ class CycleGanDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.target_data_index_dict = \
             {i: i for i in range(len(self.target_image_path_dict))}
-        self.target_data_index_quque = \
-            deque(range(self.target_data_len))
+        target_index_list = list(self.target_data_index_dict.values())
+        random.shuffle(target_index_list)
+        self.target_data_index_quque = deque(target_index_list)
         self.target_data_index_quque_len = self.target_data_len
         self.single_data_dict = \
             {"image_array": None, "target_image_array": None}
@@ -95,8 +96,8 @@ class CycleGanDataGetter(BaseDataGetter):
             self.target_data_index_quque_len -= 1
         else:
             self.target_data_index_quque_len = self.target_data_len - 1
-            self.target_data_index_quque = \
-                deque(range(self.target_data_len))
+            target_index_list = list(self.target_data_index_dict.values())
+            self.target_data_index_quque = deque(target_index_list)
 
         current_index = self.data_index_dict[i]
         target_index = self.target_data_index_quque.pop()

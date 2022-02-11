@@ -9,8 +9,11 @@ from tensorflow.keras.layers import Dense, Activation, Multiply, Add, Lambda
 from tensorflow.keras.initializers import Constant
 from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
 from tensorflow_addons.activations import mish
+from tensorflow.nn import relu6
 
-base_act = gelu
+USE_CONV_BIAS = False
+USE_DENSE_BIAS = False
+base_act = relu6
 
 
 class LayerArchive:
@@ -39,8 +42,8 @@ class HighwayMulti(layers.Layer):
         self.transform_gate_bias = transform_gate_bias
         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
         self.dim = dim
-        self.dense_1 = Dense(
-            units=self.dim, bias_initializer=transform_gate_bias_initializer)
+        self.dense_1 = Dense(units=self.dim, use_bias=USE_DENSE_BIAS,
+                             bias_initializer=transform_gate_bias_initializer)
 
         super(HighwayMulti, self).__init__(**kwargs)
 
@@ -148,7 +151,7 @@ def DecoderTransposeX2Block(filters):
         kernel_size=(4, 4),
         strides=(2, 2),
         padding='same',
-        use_bias=False,
+        use_bias=USE_CONV_BIAS,
     )
 
 
@@ -162,10 +165,12 @@ def get_input_label2image_tensor(label_len, target_shape,
                      target_shape[1] // reduce_size,
                      target_shape[2])
     class_input = layers.Input(shape=(label_len,))
-    class_tensor = layers.Dense(np.prod(reduced_shape) // 2)(class_input)
+    class_tensor = layers.Dense(
+        np.prod(reduced_shape) // 2, use_bias=USE_DENSE_BIAS)(class_input)
     class_tensor = base_act(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
-    class_tensor = layers.Dense(np.prod(reduced_shape))(class_tensor)
+    class_tensor = layers.Dense(
+        np.prod(reduced_shape), use_bias=USE_DENSE_BIAS)(class_tensor)
     class_tensor = base_act(class_tensor)
     class_tensor = layers.Dropout(dropout_ratio)(class_tensor)
     class_tensor = layers.Reshape(reduced_shape)(class_tensor)
@@ -181,21 +186,25 @@ def get_input_label2image_tensor(label_len, target_shape,
 
 
 class ConvBlock(layers.Layer):
-    def __init__(self, filters, stride):
+    def __init__(self, filters, stride, padding=(1, 1), kernel_size=(3, 3), use_act=True):
         super(ConvBlock, self).__init__()
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
-        self.padding_layer = ReflectionPadding2D()
+        self.use_act = use_act
+        self.padding_layer = ReflectionPadding2D(padding=padding)
         self.conv2d = layers.Conv2D(filters=filters,
-                                    kernel_size=(3, 3), strides=stride,
-                                    padding="valid", kernel_initializer=kernel_init)
-        self.batch_norm = layers.BatchNormalization()
-        self.act = base_act
+                                    kernel_size=kernel_size, strides=stride,
+                                    padding="valid", kernel_initializer=kernel_init,
+                                    use_bias=USE_CONV_BIAS)
+        self.norm_layer = layers.LayerNormalization(axis=-1)
+        if self.use_act is True:
+            self.act_layer = base_act
 
     def call(self, input_tensor):
         x = self.padding_layer(input_tensor)
         x = self.conv2d(x)
-        x = self.batch_norm(x)
-        x = self.act(x)
+        x = self.norm_layer(x)
+        if self.use_act is True:
+            x = self.act_layer(x)
         return x
 
 
@@ -211,28 +220,33 @@ class GCBlock(layers.Layer):
         self.ratio = ratio
         self.middle_channel = int(in_channel * ratio)
         self.fusion_types = fusion_types
-
         self.positional_emb = AddPositionEmbs2D()
-        self.key_mask = layers.Conv2D(
-            filters=in_channel, kernel_size=1, kernel_initializer=kaiming_initializer)
-        self.value_mask = layers.Conv2D(
-            filters=1, kernel_size=1, kernel_initializer=kaiming_initializer)
+        self.key_mask = layers.Conv2D(filters=in_channel,
+                                      kernel_size=1,
+                                      kernel_initializer=kaiming_initializer,
+                                      padding="same",
+                                      use_bias=USE_CONV_BIAS)
+        self.value_mask = layers.Conv2D(filters=1,
+                                        kernel_size=1,
+                                        kernel_initializer=kaiming_initializer,
+                                        padding="same",
+                                        use_bias=USE_CONV_BIAS)
         self.softmax = partial(softmax, axis=-2)
 
         if 'channel_add' in fusion_types:
             self.channel_add_conv = Sequential(
-                [layers.Conv2D(self.middle_channel, kernel_size=1),
+                [layers.Conv2D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
                  layers.LayerNormalization(axis=-1),
-                 layers.ReLU(),  # yapf: disable
-                 layers.Conv2D(self.in_channel, kernel_size=1)])
+                 layers.ReLU(max_value=6),  # yapf: disable
+                 layers.Conv2D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
         else:
             self.channel_add_conv = None
         if 'channel_mul' in fusion_types:
             self.channel_mul_conv = Sequential(
-                [layers.Conv2D(self.middle_channel, kernel_size=1),
+                [layers.Conv2D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
                  layers.LayerNormalization(axis=-1),
-                 layers.ReLU(),  # yapf: disable
-                 layers.Conv2D(self.in_channel, kernel_size=1)])
+                 layers.ReLU(max_value=6),  # yapf: disable
+                 layers.Conv2D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
         else:
             self.channel_mul_conv = None
 
@@ -242,7 +256,6 @@ class GCBlock(layers.Layer):
     def call(self, x):
 
         x = self.positional_emb(x)
-
         # x.shape: [B, H, W, C]
         # key_mask.shape: [B, H, W, C]
         key_mask = self.key_mask(x)
@@ -278,38 +291,55 @@ class GCBlock(layers.Layer):
 
 class HighwayResnetBlock(layers.Layer):
     def __init__(self, out_channel, in_channel=None,
-                 include_context=True, context_ratio=3,
-                 use_highway=True):
+                 include_context=False, context_ratio=3,
+                 use_highway=True, use_act=True):
         super(HighwayResnetBlock, self).__init__()
-        self.use_highway = use_highway
         self.include_context = include_context
-        self.conv = ConvBlock(
-            filters=out_channel, stride=1)
+        self.use_highway = use_highway
+        self.use_act = use_act
+        self.conv_3x3 = ConvBlock(
+            filters=out_channel, stride=1, use_act=use_act)
+        self.conv_1x3 = ConvBlock(filters=out_channel, stride=1,
+                                  padding=(1, 0), kernel_size=(1, 3), use_act=use_act)
+        self.conv_3x1 = ConvBlock(filters=out_channel, stride=1,
+                                  padding=(0, 1), kernel_size=(3, 1), use_act=use_act)
+        self.conv_1x1 = ConvBlock(filters=out_channel, stride=1,
+                                  padding=(0, 0), kernel_size=(1, 1), use_act=use_act)
         if self.include_context is True:
             in_channel = out_channel if in_channel is None else in_channel
             self.gc_layer = GCBlock(
                 in_channel=in_channel, ratio=context_ratio)
         if self.use_highway is True:
             self.highway_layer = HighwayMulti(dim=out_channel)
-        self.norm_layer = layers.LayerNormalization(axis=-1)
+            self.norm_layer = layers.LayerNormalization(axis=-1)
+            if self.use_act is True:
+                self.act_layer = base_act
 
     def call(self, input_tensor):
         x = input_tensor
         if self.include_context is True:
             x = self.gc_layer(x)
-        x = self.conv(x)
+        conv_3x3 = self.conv_3x3(x)
+        conv_1x3 = self.conv_1x3(x)
+        conv_3x1 = self.conv_3x1(x)
+
+        conv = layers.Concatenate()([conv_3x3, conv_1x3, conv_3x1])
+        conv = self.conv_1x1(conv)
         if self.use_highway is True:
-            x = self.highway_layer(x, input_tensor)
-            x = self.norm_layer(x)
-        return x
+            conv = self.highway_layer(conv, input_tensor)
+            conv = self.norm_layer(conv)
+            if self.use_act is True:
+                conv = self.act_layer(conv)
+        return conv
 
 
 class HighwayResnetEncoder(layers.Layer):
-    def __init__(self, out_channel, in_channel=None, include_context=True, context_ratio=3, use_highway=True):
+    def __init__(self, out_channel, in_channel=None, include_context=False, context_ratio=3,
+                 use_highway=True, use_highway_norm=True):
         super(HighwayResnetEncoder, self).__init__()
         self.include_context = include_context
         self.use_highway = use_highway
-
+        self.use_highway_norm = use_highway_norm
         self.conv = ConvBlock(
             filters=out_channel, stride=2)
         if self.include_context is True:
@@ -320,7 +350,9 @@ class HighwayResnetEncoder(layers.Layer):
             self.pooling_layer = layers.AveragePooling2D(
                 pool_size=2, strides=2, padding="same")
             self.highway_layer = HighwayMulti(dim=out_channel)
-        self.norm_layer = layers.LayerNormalization(axis=-1)
+            if self.use_highway_norm is True:
+                self.norm_layer = layers.LayerNormalization(axis=-1)
+            self.act_layer = base_act
 
     def call(self, input_tensor):
         x = input_tensor
@@ -330,7 +362,9 @@ class HighwayResnetEncoder(layers.Layer):
         if self.use_highway is True:
             source = self.pooling_layer(input_tensor)
             x = self.highway_layer(x, source)
-            x = self.norm_layer(x)
+            if self.use_highway_norm is True:
+                x = self.norm_layer(x)
+            x = self.act_layer(x)
         return x
 
 
@@ -342,18 +376,21 @@ class HighwayResnetDecoder(layers.Layer):
 
         self.kernel_size = kernel_size
         self.unsharp = unsharp
+        self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
+                                                      kernel_size=1, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
+                                                     kernel_size=1, padding="same",
+                                                     strides=1, use_bias=USE_CONV_BIAS)
 
-        self.conv2d = HighwayResnetBlock(
-            out_channel * (kernel_size ** 2), use_highway=False, include_context=False)
-        self.conv_after_pixel_shffle = HighwayResnetBlock(
-            out_channel, use_highway=False, include_context=False)
-
-        self.conv_before_upsample = HighwayResnetBlock(
-            out_channel, use_highway=False, include_context=False)
+        self.conv_before_upsample = layers.Conv2D(filters=out_channel,
+                                                  kernel_size=1, padding="same",
+                                                  strides=1, use_bias=USE_CONV_BIAS)
         self.upsample_layer = layers.UpSampling2D(
             size=kernel_size, interpolation="bilinear")
-        self.conv_after_upsample = HighwayResnetBlock(
-            out_channel, use_highway=False, include_context=False)
+        self.conv_after_upsample = layers.Conv2D(filters=out_channel,
+                                                 kernel_size=1, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
 
         self.norm_layer = layers.LayerNormalization(axis=-1)
         self.act_layer = tanh
@@ -371,7 +408,7 @@ class HighwayResnetDecoder(layers.Layer):
         x = input_tensor
         if self.include_context is True:
             x = self.gc_layer(x)
-        pixel_shuffle = self.conv2d(x)
+        pixel_shuffle = self.conv_before_pixel_shffle(x)
         pixel_shuffle = tf.nn.depth_to_space(
             pixel_shuffle, block_size=self.kernel_size)
         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
@@ -385,6 +422,36 @@ class HighwayResnetDecoder(layers.Layer):
         output = self.act_layer(output)
         if self.unsharp is True:
             output = self.unsharp_mask_layer(output)
+        return output
+
+
+class HighwayOutputLayer(layers.Layer):
+    def __init__(self, last_channel_num, act="tanh", use_highway=True):
+        super().__init__()
+        self.use_highway = use_highway
+
+        self.conv_1x1 = layers.Conv2D(filters=last_channel_num,
+                                      kernel_size=1,
+                                      padding="same",
+                                      strides=1,
+                                      use_bias=USE_CONV_BIAS,
+                                      )
+        self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
+                                      kernel_size=3,
+                                      padding="same",
+                                      strides=1,
+                                      use_bias=USE_CONV_BIAS,
+                                      )
+        if self.use_highway is True:
+            self.highway_layer = HighwayMulti(dim=last_channel_num)
+        self.act = layers.Activation(act)
+
+    def call(self, input_tensor):
+        conv_1x1 = self.conv_1x1(input_tensor)
+        conv_3x3 = self.conv_3x3(input_tensor)
+        output = self.highway_layer(conv_1x1, conv_3x3)
+        output = self.act(output)
+
         return output
 
 

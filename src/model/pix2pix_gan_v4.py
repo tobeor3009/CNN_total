@@ -16,12 +16,12 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
-        lambda_histogram=0.1
+        lambda_disc=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
-        self.lambda_histogram = lambda_histogram
+        self.lambda_disc = lambda_disc
 
     def compile(
         self,
@@ -54,7 +54,6 @@ class Pix2PixGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
-        real_y_slice = real_y[..., 127, :]
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
@@ -62,10 +61,9 @@ class Pix2PixGan(Model):
 
             # another domain mapping
             fake_y = self.generator(real_x)
-            fake_y_slice = fake_y[..., 127, :]
             # Discriminator output
-            disc_real_y = self.discriminator(real_y_slice, training=True)
-            disc_fake_y = self.discriminator(fake_y_slice, training=True)
+            disc_real_y = self.discriminator(real_y, training=True)
+            disc_fake_y = self.discriminator(fake_y, training=True)
 
             # Discriminator loss
             disc_loss = self.discriminator_loss_arrest_generator(
@@ -88,24 +86,17 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
-            fake_y_slice = fake_y[..., 127, :]
 
             # Discriminator output
-            disc_fake_y = self.discriminator(fake_y_slice)
+            disc_fake_y = self.discriminator(fake_y)
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
             # Generator adverserial loss
             gen_loss_adverserial_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
             total_generator_loss = gen_loss_in_real_y + \
-                gen_loss_adverserial_loss
+                gen_loss_adverserial_loss * self.lambda_disc
 
-            if self.lambda_histogram > 0:
-                gen_histo_loss_in_real_y = self.lambda_histogram * \
-                    rgb_color_histogram_loss(real_y, fake_y)
-                total_generator_loss += gen_histo_loss_in_real_y
-            else:
-                gen_histo_loss_in_real_y = 0
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(
             total_generator_loss, self.generator.trainable_variables)
@@ -122,6 +113,5 @@ class Pix2PixGan(Model):
             "total_generator_loss": total_generator_loss,
             "generator_loss_in_real_y": gen_loss_in_real_y,
             "generator_adverserial_loss": gen_loss_adverserial_loss,
-            "generator_histo_loss": gen_histo_loss_in_real_y,
             "discriminator_loss": disc_loss,
         }

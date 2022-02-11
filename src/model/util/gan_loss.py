@@ -51,3 +51,23 @@ def rgb_color_histogram_loss(y_true, y_pred, element_num=256, value_range=(-1, 1
     blue_histo_loss = histogram_loss_fn(y_true_blue_histo, y_pred_blue_histo)
 
     return red_histo_loss + green_histo_loss + blue_histo_loss
+
+
+def gray_histogram_loss(y_true, y_pred, element_num=256, value_range=(-1, 1), nbins=256):
+
+    y_true_gray = layers.Lambda(lambda x: x[:, :, :, 0])(y_true)
+    y_pred_gray = layers.Lambda(lambda x: x[:, :, :, 0])(y_pred)
+
+    y_true_gray_histo = tf.histogram_fixed_width(
+        y_true_gray, value_range, nbins=nbins)
+    y_pred_gray_histo = tf.histogram_fixed_width(
+        y_pred_gray, value_range, nbins=nbins)
+
+    y_true_gray_histo = keras_backend.cast(
+        y_true_gray_histo / element_num, 'float32')
+    y_pred_gray_histo = keras_backend.cast(
+        y_pred_gray_histo / element_num, 'float32')
+
+    gray_histo_loss = histogram_loss_fn(y_true_gray_histo, y_pred_gray_histo)
+
+    return gray_histo_loss

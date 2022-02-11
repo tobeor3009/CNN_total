@@ -106,6 +106,35 @@ class UnsharpMasking2D(layers.Layer):
         return unsharp_mask_tensor
 
 
+@tf.keras.utils.register_keras_serializable()
+class AddPositionEmbs2D(layers.Layer):
+    """Adds (optionally learned) positional embeddings to the inputs."""
+
+    def build(self, input_shape):
+        assert (
+            len(input_shape) == 4
+        ), f"Number of dimensions should be 4, got {len(input_shape)}"
+        self.pe = tf.Variable(
+            name="pos_embedding",
+            initial_value=tf.random_normal_initializer(stddev=0.06)(
+                shape=(1, input_shape[1], input_shape[2], 1)
+            ),
+            dtype="float32",
+            trainable=True,
+        )
+
+    def call(self, inputs):
+        return inputs + tf.cast(self.pe, dtype=inputs.dtype)
+
+    def get_config(self):
+        config = super().get_config()
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+
 def DecoderTransposeX2Block(filters):
     return layers.Conv2DTranspose(
         filters,
@@ -145,39 +174,49 @@ def get_input_label2image_tensor(label_len, target_shape,
 
 
 class ConvBlock(layers.Layer):
-    def __init__(self, filters, stride):
+    def __init__(self, filters, stride, use_act=True):
         super(ConvBlock, self).__init__()
+        self.use_act = use_act
         kernel_init = RandomNormal(mean=0.0, stddev=0.02)
         self.padding_layer = ReflectionPadding2D()
         self.conv2d = layers.Conv2D(filters=filters,
                                     kernel_size=(3, 3), strides=stride,
                                     padding="valid", kernel_initializer=kernel_init)
-        self.batch_norm = layers.LayerNormalization(axis=-1)
-        self.act = base_act
+        self.norm_layer = layers.LayerNormalization(axis=-1)
+        if self.use_act is True:
+            self.act_layer = base_act
 
     def call(self, input_tensor):
         x = self.padding_layer(input_tensor)
         x = self.conv2d(x)
-        x = self.batch_norm(x)
-        x = self.act(x)
+        x = self.norm_layer(x)
+        if self.use_act is True:
+            x = self.act_layer(x)
         return x
 
 
 class HighwayResnetBlock(layers.Layer):
-    def __init__(self, filters, use_highway=True):
+    def __init__(self, out_channel, use_highway=True, use_act=False):
         super(HighwayResnetBlock, self).__init__()
         # Define Base Model Params
         self.use_highway = use_highway
-        self.depthwise_separable_conv = ConvBlock(
-            filters=filters, stride=1)
+        self.use_act = use_act
+        self.conv = ConvBlock(
+            filters=out_channel, stride=1, use_act=use_act)
         if self.use_highway is True:
-            self.highway_layer = HighwayMulti(dim=filters)
+            self.highway_layer = HighwayMulti(dim=out_channel)
+            self.norm_layer = layers.LayerNormalization(axis=-1)
+            if self.use_act is True:
+                self.act_layer = base_act
 
     def call(self, input_tensor):
 
-        x = self.depthwise_separable_conv(input_tensor)
+        x = self.conv(input_tensor)
         if self.use_highway is True:
             x = self.highway_layer(x, input_tensor)
+            x = self.norm_layer(x)
+            if self.use_act is True:
+                x = self.act_layer(x)
         return x
 
 
