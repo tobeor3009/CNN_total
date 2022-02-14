@@ -40,7 +40,7 @@ class AddPositionEmbs(layers.Layer):
 
 
 class SelfAttention(layers.Layer):
-    def __init__(self, dim: int,
+    def __init__(self,
                  heads: int = 8, dim_head: int = 64,
                  dropout: float = 0.):
         super().__init__()
@@ -88,12 +88,12 @@ class SelfAttention(layers.Layer):
 
 
 class TransformerEncoder(layers.Layer):
-    def __init__(self, dim: int,
+    def __init__(self,
                  heads: int = 8, dim_head: int = 64,
                  dropout: float = 0.):
         super().__init__()
         inner_dim = heads * dim_head
-        self.attn = SelfAttention(dim, heads, dim_head, dropout)
+        self.attn = SelfAttention(heads, dim_head, dropout)
         self.attn_dropout = layers.Dropout(dropout)
         self.attn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
         self.ffpn_dense_1 = layers.Dense(inner_dim * 4, use_bias=False)
@@ -192,10 +192,9 @@ def get_inceptionv3_classification_model_transformer(input_shape, num_class,
     inner_dim = 2048
     attn_layer_list = []
     for attn_dim, num_head in zip(attn_dim_list, num_head_list):
-        attn_layer = TransformerEncoder(dim=inner_dim,
-                                        heads=num_head, dim_head=attn_dim, dropout=attn_dropout_proba)
+        attn_layer = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                        dropout=attn_dropout_proba)
         attn_layer_list.append(attn_layer)
-        inner_dim = attn_dim * num_head
     attn_sequence = Sequential(attn_layer_list)
     if grad_cam is True:
         tf.keras.backend.set_floatx("float64")
@@ -221,7 +220,9 @@ def get_inceptionv3_classification_model_transformer(input_shape, num_class,
 
     # add a global spatial average pooling layer
     x = base_model.output
-    # (Batch_Size, 14, 14, 2048) => (Batch_Size, 784, 512)
+    # (Batch_Size, 14, 14, 2048) => (Batch_Size, 28, 28, 512)
+    x = tf.nn.depth_to_space(x, block_size=2)
+    # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 512)
     x = layers.Reshape((784, 512))(x)
     x = AddPositionEmbs(input_shape=(784, 512))(x)
     x = attn_sequence(x)
