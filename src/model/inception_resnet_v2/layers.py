@@ -309,15 +309,18 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters, include_context=False):
+    def __init__(self, filters, in_channel=None, include_context=False):
         super().__init__()
         self.include_context = include_context
-        self.compress_block = Sequential([
+        compress_layer_list = [
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
             layers.Activation("tanh")
-        ])
+        ]
+        if self.include_context == True:
+            compress_layer_list.insert(0, GCBlock2D(in_channel=in_channel))
+        self.compress_block = Sequential(compress_layer_list)
         self.conv_block = Sequential([
             layers.Conv3D(filters, kernel_size=3, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
@@ -327,8 +330,6 @@ class SkipUpsample3D(layers.Layer):
 
     def call(self, input_tensor, H):
         input_shape = backend.int_shape(input_tensor)
-        if self.include_context == True:
-            input_tensor = GCBlock2D(in_channel=input_shape[-1])(input_tensor)
         conv = self.compress_block(input_tensor)
         # shape: [B H W 1 C]
         conv = backend.expand_dims(conv, axis=-2)
