@@ -1,14 +1,16 @@
+from functools import partial
 import tensorflow as tf
 from tensorflow.keras import backend
 from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
-from tensorflow.keras.activations import tanh
+from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
 
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
+kaiming_initializer = tf.keras.initializers.HeNormal()
 
 
-class GCBlock(layers.Layer):
+class GCBlock2D(layers.Layer):
     def __init__(self, in_channel, ratio=1, fusion_types=('channel_add',), **kwargs):
         super().__init__(**kwargs)
         assert in_channel is not None, 'GCBlock needs in_channel'
@@ -87,6 +89,86 @@ class GCBlock(layers.Layer):
         return out
 
 
+class GCBlock3D(layers.Layer):
+    def __init__(self, in_channel, ratio=1, fusion_types=('channel_add',), **kwargs):
+        super().__init__(**kwargs)
+        assert in_channel is not None, 'GCBlock needs in_channel'
+        assert isinstance(fusion_types, (list, tuple))
+        valid_fusion_types = ['channel_add', 'channel_mul']
+        assert all([f in valid_fusion_types for f in fusion_types])
+        assert len(fusion_types) > 0, 'at least one fusion should be used'
+        self.in_channel = in_channel
+        self.ratio = ratio
+        self.middle_channel = int(in_channel * ratio)
+        self.fusion_types = fusion_types
+
+        self.key_mask = layers.Conv3D(filters=in_channel,
+                                      kernel_size=1,
+                                      kernel_initializer=kaiming_initializer,
+                                      padding="same",
+                                      use_bias=USE_CONV_BIAS)
+        self.value_mask = layers.Conv3D(filters=1,
+                                        kernel_size=1,
+                                        kernel_initializer=kaiming_initializer,
+                                        padding="same",
+                                        use_bias=USE_CONV_BIAS)
+        self.softmax = partial(softmax, axis=-2)
+
+        if 'channel_add' in fusion_types:
+            self.channel_add_conv = Sequential(
+                [layers.Conv3D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
+                 layers.LayerNormalization(axis=-1),
+                 layers.ReLU(max_value=6),  # yapf: disable
+                 layers.Conv3D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
+        else:
+            self.channel_add_conv = None
+        if 'channel_mul' in fusion_types:
+            self.channel_mul_conv = Sequential(
+                [layers.Conv3D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
+                 layers.LayerNormalization(axis=-1),
+                 layers.ReLU(max_value=6),  # yapf: disable
+                 layers.Conv3D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
+        else:
+            self.channel_mul_conv = None
+
+    def build(self, input_shape):
+        _, self.H, self.W, self.Z, self.C = input_shape
+
+    def call(self, x):
+
+        # x.shape: [B, H, W, Z, C]
+        # key_mask.shape: [B, H, W, Z, C]
+        key_mask = self.key_mask(x)
+        # key_mask.shape: [B, (H * W * Z), C]
+        key_mask = layers.Reshape((self.H * self.W * self.Z, self.C))(key_mask)
+        # key_mask.shape: [B, C, (H * W)]
+        key_mask = layers.Permute((2, 1))(key_mask)
+
+        # value_mask.shape: [B, H, W, Z, 1]
+        value_mask = self.value_mask(x)
+        # value_mask.shape: [B, (H * W * Z), 1]
+        value_mask = layers.Reshape((self.H * self.W * self.Z, 1))(value_mask)
+        value_mask = self.softmax(value_mask)
+
+        # [B, C, (H * W * Z)] @ [B, (H * W * Z), 1]
+        # context_mask.shape: [B, C, 1]
+        context_mask = tf.matmul(key_mask, value_mask)
+        # context_mask.shape: [B, 1, 1, 1, C]
+        context_mask = layers.Reshape((1, 1, 1, self.C))(context_mask)
+
+        out = x
+        if self.channel_mul_conv is not None:
+            # [B, 1, 1, 1, C]
+            channel_mul_term = sigmoid(self.channel_mul_conv(context_mask))
+            out = out * channel_mul_term
+        if self.channel_add_conv is not None:
+            # [B, 1, 1, 1, C]
+            channel_add_term = self.channel_add_conv(context_mask)
+            out = out + channel_add_term
+        # out.shape: [B, H, W, Z, C]
+        return out
+
+
 def conv3d_bn(x,
               filters,
               kernel_size,
@@ -94,6 +176,7 @@ def conv3d_bn(x,
               padding='same',
               activation='relu',
               use_bias=False,
+              include_context=False,
               name=None):
     """Utility function to apply conv + BN.
 
@@ -111,6 +194,9 @@ def conv3d_bn(x,
     Returns:
       Output tensor after applying `Conv2D` and `BatchNormalization`.
     """
+    if include_context == True:
+        input_shape = backend.int_shape(x)
+        x = GCBlock3D(in_channel=input_shape[-1])(x)
     x = layers.Conv3D(
         filters,
         kernel_size,
@@ -133,7 +219,7 @@ def conv3d_bn(x,
     return x
 
 
-def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'):
+def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu', include_context=False):
     """Adds an Inception-ResNet block.
 
     This function builds 3 types of Inception-ResNet blocks mentioned
@@ -169,23 +255,23 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
         `'block17'` or `'block8'`.
     """
     if block_type == 'block35_3d':
-        branch_0 = conv3d_bn(x, 160, 1)
-        branch_1 = conv3d_bn(x, 160, 1)
+        branch_0 = conv3d_bn(x, 160, 1, include_context=include_context)
+        branch_1 = conv3d_bn(x, 160, 1, include_context=include_context)
         branch_1 = conv3d_bn(branch_1, 160, 3)
-        branch_2 = conv3d_bn(x, 160, 1)
+        branch_2 = conv3d_bn(x, 160, 1, include_context=include_context)
         branch_2 = conv3d_bn(branch_2, 240, 3)
         branch_2 = conv3d_bn(branch_2, 320, 3)
         branches = [branch_0, branch_1, branch_2]
     elif block_type == 'block17_3d':
-        branch_0 = conv3d_bn(x, 288, 1)
-        branch_1 = conv3d_bn(x, 192, 1)
+        branch_0 = conv3d_bn(x, 288, 1, include_context=include_context)
+        branch_1 = conv3d_bn(x, 192, 1, include_context=include_context)
         branch_1 = conv3d_bn(branch_1, 240, [1, 1, 7])
         branch_1 = conv3d_bn(branch_1, 264, [1, 7, 1])
         branch_1 = conv3d_bn(branch_1, 288, [7, 1, 1])
         branches = [branch_0, branch_1]
     elif block_type == 'block8_3d':
-        branch_0 = conv3d_bn(x, 192, 1)
-        branch_1 = conv3d_bn(x, 192, 1)
+        branch_0 = conv3d_bn(x, 192, 1, include_context=include_context)
+        branch_1 = conv3d_bn(x, 192, 1, include_context=include_context)
         branch_1 = conv3d_bn(branch_1, 224, [1, 1, 3])
         branch_1 = conv3d_bn(branch_1, 240, [1, 3, 1])
         branch_1 = conv3d_bn(branch_1, 256, [3, 1, 1])
@@ -206,6 +292,7 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
         1,
         activation=None,
         use_bias=True,
+        include_context=include_context,
         name=block_name + '_conv')
 
     x = layers.Lambda(
@@ -222,8 +309,9 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters):
+    def __init__(self, filters, include_context=False):
         super().__init__()
+        self.include_context = include_context
         self.compress_block = Sequential([
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
@@ -238,6 +326,9 @@ class SkipUpsample3D(layers.Layer):
         ])
 
     def call(self, input_tensor, H):
+        input_shape = backend.int_shape(input_tensor)
+        if self.include_context == True:
+            input_tensor = GCBlock2D(in_channel=input_shape[-1])(input_tensor)
         conv = self.compress_block(input_tensor)
         # shape: [B H W 1 C]
         conv = backend.expand_dims(conv, axis=-2)
