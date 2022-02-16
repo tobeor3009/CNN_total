@@ -1,5 +1,5 @@
 from .base_model import SegInceptionResNetV2
-from .layers import SkipUpsample3D, HighwayResnetDecoder3D, OutputLayer
+from .layers import SkipUpsample3D, HighwayResnetDecoder3D, OutputLayer3D
 from .layers import inception_resnet_block_3d, conv3d_bn
 from tensorflow.keras import Model, layers
 from tensorflow.keras import backend
@@ -68,7 +68,7 @@ def get_x2ct_model(xray_shape, ct_series_shape,
                                    strides=(2, 2, 2))(x)
         ct_dim *= 2
 
-    output_tensor = OutputLayer(last_channel_num=1,
-                                act=last_channel_activation)(x)
+    output_tensor = OutputLayer3D(last_channel_num=1,
+                                  act=last_channel_activation)(x)
     output_tensor = backend.squeeze(output_tensor, axis=-1)
     return Model(base_input, output_tensor)

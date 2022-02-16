@@ -7,11 +7,12 @@ from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
 
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
+GC_BLOCK_RATIO = 0.125
 kaiming_initializer = tf.keras.initializers.HeNormal()
 
 
 class GCBlock2D(layers.Layer):
-    def __init__(self, in_channel, ratio=1, fusion_types=('channel_add',), **kwargs):
+    def __init__(self, in_channel, ratio=GC_BLOCK_RATIO, fusion_types=('channel_add',), **kwargs):
         super().__init__(**kwargs)
         assert in_channel is not None, 'GCBlock needs in_channel'
         assert isinstance(fusion_types, (list, tuple))
@@ -20,9 +21,9 @@ class GCBlock2D(layers.Layer):
         assert len(fusion_types) > 0, 'at least one fusion should be used'
         self.in_channel = in_channel
         self.ratio = ratio
-        self.middle_channel = int(in_channel * ratio)
+        self.middle_channel = max(int(in_channel * ratio), 2)
         self.fusion_types = fusion_types
-        self.key_mask = layers.Conv2D(filters=in_channel,
+        self.key_mask = layers.Conv2D(filters=self.middle_channel,
                                       kernel_size=1,
                                       kernel_initializer=kaiming_initializer,
                                       padding="same",
@@ -57,11 +58,12 @@ class GCBlock2D(layers.Layer):
     def call(self, x):
 
         # x.shape: [B, H, W, C]
-        # key_mask.shape: [B, H, W, C]
+        # key_mask.shape: [B, H, W, middle_channel]
         key_mask = self.key_mask(x)
-        # key_mask.shape: [B, (H * W), C]
-        key_mask = layers.Reshape((self.H * self.W, self.C))(key_mask)
-        # key_mask.shape: [B, C, (H * W)]
+        # key_mask.shape: [B, (H * W), middle_channel]
+        key_mask = layers.Reshape(
+            (self.H * self.W, self.middle_channel))(key_mask)
+        # key_mask.shape: [B, middle_channel, (H * W)]
         key_mask = layers.Permute((2, 1))(key_mask)
 
         # value_mask.shape: [B, H, W, 1]
@@ -70,11 +72,12 @@ class GCBlock2D(layers.Layer):
         value_mask = layers.Reshape((self.H * self.W, 1))(value_mask)
         value_mask = self.softmax(value_mask)
 
-        # [B, C, (H * W)] @ [B, (H * W), 1]
-        # context_mask.shape: [B, C, 1]
+        # [B, middle_channel, (H * W)] @ [B, (H * W), 1]
+        # context_mask.shape: [B, middle_channel, 1]
         context_mask = tf.matmul(key_mask, value_mask)
-        # context_mask.shape: [B, 1, 1, C]
-        context_mask = layers.Reshape((1, 1, self.C))(context_mask)
+        # context_mask.shape: [B, 1, 1, middle_channel]
+        context_mask = layers.Reshape(
+            (1, 1, self.middle_channel))(context_mask)
 
         out = x
         if self.channel_mul_conv is not None:
@@ -90,7 +93,7 @@ class GCBlock2D(layers.Layer):
 
 
 class GCBlock3D(layers.Layer):
-    def __init__(self, in_channel, ratio=1, fusion_types=('channel_add',), **kwargs):
+    def __init__(self, in_channel, ratio=GC_BLOCK_RATIO, fusion_types=('channel_add',), **kwargs):
         super().__init__(**kwargs)
         assert in_channel is not None, 'GCBlock needs in_channel'
         assert isinstance(fusion_types, (list, tuple))
@@ -99,10 +102,10 @@ class GCBlock3D(layers.Layer):
         assert len(fusion_types) > 0, 'at least one fusion should be used'
         self.in_channel = in_channel
         self.ratio = ratio
-        self.middle_channel = int(in_channel * ratio)
+        self.middle_channel = max(int(in_channel * ratio), 2)
         self.fusion_types = fusion_types
 
-        self.key_mask = layers.Conv3D(filters=in_channel,
+        self.key_mask = layers.Conv3D(filters=self.middle_channel,
                                       kernel_size=1,
                                       kernel_initializer=kaiming_initializer,
                                       padding="same",
@@ -140,7 +143,8 @@ class GCBlock3D(layers.Layer):
         # key_mask.shape: [B, H, W, Z, C]
         key_mask = self.key_mask(x)
         # key_mask.shape: [B, (H * W * Z), C]
-        key_mask = layers.Reshape((self.H * self.W * self.Z, self.C))(key_mask)
+        key_mask = layers.Reshape(
+            (self.H * self.W * self.Z, self.middle_channel))(key_mask)
         # key_mask.shape: [B, C, (H * W)]
         key_mask = layers.Permute((2, 1))(key_mask)
 
@@ -154,7 +158,8 @@ class GCBlock3D(layers.Layer):
         # context_mask.shape: [B, C, 1]
         context_mask = tf.matmul(key_mask, value_mask)
         # context_mask.shape: [B, 1, 1, 1, C]
-        context_mask = layers.Reshape((1, 1, 1, self.C))(context_mask)
+        context_mask = layers.Reshape(
+            (1, 1, 1, self.middle_channel))(context_mask)
 
         out = x
         if self.channel_mul_conv is not None:
@@ -375,6 +380,49 @@ class HighwayMulti(layers.Layer):
         return config
 
 
+class HighwayResnetDecoder2D(layers.Layer):
+    def __init__(self, filters, strides):
+        super().__init__()
+
+        self.filters = filters
+        self.conv_before_trans = layers.Conv2D(filters=filters,
+                                               kernel_size=1, padding="same",
+                                               strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_trans = layers.Conv2DTranspose(filters=filters,
+                                                 kernel_size=3, padding="same",
+                                                 strides=strides, use_bias=USE_CONV_BIAS)
+        self.conv_after_trans = layers.Conv2D(filters=filters,
+                                              kernel_size=1, padding="same",
+                                              strides=1, use_bias=USE_CONV_BIAS)
+
+        self.conv_before_upsample = layers.Conv2D(filters=filters,
+                                                  kernel_size=1, padding="same",
+                                                  strides=1, use_bias=USE_CONV_BIAS)
+        self.upsample_layer = layers.UpSampling2D(size=strides)
+        self.conv_after_upsample = layers.Conv2D(filters=filters,
+                                                 kernel_size=1, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
+
+        self.norm_layer = layers.LayerNormalization(axis=-1)
+        self.act_layer = tanh
+        self.highway_layer = HighwayMulti(dim=filters)
+
+    def call(self, input_tensor):
+
+        conv_trans = self.conv_before_trans(input_tensor)
+        conv_trans = self.conv_trans(conv_trans)
+        conv_trans = self.conv_after_trans(conv_trans)
+
+        upsamle = self.conv_before_upsample(input_tensor)
+        upsamle = self.upsample_layer(upsamle)
+        upsamle = self.conv_after_upsample(upsamle)
+
+        output = self.highway_layer(conv_trans, upsamle)
+        output = self.norm_layer(output)
+        output = self.act_layer(output)
+        return output
+
+
 class HighwayResnetDecoder3D(layers.Layer):
     def __init__(self, filters, strides):
         super().__init__()
@@ -418,52 +466,53 @@ class HighwayResnetDecoder3D(layers.Layer):
         return output
 
 
-class OutputLayer(layers.Layer):
-    def __init__(self, last_channel_num, act="tanh", use_highway=True):
+class OutputLayer3D(layers.Layer):
+    def __init__(self, last_channel_num, act="tanh"):
         super().__init__()
-        self.use_highway = use_highway
+        self.conv_1x1x1 = layers.Conv3D(filters=last_channel_num,
+                                        kernel_size=1,
+                                        padding="same",
+                                        strides=1,
+                                        use_bias=USE_CONV_BIAS,
+                                        )
+        self.conv_3x3x3 = layers.Conv3D(filters=last_channel_num,
+                                        kernel_size=3,
+                                        padding="same",
+                                        strides=1,
+                                        use_bias=USE_CONV_BIAS,
+                                        )
+        self.act = layers.Activation(act)
 
-        self.conv_1x1 = layers.Conv3D(filters=last_channel_num,
+    def call(self, input_tensor):
+        conv_1x1x1 = self.conv_1x1x1(input_tensor)
+        conv_3x3x3 = self.conv_3x3x3(input_tensor)
+        output = conv_1x1x1 + conv_3x3x3
+        output = self.act(output)
+
+        return output
+
+
+class OutputLayer2D(layers.Layer):
+    def __init__(self, last_channel_num, act="tanh"):
+        super().__init__()
+        self.conv_1x1 = layers.Conv2D(filters=last_channel_num,
                                       kernel_size=1,
                                       padding="same",
                                       strides=1,
                                       use_bias=USE_CONV_BIAS,
                                       )
-        self.conv_3x3 = layers.Conv3D(filters=last_channel_num,
+        self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
                                       kernel_size=3,
                                       padding="same",
                                       strides=1,
                                       use_bias=USE_CONV_BIAS,
                                       )
-        # self.conv_1x1x3 = layers.Conv3D(filters=last_channel_num,
-        #                                 kernel_size=(1, 1, 3),
-        #                                 padding="same",
-        #                                 strides=1,
-        #                                 use_bias=USE_CONV_BIAS,
-        #                                 )
-        # self.conv_1x3x1 = layers.Conv3D(filters=last_channel_num,
-        #                                 kernel_size=(1, 3, 1),
-        #                                 padding="same",
-        #                                 strides=1,
-        #                                 use_bias=USE_CONV_BIAS,
-        #                                 )
-        # self.conv_3x1x1 = layers.Conv3D(filters=last_channel_num,
-        #                                 kernel_size=(3, 1, 1),
-        #                                 padding="same",
-        #                                 strides=1,
-        #                                 use_bias=USE_CONV_BIAS,
-        #                                 )
-
         self.act = layers.Activation(act)
 
     def call(self, input_tensor):
         conv_1x1 = self.conv_1x1(input_tensor)
         conv_3x3 = self.conv_3x3(input_tensor)
-        # conv_1x1x3 = self.conv_1x1x3(input_tensor)
-        # conv_1x3x1 = self.conv_1x3x1(input_tensor)
-        # conv_3x1x1 = self.conv_3x1x1(input_tensor)
         output = conv_1x1 + conv_3x3
-        # output = conv_1x1 + conv_3x3 + conv_1x1x3 + conv_1x3x1 + conv_3x1x1
         output = self.act(output)
 
         return output
