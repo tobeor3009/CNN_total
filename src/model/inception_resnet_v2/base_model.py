@@ -200,7 +200,7 @@ def SegInceptionResNetV2(include_top=True,
     # 20x block17 (Inception-ResNet-B block): [B 32 32 1088]
     for block_idx in range(1, 20):
         x = inception_resnet_block(
-            x, scale=0.1, block_type='block17', block_idx=block_idx, include_context=include_context)
+            x, scale=0.1, block_type='block17', block_idx=block_idx)
     x = inception_resnet_block(
         x, scale=0.1, block_type='block17', block_idx=20,
         include_context=include_context)
