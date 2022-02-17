@@ -31,7 +31,7 @@ from tensorflow.python.lib.io import file_io
 from tensorflow.python.util.tf_export import keras_export
 
 import tensorflow as tf
-from .layers import GCBlock2D
+from .layers import GCBlock2D, TransformerEncoder2D, AddPositionEmbs
 
 BASE_WEIGHT_URL = ('https://storage.googleapis.com/tensorflow/'
                    'keras-applications/inception_resnet_v2/')
@@ -179,10 +179,14 @@ def SegInceptionResNetV2(include_top=True,
     channel_axis = 1 if backend.image_data_format() == 'channels_first' else 3
     x = layers.Concatenate(axis=channel_axis, name='mixed_5b')(branches)
 
+    x = AddPositionEmbs(input_shape=backend.int_shape(x)[1:])(x)
     # 10x block35 (Inception-ResNet-A block): [B 64 64 320]
-    for block_idx in range(1, 11):
+    for block_idx in range(1, 10):
         x = inception_resnet_block(
-            x, scale=0.17, block_type='block35', block_idx=block_idx, include_context=include_context)
+            x, scale=0.17, block_type='block35', block_idx=block_idx)
+    x = inception_resnet_block(
+        x, scale=0.17, block_type='block35', block_idx=10,
+        include_context=include_context)
 
     # Mixed 6a (Reduction-A block): [B 32 32 1088]
     branch_0 = conv2d_bn(x, 384, 3, strides=2, padding='same')
@@ -194,9 +198,12 @@ def SegInceptionResNetV2(include_top=True,
     x = layers.Concatenate(axis=channel_axis, name='mixed_6a')(branches)
 
     # 20x block17 (Inception-ResNet-B block): [B 32 32 1088]
-    for block_idx in range(1, 21):
+    for block_idx in range(1, 20):
         x = inception_resnet_block(
             x, scale=0.1, block_type='block17', block_idx=block_idx, include_context=include_context)
+    x = inception_resnet_block(
+        x, scale=0.1, block_type='block17', block_idx=20,
+        include_context=include_context)
 
     # Mixed 7a (Reduction-B block): [B 16 16 2080]
     branch_0 = conv2d_bn(x, 256, 1)
@@ -213,7 +220,7 @@ def SegInceptionResNetV2(include_top=True,
     # 10x block8 (Inception-ResNet-C block): [B 16 16 2080]
     for block_idx in range(1, 10):
         x = inception_resnet_block(
-            x, scale=0.2, block_type='block8', block_idx=block_idx, include_context=include_context)
+            x, scale=0.2, block_type='block8', block_idx=block_idx)
     x = inception_resnet_block(
         x, scale=1., activation=None, block_type='block8', block_idx=10, include_context=include_context)
 
@@ -424,10 +431,11 @@ def InceptionResNetV2(include_top=True,
     x = layers.Concatenate(axis=channel_axis, name='mixed_5b')(branches)
 
     # 10x block35 (Inception-ResNet-A block): 35 x 35 x 320
-    for block_idx in range(1, 11):
-        x = inception_resnet_block(
-            x, scale=0.17, block_type='block35', block_idx=block_idx, include_context=include_context)
-
+    for block_idx in range(1, 10):
+        x = inception_resnet_block(x, scale=0.17,
+                                   block_type='block35', block_idx=block_idx)
+    x = inception_resnet_block(x, scale=0.17, block_type='block35', block_idx=10,
+                               include_context=include_context)
     # Mixed 6a (Reduction-A block): 17 x 17 x 1088
     branch_0 = conv2d_bn(x, 384, 3, strides=2, padding='valid')
     branch_1 = conv2d_bn(x, 256, 1)
@@ -438,9 +446,11 @@ def InceptionResNetV2(include_top=True,
     x = layers.Concatenate(axis=channel_axis, name='mixed_6a')(branches)
 
     # 20x block17 (Inception-ResNet-B block): 17 x 17 x 1088
-    for block_idx in range(1, 21):
-        x = inception_resnet_block(
-            x, scale=0.1, block_type='block17', block_idx=block_idx, include_context=include_context)
+    for block_idx in range(1, 20):
+        x = inception_resnet_block(x, scale=0.1,
+                                   block_type='block17', block_idx=block_idx)
+    x = inception_resnet_block(x, scale=0.1, block_type='block17', block_idx=20,
+                               include_context=include_context)
 
     # Mixed 7a (Reduction-B block): 8 x 8 x 2080
     branch_0 = conv2d_bn(x, 256, 1)
@@ -454,12 +464,13 @@ def InceptionResNetV2(include_top=True,
     branches = [branch_0, branch_1, branch_2, branch_pool]
     x = layers.Concatenate(axis=channel_axis, name='mixed_7a')(branches)
 
+    x = AddPositionEmbs(input_shape=backend.int_shape(x)[1:])(x)
     # 10x block8 (Inception-ResNet-C block): 8 x 8 x 2080
     for block_idx in range(1, 10):
-        x = inception_resnet_block(
-            x, scale=0.2, block_type='block8', block_idx=block_idx, include_context=include_context)
-    x = inception_resnet_block(
-        x, scale=1., activation=None, block_type='block8', block_idx=10, include_context=include_context)
+        x = inception_resnet_block(x, scale=0.2,
+                                   block_type='block8', block_idx=block_idx)
+    x = inception_resnet_block(x, scale=1., activation=None,
+                               block_type='block8', block_idx=10, include_context=include_context)
 
     # Final convolution block: 8 x 8 x 1536
     x = conv2d_bn(x, 1536, 1, name='conv_7b')
@@ -517,7 +528,6 @@ def conv2d_bn(x,
               padding='same',
               activation='relu',
               use_bias=False,
-              include_context=False,
               name=None):
     """Utility function to apply conv + BN.
 
@@ -554,13 +564,11 @@ def conv2d_bn(x,
             x = layers.Activation(tf.nn.relu6, name=ac_name)(x)
         else:
             x = layers.Activation(activation, name=ac_name)(x)
-    if include_context == True:
-        input_shape = backend.int_shape(x)
-        x = GCBlock2D(in_channel=input_shape[-1])(x)
     return x
 
 
-def inception_resnet_block(x, scale, block_type, block_idx, activation='relu', include_context=False):
+def inception_resnet_block(x, scale, block_type, block_idx, activation='relu',
+                           include_context=False, context_head_nums=8):
     """Adds an Inception-ResNet block.
 
     This function builds 3 types of Inception-ResNet blocks mentioned
@@ -631,9 +639,12 @@ def inception_resnet_block(x, scale, block_type, block_idx, activation='relu', i
         1,
         activation=None,
         use_bias=True,
-        include_context=include_context,
         name=block_name + '_conv')
-
+    if include_context == True:
+        up_shape = backend.int_shape(up)
+        up_head_dim = up_shape[-1] // context_head_nums
+        up = TransformerEncoder2D(heads=context_head_nums, dim_head=up_head_dim,
+                                  dropout=0.3)(up, *up_shape[1:-1])
     x = layers.Lambda(
         lambda inputs, scale: inputs[0] + inputs[1] * scale,
         output_shape=backend.int_shape(x)[1:],

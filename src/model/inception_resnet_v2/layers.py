@@ -174,6 +174,147 @@ class GCBlock3D(layers.Layer):
         return out
 
 
+@tf.keras.utils.register_keras_serializable()
+class AddPositionEmbs(layers.Layer):
+    """Adds (optionally learned) positional embeddings to the inputs."""
+
+    def __init__(self, input_shape):
+        super().__init__()
+        self.pe = tf.Variable(
+            name="pos_embedding",
+            initial_value=tf.random_normal_initializer(stddev=0.06)(
+                shape=(1, *input_shape)
+            ),
+            dtype="float32",
+            trainable=True,
+        )
+
+    def call(self, inputs):
+        return inputs + tf.cast(self.pe, dtype=inputs.dtype)
+
+    def get_config(self):
+        config = super().get_config()
+        return config
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+
+class SelfAttention(layers.Layer):
+    def __init__(self,
+                 heads: int = 8, dim_head: int = 64,
+                 dropout: float = 0.):
+        super().__init__()
+        inner_dim = dim_head * heads
+        project_out = not heads == 1
+
+        self.heads = heads
+        self.dim_head = dim_head
+        self.scale = dim_head ** -0.5
+        self.attend = layers.Softmax(axis=-1)
+        self.to_qkv = layers.Dense(inner_dim * 3, use_bias=False)
+        self.to_out = Sequential(
+            [
+                layers.Dense(inner_dim, use_bias=False),
+                layers.Dropout(dropout)
+            ]
+        ) if project_out else layers.Lambda(lambda x: x)
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.N = input_shape[1]
+
+    def call(self, x):
+        # qkv.shape : [B N 3 * dim_head]
+        qkv = self.to_qkv(x)
+        # qkv.shape : [B N 3 num_heads, dim_head]
+        qkv = layers.Reshape((self.N, 3, self.heads, self.dim_head)
+                             )(qkv)
+        # shape: 3, B, self.num_heads, self.N, (dim_head)
+        qkv = backend.permute_dimensions(qkv, (2, 0, 3, 1, 4))
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        # q.shape [B num_head N dim]
+        # (k.T).shape [B num_head dim N]
+        # dots.shape [B num_head N N]
+        dots = tf.matmul(q, k, transpose_a=False, transpose_b=True)
+        attn = self.attend(dots)
+        # attn.shape [B num_head N N]
+        # v.shape [B num_head N dim]
+        # out.shape [B num_head N dim]
+        out = tf.matmul(attn, v)
+        # out.shape [B N (num_head * dim)]
+        out = layers.Reshape((self.N, self.heads * self.dim_head))(out)
+        out = self.to_out(out)
+        return out
+
+
+class TransformerEncoder(layers.Layer):
+    def __init__(self,
+                 heads: int = 8, dim_head: int = 64,
+                 dropout: float = 0.):
+        super().__init__()
+        self.inner_dim = heads * dim_head
+        self.attn = SelfAttention(heads, dim_head, dropout)
+        self.attn_dropout = layers.Dropout(dropout)
+        self.attn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+        self.ffpn_dense_1 = layers.Dense(self.inner_dim * 4, use_bias=False)
+        self.ffpn_dense_2 = layers.Dense(self.inner_dim, use_bias=False)
+        self.ffpn_dropout = layers.Dropout(dropout)
+        self.ffpn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+
+    def call(self, x):
+        attn = self.attn(x)
+        attn = self.attn_dropout(attn)
+        attn = self.attn_norm(x + attn)
+
+        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_2(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_norm(attn + out)
+
+        return out
+
+
+class TransformerEncoder2D(TransformerEncoder):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def call(self, x, H, W):
+        x = layers.Reshape((H * W, self.inner_dim))(x)
+        attn = self.attn(x)
+        attn = self.attn_dropout(attn)
+        attn = self.attn_norm(x + attn)
+
+        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_2(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_norm(attn + out)
+        out = layers.Reshape((H, W, self.inner_dim))(out)
+        return out
+
+
+class TransformerEncoder3D(TransformerEncoder):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def call(self, x, H, W, Z):
+        x = layers.Reshape((H * W * Z, self.inner_dim))(x)
+        attn = self.attn(x)
+        attn = self.attn_dropout(attn)
+        attn = self.attn_norm(x + attn)
+
+        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_2(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_dropout(out)
+        out = self.ffpn_norm(attn + out)
+        out = layers.Reshape((H, W, Z, self.inner_dim))(out)
+        return out
+
+
 def conv3d_bn(x,
               filters,
               kernel_size,
@@ -182,6 +323,7 @@ def conv3d_bn(x,
               activation='relu',
               use_bias=False,
               include_context=False,
+              context_head_nums=8,
               name=None):
     """Utility function to apply conv + BN.
 
@@ -219,12 +361,17 @@ def conv3d_bn(x,
         else:
             x = layers.Activation(activation, name=ac_name)(x)
     if include_context == True:
-        input_shape = backend.int_shape(x)
-        x = GCBlock3D(in_channel=input_shape[-1])(x)
-    return x
+        context_shape = backend.int_shape(x)
+        context_head_dim = context_shape[-1] // context_head_nums
+        context = TransformerEncoder3D(heads=context_head_nums, dim_head=context_head_dim,
+                                       dropout=0.3)(x, *context_shape[1:-1])
+        return x + context
+    else:
+        return x
 
 
-def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu', include_context=False):
+def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu',
+                              include_context=False, context_head_nums=8):
     """Adds an Inception-ResNet block.
 
     This function builds 3 types of Inception-ResNet blocks mentioned
@@ -297,9 +444,12 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
         1,
         activation=None,
         use_bias=True,
-        include_context=include_context,
         name=block_name + '_conv')
-
+    if include_context == True:
+        up_shape = backend.int_shape(up)
+        up_head_dim = up_shape[-1] // context_head_nums
+        up = TransformerEncoder3D(heads=context_head_nums, dim_head=up_head_dim,
+                                  dropout=0.3)(up, *up_shape[1:-1])
     x = layers.Lambda(
         lambda inputs, scale: inputs[0] + inputs[1] * scale,
         output_shape=backend.int_shape(x)[1:],
@@ -314,16 +464,19 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters, include_context=False):
+    def __init__(self, filters, include_context=False, context_head_nums=8):
         super().__init__()
+        self.include_context = include_context
         compress_layer_list = [
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
             layers.Activation("tanh")
         ]
-        if include_context == True:
-            compress_layer_list.append(GCBlock2D(in_channel=filters))
+        if self.include_context == True:
+            up_head_dim = filters // context_head_nums
+            self.context_layer = TransformerEncoder2D(heads=8, dim_head=up_head_dim,
+                                                      dropout=0.3)
         self.compress_block = Sequential(compress_layer_list)
         self.conv_block = Sequential([
             layers.Conv3D(filters, kernel_size=3, padding="same",
@@ -332,11 +485,17 @@ class SkipUpsample3D(layers.Layer):
             layers.Activation("tanh")
         ])
 
-    def call(self, input_tensor, H):
+    def build(self, input_shape):
+        _, self.H, self.W, self.C = input_shape
+
+    def call(self, input_tensor, Z):
         conv = self.compress_block(input_tensor)
+        if self.include_context == True:
+            conv = self.context_layer(conv, self.H, self.W)
         # shape: [B H W 1 C]
         conv = backend.expand_dims(conv, axis=-2)
-        conv = backend.repeat_elements(conv, rep=H, axis=-2)
+        # shape: [B H W Z C]
+        conv = backend.repeat_elements(conv, rep=Z, axis=-2)
         conv = self.conv_block(conv)
         return conv
 
