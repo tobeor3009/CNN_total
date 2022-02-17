@@ -30,7 +30,7 @@ def get_x2ct_model(xray_shape, ct_series_shape,
 
     ct_start_channel = 16
     # x.shape: [B, 16, 16, 16, 1536]
-    x = SkipUpsample3D(filters=1536, in_channel=1536,
+    x = SkipUpsample3D(filters=1536,
                        include_context=include_context)(base_output, ct_start_channel)
     for block_idx in range(1, 6):
         x = inception_resnet_block_3d(x, scale=0.17,
@@ -59,9 +59,7 @@ def get_x2ct_model(xray_shape, ct_series_shape,
         current_filter = init_filter // (2 ** decode_i)
         x = conv3d_bn(x, current_filter, 3, include_context=include_context)
         skip_connect = skip_connection_outputs[4 - index]
-        skip_connect_channel = backend.int_shape(skip_connect)[-1]
         skip_connect = SkipUpsample3D(current_filter,
-                                      in_channel=skip_connect_channel,
                                       include_context=include_context)(skip_connect, ct_dim)
         x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = HighwayResnetDecoder3D(current_filter,

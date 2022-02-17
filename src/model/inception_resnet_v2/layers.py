@@ -199,9 +199,6 @@ def conv3d_bn(x,
     Returns:
       Output tensor after applying `Conv2D` and `BatchNormalization`.
     """
-    if include_context == True:
-        input_shape = backend.int_shape(x)
-        x = GCBlock3D(in_channel=input_shape[-1])(x)
     x = layers.Conv3D(
         filters,
         kernel_size,
@@ -221,6 +218,9 @@ def conv3d_bn(x,
             x = layers.Activation(tf.nn.relu6, name=ac_name)(x)
         else:
             x = layers.Activation(activation, name=ac_name)(x)
+    if include_context == True:
+        input_shape = backend.int_shape(x)
+        x = GCBlock3D(in_channel=input_shape[-1])(x)
     return x
 
 
@@ -260,23 +260,23 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
         `'block17'` or `'block8'`.
     """
     if block_type == 'block35_3d':
-        branch_0 = conv3d_bn(x, 160, 1, include_context=include_context)
-        branch_1 = conv3d_bn(x, 160, 1, include_context=include_context)
+        branch_0 = conv3d_bn(x, 160, 1)
+        branch_1 = conv3d_bn(x, 160, 1)
         branch_1 = conv3d_bn(branch_1, 160, 3)
-        branch_2 = conv3d_bn(x, 160, 1, include_context=include_context)
+        branch_2 = conv3d_bn(x, 160, 1)
         branch_2 = conv3d_bn(branch_2, 240, 3)
         branch_2 = conv3d_bn(branch_2, 320, 3)
         branches = [branch_0, branch_1, branch_2]
     elif block_type == 'block17_3d':
-        branch_0 = conv3d_bn(x, 288, 1, include_context=include_context)
-        branch_1 = conv3d_bn(x, 192, 1, include_context=include_context)
+        branch_0 = conv3d_bn(x, 288, 1)
+        branch_1 = conv3d_bn(x, 192, 1)
         branch_1 = conv3d_bn(branch_1, 240, [1, 1, 7])
         branch_1 = conv3d_bn(branch_1, 264, [1, 7, 1])
         branch_1 = conv3d_bn(branch_1, 288, [7, 1, 1])
         branches = [branch_0, branch_1]
     elif block_type == 'block8_3d':
-        branch_0 = conv3d_bn(x, 192, 1, include_context=include_context)
-        branch_1 = conv3d_bn(x, 192, 1, include_context=include_context)
+        branch_0 = conv3d_bn(x, 192, 1)
+        branch_1 = conv3d_bn(x, 192, 1)
         branch_1 = conv3d_bn(branch_1, 224, [1, 1, 3])
         branch_1 = conv3d_bn(branch_1, 240, [1, 3, 1])
         branch_1 = conv3d_bn(branch_1, 256, [3, 1, 1])
@@ -314,17 +314,16 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters, in_channel=None, include_context=False):
+    def __init__(self, filters, include_context=False):
         super().__init__()
-        self.include_context = include_context
         compress_layer_list = [
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
             layers.Activation("tanh")
         ]
-        if self.include_context == True:
-            compress_layer_list.insert(0, GCBlock2D(in_channel=in_channel))
+        if include_context == True:
+            compress_layer_list.append(GCBlock2D(in_channel=filters))
         self.compress_block = Sequential(compress_layer_list)
         self.conv_block = Sequential([
             layers.Conv3D(filters, kernel_size=3, padding="same",
@@ -334,7 +333,6 @@ class SkipUpsample3D(layers.Layer):
         ])
 
     def call(self, input_tensor, H):
-        input_shape = backend.int_shape(input_tensor)
         conv = self.compress_block(input_tensor)
         # shape: [B H W 1 C]
         conv = backend.expand_dims(conv, axis=-2)

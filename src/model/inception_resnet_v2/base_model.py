@@ -540,9 +540,6 @@ def conv2d_bn(x,
     Returns:
       Output tensor after applying `Conv2D` and `BatchNormalization`.
     """
-    if include_context == True:
-        input_shape = backend.int_shape(x)
-        x = GCBlock2D(in_channel=input_shape[-1])(x)
     x = layers.Conv2D(
         filters,
         kernel_size,
@@ -562,6 +559,9 @@ def conv2d_bn(x,
             x = layers.Activation(tf.nn.relu6, name=ac_name)(x)
         else:
             x = layers.Activation(activation, name=ac_name)(x)
+    if include_context == True:
+        input_shape = backend.int_shape(x)
+        x = GCBlock2D(in_channel=input_shape[-1])(x)
     return x
 
 
@@ -601,22 +601,22 @@ def inception_resnet_block(x, scale, block_type, block_idx, activation='relu', i
         `'block17'` or `'block8'`.
     """
     if block_type == 'block35':
-        branch_0 = conv2d_bn(x, 32, 1, include_context=include_context)
-        branch_1 = conv2d_bn(x, 32, 1, include_context=include_context)
+        branch_0 = conv2d_bn(x, 32, 1)
+        branch_1 = conv2d_bn(x, 32, 1)
         branch_1 = conv2d_bn(branch_1, 32, 3)
         branch_2 = conv2d_bn(x, 32, 1)
         branch_2 = conv2d_bn(branch_2, 48, 3)
         branch_2 = conv2d_bn(branch_2, 64, 3)
         branches = [branch_0, branch_1, branch_2]
     elif block_type == 'block17':
-        branch_0 = conv2d_bn(x, 192, 1, include_context=include_context)
-        branch_1 = conv2d_bn(x, 128, 1, include_context=include_context)
+        branch_0 = conv2d_bn(x, 192, 1)
+        branch_1 = conv2d_bn(x, 128, 1)
         branch_1 = conv2d_bn(branch_1, 160, [1, 7])
         branch_1 = conv2d_bn(branch_1, 192, [7, 1])
         branches = [branch_0, branch_1]
     elif block_type == 'block8':
-        branch_0 = conv2d_bn(x, 192, 1, include_context=include_context)
-        branch_1 = conv2d_bn(x, 192, 1, include_context=include_context)
+        branch_0 = conv2d_bn(x, 192, 1)
+        branch_1 = conv2d_bn(x, 192, 1)
         branch_1 = conv2d_bn(branch_1, 224, [1, 3])
         branch_1 = conv2d_bn(branch_1, 256, [3, 1])
         branches = [branch_0, branch_1]
