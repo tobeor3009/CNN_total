@@ -30,20 +30,16 @@ def get_x2ct_model(xray_shape, ct_series_shape,
 
     ct_start_channel = 16
     # x.shape: [B, 16, 16, 16, 1536]
-    x = SkipUpsample3D(filters=1536,
-                       include_context=include_context)(base_output, ct_start_channel)
+    x = SkipUpsample3D(filters=1536)(base_output, ct_start_channel)
     for block_idx in range(1, 6):
         x = inception_resnet_block_3d(x, scale=0.17,
-                                      block_type='block35_3d', block_idx=block_idx,
-                                      include_context=include_context)
+                                      block_type='block35_3d', block_idx=block_idx)
     for block_idx in range(1, 6):
         x = inception_resnet_block_3d(x, scale=0.1,
-                                      block_type='block17_3d', block_idx=block_idx,
-                                      include_context=include_context)
+                                      block_type='block17_3d', block_idx=block_idx)
     for block_idx in range(1, 6):
         x = inception_resnet_block_3d(x, scale=0.2,
-                                      block_type='block8_3d', block_idx=block_idx,
-                                      include_context=include_context)
+                                      block_type='block8_3d', block_idx=block_idx)
 
     if ct_series_shape == (256, 256, 256):
         decode_start_index = 1
@@ -57,10 +53,9 @@ def get_x2ct_model(xray_shape, ct_series_shape,
     ct_dim = ct_start_channel
     for index, decode_i in enumerate(range(decode_start_index, 5)):
         current_filter = init_filter // (2 ** decode_i)
-        x = conv3d_bn(x, current_filter, 3, include_context=include_context)
+        x = conv3d_bn(x, current_filter, 3)
         skip_connect = skip_connection_outputs[4 - index]
-        skip_connect = SkipUpsample3D(current_filter,
-                                      include_context=include_context)(skip_connect, ct_dim)
+        skip_connect = SkipUpsample3D(current_filter)(skip_connect, ct_dim)
         x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = HighwayResnetDecoder3D(current_filter,
                                    strides=(2, 2, 2))(x)

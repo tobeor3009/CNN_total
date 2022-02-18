@@ -153,7 +153,12 @@ def SegInceptionResNetV2(include_top=True,
     # input shape: [B 512 512 3]
     # Stem block: [B 128 128 192]
     # x.shape: [B 256 256 32]
-    x = conv2d_bn(img_input, 32, 3, strides=2, padding='same',
+    if include_context == True:
+        x = AddPositionEmbs(
+            input_shape=backend.int_shape(img_input)[1:])(img_input)
+    else:
+        x = img_input
+    x = conv2d_bn(x, 32, 3, strides=2, padding='same',
                   name="conv_down_1")
     x = conv2d_bn(x, 32, 3, padding='same')
     x = conv2d_bn(x, 64, 3)
@@ -181,12 +186,10 @@ def SegInceptionResNetV2(include_top=True,
 
     x = AddPositionEmbs(input_shape=backend.int_shape(x)[1:])(x)
     # 10x block35 (Inception-ResNet-A block): [B 64 64 320]
-    for block_idx in range(1, 10):
-        x = inception_resnet_block(
-            x, scale=0.17, block_type='block35', block_idx=block_idx)
-    x = inception_resnet_block(
-        x, scale=0.17, block_type='block35', block_idx=10,
-        include_context=include_context)
+    for block_idx in range(1, 11):
+        x = inception_resnet_block(x, scale=0.17,
+                                   block_type='block35', block_idx=block_idx,
+                                   include_context=include_context)
 
     # Mixed 6a (Reduction-A block): [B 32 32 1088]
     branch_0 = conv2d_bn(x, 384, 3, strides=2, padding='same')
@@ -199,12 +202,11 @@ def SegInceptionResNetV2(include_top=True,
 
     # 20x block17 (Inception-ResNet-B block): [B 32 32 1088]
     for block_idx in range(1, 20):
-        x = inception_resnet_block(
-            x, scale=0.1, block_type='block17', block_idx=block_idx)
-    x = inception_resnet_block(
-        x, scale=0.1, block_type='block17', block_idx=20,
-        include_context=include_context)
-
+        x = inception_resnet_block(x, scale=0.1,
+                                   block_type='block17', block_idx=block_idx)
+    x = inception_resnet_block(x, scale=0.1,
+                               block_type='block17', block_idx=20,
+                               include_context=include_context)
     # Mixed 7a (Reduction-B block): [B 16 16 2080]
     branch_0 = conv2d_bn(x, 256, 1)
     branch_0 = conv2d_bn(branch_0, 384, 3, strides=2, padding='same')
@@ -219,11 +221,11 @@ def SegInceptionResNetV2(include_top=True,
 
     # 10x block8 (Inception-ResNet-C block): [B 16 16 2080]
     for block_idx in range(1, 10):
-        x = inception_resnet_block(
-            x, scale=0.2, block_type='block8', block_idx=block_idx)
-    x = inception_resnet_block(
-        x, scale=1., activation=None, block_type='block8', block_idx=10, include_context=include_context)
-
+        x = inception_resnet_block(x, scale=0.2,
+                                   block_type='block8', block_idx=block_idx)
+    x = inception_resnet_block(x, scale=0.2,
+                               block_type='block8', block_idx=10,
+                               include_context=include_context)
     # Final convolution block: [B 16 16 1536]
     x = conv2d_bn(x, 1536, 1, name='conv_7b')
 
@@ -409,7 +411,12 @@ def InceptionResNetV2(include_top=True,
             img_input = input_tensor
 
     # Stem block: 35 x 35 x 192
-    x = conv2d_bn(img_input, 32, 3, strides=2, padding='valid')
+    if include_context == True:
+        x = AddPositionEmbs(
+            input_shape=backend.int_shape(img_input)[1:])(img_input)
+    else:
+        x = img_input
+    x = conv2d_bn(x, 32, 3, strides=2, padding='valid')
     x = conv2d_bn(x, 32, 3, padding='valid')
     x = conv2d_bn(x, 64, 3)
     x = layers.MaxPooling2D(3, strides=2)(x)
@@ -431,11 +438,10 @@ def InceptionResNetV2(include_top=True,
     x = layers.Concatenate(axis=channel_axis, name='mixed_5b')(branches)
 
     # 10x block35 (Inception-ResNet-A block): 35 x 35 x 320
-    for block_idx in range(1, 10):
+    for block_idx in range(1, 11):
         x = inception_resnet_block(x, scale=0.17,
-                                   block_type='block35', block_idx=block_idx)
-    x = inception_resnet_block(x, scale=0.17, block_type='block35', block_idx=10,
-                               include_context=include_context)
+                                   block_type='block35', block_idx=block_idx,
+                                   include_context=include_context)
     # Mixed 6a (Reduction-A block): 17 x 17 x 1088
     branch_0 = conv2d_bn(x, 384, 3, strides=2, padding='valid')
     branch_1 = conv2d_bn(x, 256, 1)
@@ -449,9 +455,9 @@ def InceptionResNetV2(include_top=True,
     for block_idx in range(1, 20):
         x = inception_resnet_block(x, scale=0.1,
                                    block_type='block17', block_idx=block_idx)
-    x = inception_resnet_block(x, scale=0.1, block_type='block17', block_idx=20,
+    x = inception_resnet_block(x, scale=0.1,
+                               block_type='block17', block_idx=20,
                                include_context=include_context)
-
     # Mixed 7a (Reduction-B block): 8 x 8 x 2080
     branch_0 = conv2d_bn(x, 256, 1)
     branch_0 = conv2d_bn(branch_0, 384, 3, strides=2, padding='valid')
@@ -464,14 +470,13 @@ def InceptionResNetV2(include_top=True,
     branches = [branch_0, branch_1, branch_2, branch_pool]
     x = layers.Concatenate(axis=channel_axis, name='mixed_7a')(branches)
 
-    x = AddPositionEmbs(input_shape=backend.int_shape(x)[1:])(x)
     # 10x block8 (Inception-ResNet-C block): 8 x 8 x 2080
     for block_idx in range(1, 10):
         x = inception_resnet_block(x, scale=0.2,
                                    block_type='block8', block_idx=block_idx)
-    x = inception_resnet_block(x, scale=1., activation=None,
-                               block_type='block8', block_idx=10, include_context=include_context)
-
+    x = inception_resnet_block(x, scale=0.2,
+                               block_type='block8', block_idx=10,
+                               include_context=include_context)
     # Final convolution block: 8 x 8 x 1536
     x = conv2d_bn(x, 1536, 1, name='conv_7b')
 
