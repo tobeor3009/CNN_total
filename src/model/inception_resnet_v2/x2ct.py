@@ -1,4 +1,4 @@
-from .base_model import SegInceptionResNetV2
+from .base_model import InceptionResNetV2
 from .layers import SkipUpsample3D, HighwayResnetDecoder3D, OutputLayer3D
 from .layers import inception_resnet_block_3d, conv3d_bn
 from tensorflow.keras import Model, layers
@@ -12,17 +12,19 @@ def get_x2ct_model(xray_shape, ct_series_shape,
                    include_context=False,
                    last_channel_activation="tanh"):
 
-    base_model = SegInceptionResNetV2(
+    base_model = InceptionResNetV2(
         include_top=False,
         weights=None,
         input_tensor=None,
         input_shape=xray_shape,
         classes=None,
+        padding="same",
         pooling=None,
         classifier_activation=None,
         include_context=include_context,
     )
-    # x.shape: [B, 16, 16, 1536]
+    # base_input.shape [B, 512, 512, 2]
+    # base_output.shape: [B, 16, 16, 1536]
     base_input = base_model.input
     base_output = base_model.output
     skip_connection_outputs = [base_model.get_layer(layer_name).output
