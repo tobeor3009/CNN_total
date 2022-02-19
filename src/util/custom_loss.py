@@ -6,7 +6,8 @@ from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
 from segmentation_models.losses import BinaryFocalLoss
 from tensorflow.keras.losses import MeanAbsoluteError
-mean_absolute_error = MeanAbsoluteError(reduction=tf.keras.losses.Reduction.AUTO)
+mean_absolute_error = MeanAbsoluteError(
+    reduction=tf.keras.losses.Reduction.AUTO)
 
 AXIS = [1, 2]
 PIE_VALUE = np.pi
@@ -96,7 +97,8 @@ def propotional_dice_loss(y_true, y_pred, beta=0.7, smooth=SMOOTH, channel_weigh
 
 def x2ct_loss(y_true, y_pred):
 
-    mae_error = mean_absolute_error(y_true, y_pred)
+    mae_error = K.abs(y_true - y_pred)
+    mae_error = K.mean(mae_error, axis=[1, 2, 3])
 
     gt_lat_projection = K.mean(y_true, axis=1)
     pred_lat_projection = K.mean(y_pred, axis=1)
@@ -105,16 +107,19 @@ def x2ct_loss(y_true, y_pred):
     gt_axial_projection = K.mean(y_true, axis=3)
     pred_axial_projection = K.mean(y_pred, axis=3)
 
-    lat_projection_loss = mean_absolute_error(
-        gt_lat_projection, pred_lat_projection)
-    ap_projection_loss = mean_absolute_error(
-        gt_ap_projection, pred_ap_projection)
-    axial_projection_loss = mean_absolute_error(
-        gt_axial_projection, pred_axial_projection)
+    lat_projection_loss = K.abs(gt_lat_projection - pred_lat_projection)
+    lat_projection_loss = K.mean(lat_projection_loss, axis=[1, 2])
+
+    ap_projection_loss = K.abs(gt_ap_projection - pred_ap_projection)
+    ap_projection_loss = K.mean(ap_projection_loss, axis=[1, 2])
+
+    axial_projection_loss = K.abs(gt_axial_projection - pred_axial_projection)
+    axial_projection_loss = K.mean(axial_projection_loss, axis=[1, 2])
 
     projection_loss = (ap_projection_loss +
                        lat_projection_loss + axial_projection_loss) / 3
-    return mae_error + projection_loss
+
+    return K.mean(mae_error + projection_loss)
 
 
 class BoundaryLoss(Loss):

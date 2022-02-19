@@ -57,9 +57,10 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     x = base_model.output
     # (Batch_Size, 14, 14, 2048) => (Batch_Size, 28, 28, 512)
     x = tf.nn.depth_to_space(x, block_size=2)
+    _, H, W, C = keras_backend.int_shape(x)
     # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 512)
-    x = layers.Reshape((784, 384))(x)
-    x = AddPositionEmbs(input_shape=(784, 384))(x)
+    x = layers.Reshape((H * W, C))(x)
+    x = AddPositionEmbs(input_shape=(H * W, C))(x)
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
     # let's add a fully-connected layer
