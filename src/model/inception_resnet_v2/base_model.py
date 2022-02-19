@@ -53,7 +53,6 @@ def InceptionResNetV2(include_top=True,
                       pooling=None,
                       classes=1000,
                       classifier_activation='softmax',
-                      include_context=False,
                       **kwargs):
     """Instantiates the Inception-ResNet v2 architecture.
 
@@ -166,13 +165,6 @@ def InceptionResNetV2(include_top=True,
     # x.shape: [B 64 64 192]
     x = layers.MaxPooling2D(3, strides=2, padding=padding,
                             name="maxpool_2")(x)
-    if include_context == True:
-        _, H, W, C = backend.int_shape(x)
-        x = AddPositionEmbs(
-            input_shape=(H, W, C))(x)
-        for _ in range(6):
-            x = TransformerEncoder2D(heads=8, dim_head=24,
-                                     dropout=0.3)(x, H, W)
 
     # Mixed 5b (Inception-A block): [B 64 64 320] or 35 x 35 x 320
     branch_0 = conv2d_bn(x, 96, 1)
@@ -219,8 +211,7 @@ def InceptionResNetV2(include_top=True,
     # 10x block8 (Inception-ResNet-C block): [B 16 16 2080] or 8 x 8 x 2080
     for block_idx in range(1, 11):
         x = inception_resnet_block(x, scale=0.2,
-                                   block_type='block8', block_idx=block_idx,
-                                   include_context=(include_context and block_idx == 10))
+                                   block_type='block8', block_idx=block_idx)
     # Final convolution block: [B 16 16 1536] or 8 x 8 x 1536
     x = conv2d_bn(x, 1536, 1, name='conv_7b')
 

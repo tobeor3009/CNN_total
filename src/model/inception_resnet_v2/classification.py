@@ -19,7 +19,6 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
                                                              grad_cam=False,
                                                              transfer_learning=False, train_mode="include_deep_layer",
                                                              layer_name_frozen_to="mixed4",
-                                                             include_context=False
                                                              ):
     attn_dropout_proba = 0.3
     inner_dim = 2048
@@ -40,7 +39,6 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
         classes=None,
         pooling=None,
         classifier_activation=None,
-        include_context=include_context
     )
     base_input = base_model.input
 

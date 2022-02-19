@@ -20,8 +20,7 @@ def get_x2ct_model(xray_shape, ct_series_shape,
         classes=None,
         padding="same",
         pooling=None,
-        classifier_activation=None,
-        include_context=include_context,
+        classifier_activation=None
     )
     # base_input.shape [B, 512, 512, 2]
     # base_output.shape: [B, 16, 16, 1536]
@@ -57,7 +56,8 @@ def get_x2ct_model(xray_shape, ct_series_shape,
         current_filter = init_filter // (2 ** decode_i)
         x = conv3d_bn(x, current_filter, 3)
         skip_connect = skip_connection_outputs[4 - index]
-        skip_connect = SkipUpsample3D(current_filter)(skip_connect, ct_dim)
+        skip_connect = SkipUpsample3D(current_filter,
+                                      include_context=include_context)(skip_connect, ct_dim)
         x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = HighwayResnetDecoder3D(current_filter,
                                    strides=(2, 2, 2))(x)

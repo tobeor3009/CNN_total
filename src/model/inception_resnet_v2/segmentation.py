@@ -1,4 +1,4 @@
-from .base_model import SegInceptionResNetV2, conv2d_bn, inception_resnet_block
+from .base_model import InceptionResNetV2, conv2d_bn, inception_resnet_block
 from .layers import HighwayResnetDecoder2D, OutputLayer2D
 from tensorflow.keras import Model, layers
 from tensorflow.keras import backend
@@ -11,15 +11,15 @@ def get_segmentation_model(input_shape,
                            include_context=False,
                            last_channel_activation="tanh"):
 
-    base_model = SegInceptionResNetV2(
+    base_model = InceptionResNetV2(
         include_top=False,
         weights=None,
         input_tensor=None,
         input_shape=input_shape,
         classes=None,
+        padding="same",
         pooling=None,
         classifier_activation=None,
-        include_context=include_context,
     )
     # x.shape: [B, 16, 16, 1536]
     base_input = base_model.input
@@ -27,7 +27,6 @@ def get_segmentation_model(input_shape,
     skip_connection_outputs = [base_model.get_layer(layer_name).output
                                for layer_name in SKIP_CONNECTION_LAYER_NAMES]
 
-    ct_start_channel = 16
     # x.shape: [B, 16, 16, 1536]
     for block_idx in range(1, 6):
         x = inception_resnet_block(x, scale=0.17,
