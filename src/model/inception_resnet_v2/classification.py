@@ -36,6 +36,7 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
         weights=None,
         input_tensor=None,
         input_shape=(input_shape[0], input_shape[1], input_shape[2]),
+        padding='valid',
         classes=None,
         pooling=None,
         classifier_activation=None,
