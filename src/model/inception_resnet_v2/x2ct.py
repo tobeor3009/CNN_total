@@ -31,13 +31,8 @@ def get_x2ct_model(xray_shape, ct_series_shape,
 
     ct_start_channel = 16
     # x.shape: [B, 16, 16, 16, 1536]
-    x = SkipUpsample3D(filters=1536)(base_output, ct_start_channel)
-    for block_idx in range(1, 6):
-        x = inception_resnet_block_3d(x, scale=0.17,
-                                      block_type='block35_3d', block_idx=block_idx)
-    for block_idx in range(1, 6):
-        x = inception_resnet_block_3d(x, scale=0.1,
-                                      block_type='block17_3d', block_idx=block_idx)
+    x = SkipUpsample3D(filters=1536,
+                       include_context=include_context)(base_output, ct_start_channel)
     for block_idx in range(1, 6):
         x = inception_resnet_block_3d(x, scale=0.2,
                                       block_type='block8_3d', block_idx=block_idx)

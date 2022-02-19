@@ -29,14 +29,6 @@ def get_segmentation_model(input_shape,
 
     # x.shape: [B, 16, 16, 1536]
     for block_idx in range(1, 6):
-        x = inception_resnet_block(x, scale=0.17,
-                                   block_type='block35', block_idx=block_idx,
-                                   include_context=include_context)
-    for block_idx in range(1, 6):
-        x = inception_resnet_block(x, scale=0.1,
-                                   block_type='block17', block_idx=block_idx,
-                                   include_context=include_context)
-    for block_idx in range(1, 6):
         x = inception_resnet_block(x, scale=0.2,
                                    block_type='block8', block_idx=block_idx,
                                    include_context=include_context)
