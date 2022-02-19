@@ -5,7 +5,8 @@ import segmentation_models as sm
 from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
 from segmentation_models.losses import BinaryFocalLoss
-from tensorflow.keras.metrics import mean_absolute_error
+from tensorflow.keras.losses import MeanAbsoluteError
+mean_absolute_error = MeanAbsoluteError(reduction=tf.keras.losses.Reduction.AUTO)
 
 AXIS = [1, 2]
 PIE_VALUE = np.pi

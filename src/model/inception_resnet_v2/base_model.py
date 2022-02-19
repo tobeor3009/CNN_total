@@ -224,7 +224,7 @@ def InceptionResNetV2(include_top=True,
         x = inception_resnet_block(x, scale=0.2,
                                    block_type='block8', block_idx=block_idx,
                                    include_context=(include_context and block_idx == 10))
-    # Final convolution block: [B 16 16 1536]
+    # Final convolution block: [B 16 16 1536] or 8 x 8 x 1536
     x = conv2d_bn(x, 1536, 1, name='conv_7b')
 
     if include_top:
