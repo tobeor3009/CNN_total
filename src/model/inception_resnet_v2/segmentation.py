@@ -42,6 +42,6 @@ def get_segmentation_model(input_shape,
         x = HighwayResnetDecoder2D(current_filter,
                                    strides=(2, 2))(x)
 
-    output_tensor = OutputLayer2D(last_channel_num=1,
+    output_tensor = OutputLayer2D(last_channel_num=last_channel_num,
                                   act=last_channel_activation)(x)
     return Model(base_input, output_tensor)
