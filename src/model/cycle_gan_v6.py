@@ -104,25 +104,21 @@ class CycleGan(Model):
             cycle_y = self.generator_G(fake_x)
 
             # Discriminator output
-            disc_real_x = self.discriminator_X([real_x, real_x], training=True)
-            disc_fake_x = self.discriminator_X([real_x, fake_x], training=True)
-            disc_cycle_x = self.discriminator_X(
-                [real_x, cycle_x], training=True)
+            disc_real_x = self.discriminator_X(real_x, training=True)
+            disc_fake_x = self.discriminator_X(fake_x, training=True)
+            disc_cycle_x = self.discriminator_X(cycle_x, training=True)
 
-            disc_real_y = self.discriminator_Y([real_y, real_y], training=True)
-            disc_fake_y = self.discriminator_Y([real_y, fake_y], training=True)
-            disc_cycle_y = self.discriminator_Y(
-                [real_y, cycle_y], training=True)
+            disc_real_y = self.discriminator_Y(real_y, training=True)
+            disc_fake_y = self.discriminator_Y(fake_y, training=True)
+            disc_cycle_y = self.discriminator_Y(cycle_y, training=True)
 
             if self.identity_loss is True:
                 # Identity mapping
                 same_x = self.generator_F(real_x)
                 same_y = self.generator_G(real_y)
 
-                disc_same_x = self.discriminator_X(
-                    [real_x, same_x], training=True)
-                disc_same_y = self.discriminator_Y(
-                    [real_y, same_y], training=True)
+                disc_same_x = self.discriminator_X(same_x, training=True)
+                disc_same_y = self.discriminator_Y(same_y, training=True)
 
                 disc_X_identity_loss = self.discriminator_loss_arrest_generator(
                     disc_real_x, disc_same_x)
@@ -189,19 +185,19 @@ class CycleGan(Model):
                     self.histogram_loss(real_x, fake_x)
 
             # Discriminator output
-            disc_fake_x = self.discriminator_X([real_x, fake_x])
-            disc_fake_y = self.discriminator_Y([real_y, fake_y])
+            disc_fake_x = self.discriminator_X(fake_x)
+            disc_fake_y = self.discriminator_Y(fake_y)
 
-            disc_cycle_x = self.discriminator_X([real_x, cycle_x])
-            disc_cycle_y = self.discriminator_Y([real_y, cycle_y])
+            disc_cycle_x = self.discriminator_X(cycle_x)
+            disc_cycle_y = self.discriminator_Y(cycle_y)
 
             if self.identity_loss is True:
                 # Identity mapping
                 same_x = self.generator_F(real_x, training=True)
                 same_y = self.generator_G(real_y, training=True)
 
-                disc_same_x = self.discriminator_X([real_x, same_x])
-                disc_same_y = self.discriminator_Y([real_y, same_y])
+                disc_same_x = self.discriminator_X(same_x)
+                disc_same_y = self.discriminator_Y(same_y)
 
                 gen_G_identity_image_loss = (
                     self.identity_loss_fn(real_y, same_y)
