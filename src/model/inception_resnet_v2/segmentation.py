@@ -8,6 +8,7 @@ SKIP_CONNECTION_LAYER_NAMES = ["conv_down_1_ac",
 
 def get_segmentation_model(input_shape,
                            decode_init_filter=1536,
+                           last_channel_num=1,
                            last_channel_activation="tanh"):
 
     base_model = InceptionResNetV2(
@@ -43,5 +44,4 @@ def get_segmentation_model(input_shape,
 
     output_tensor = OutputLayer2D(last_channel_num=1,
                                   act=last_channel_activation)(x)
-    output_tensor = backend.squeeze(output_tensor, axis=-1)
     return Model(base_input, output_tensor)
