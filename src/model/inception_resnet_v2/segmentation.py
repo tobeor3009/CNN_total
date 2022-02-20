@@ -8,7 +8,6 @@ SKIP_CONNECTION_LAYER_NAMES = ["conv_down_1_ac",
 
 def get_segmentation_model(input_shape,
                            decode_init_filter=1536,
-                           include_context=False,
                            last_channel_activation="tanh"):
 
     base_model = InceptionResNetV2(
@@ -27,17 +26,16 @@ def get_segmentation_model(input_shape,
     skip_connection_outputs = [base_model.get_layer(layer_name).output
                                for layer_name in SKIP_CONNECTION_LAYER_NAMES]
 
+    x = base_output
     # x.shape: [B, 16, 16, 1536]
     for block_idx in range(1, 6):
         x = inception_resnet_block(x, scale=0.2,
-                                   block_type='block8', block_idx=block_idx,
-                                   include_context=include_context)
+                                   block_type='block8', block_idx=block_idx)
 
     init_filter = decode_init_filter
     for index, decode_i in enumerate(range(0, 5)):
         current_filter = init_filter // (2 ** decode_i)
-        x = conv2d_bn(x, current_filter, 3,
-                      include_context=include_context)
+        x = conv2d_bn(x, current_filter, 3)
         skip_connect = skip_connection_outputs[4 - index]
         x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = HighwayResnetDecoder2D(current_filter,

@@ -506,14 +506,13 @@ class HighwayMulti(layers.Layer):
     transform_gate_bias = None
 
     def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
+        super(HighwayMulti, self).__init__(**kwargs)
         self.activation = activation
         self.transform_gate_bias = transform_gate_bias
         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
         self.dim = dim
         self.dense_1 = layers.Dense(units=self.dim,
                                     use_bias=USE_DENSE_BIAS, bias_initializer=transform_gate_bias_initializer)
-
-        super(HighwayMulti, self).__init__(**kwargs)
 
     def call(self, x, y):
 
