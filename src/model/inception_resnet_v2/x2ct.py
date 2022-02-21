@@ -214,43 +214,36 @@ def get_x2ct_model_ap_lat_v2(xray_shape, ct_series_shape,
     lat_skip_connection_outputs = [lat_model.get_layer(f"lat_{layer_name}").output
                                    for layer_name in SKIP_CONNECTION_LAYER_NAMES]
 
-    concat_output = layers.Concatenate(axis=-1)([ap_output, lat_output])
-
     if include_context:
         _, H, W, C = backend.int_shape(ap_output)
         attn_num_head = 8
         attn_dim = C // attn_num_head
-        ap_output = tf.nn.depth_to_space(ap_output, block_size=2)
-        ap_output = layers.Reshape((H * W, C))(ap_output)
-        ap_output = AddPositionEmbs(input_shape=(H * W, C))(ap_output)
+        ap_decoded = tf.nn.depth_to_space(ap_output, block_size=2)
+        ap_decoded = layers.Reshape((H * W, C))(ap_decoded)
+        ap_decoded = AddPositionEmbs(input_shape=(H * W, C))(ap_decoded)
 
-        lat_output = tf.nn.depth_to_space(lat_output, block_size=2)
-        lat_output = layers.Reshape((H * W, C))(lat_output)
-        lat_output = AddPositionEmbs(input_shape=(H * W, C))(lat_output)
-
-        concat_output = tf.nn.depth_to_space(concat_output, block_size=2)
-        concat_output = layers.Reshape((H * W, 2 * C))(concat_output)
-        concat_output = AddPositionEmbs(
-            input_shape=(H * W, 2 * C))(concat_output)
+        lat_decoded = tf.nn.depth_to_space(lat_output, block_size=2)
+        lat_decoded = layers.Reshape((H * W, C))(lat_decoded)
+        lat_decoded = AddPositionEmbs(input_shape=(H * W, C))(lat_decoded)
 
         attn_dim_list = [attn_dim for _ in range(6)]
         num_head_list = [attn_num_head for _ in range(6)]
 
         for attn_dim, num_head in zip(attn_dim_list, num_head_list):
-            ap_output = TransformerEncoder(heads=num_head, dim_head=attn_dim,
-                                           dropout=0.3)(ap_output)
-            lat_output = TransformerEncoder(heads=num_head, dim_head=attn_dim,
-                                            dropout=0.3)(lat_output)
-            concat_output = TransformerEncoder(heads=num_head * 2, dim_head=attn_dim,
-                                               dropout=0.3)(concat_output)
+            ap_decoded = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                            dropout=0.3)(ap_decoded)
+            lat_decoded = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                             dropout=0.3)(lat_decoded)
 
-        ap_output = layers.Reshape((H * 2, H * 2, C // 4))(ap_output)
-        ap_output = tf.nn.space_to_depth(ap_output, block_size=2)
-        lat_output = layers.Reshape((H * 2, H * 2, C // 4))(lat_output)
-        lat_output = tf.nn.space_to_depth(lat_output, block_size=2)
-        concat_output = layers.Reshape((H * 2, H * 2, C // 2))(concat_output)
-        concat_output = tf.nn.space_to_depth(concat_output, block_size=2)
+        ap_decoded = layers.Reshape((H * 2, H * 2, C // 4))(ap_decoded)
+        ap_decoded = tf.nn.space_to_depth(ap_decoded, block_size=2)
+        lat_decoded = layers.Reshape((H * 2, H * 2, C // 4))(lat_decoded)
+        lat_decoded = tf.nn.space_to_depth(lat_decoded, block_size=2)
 
+        ap_output = ap_output + ap_decoded
+        lat_output = lat_output + lat_decoded
+
+    concat_output = layers.Concatenate(axis=-1)([ap_output, lat_output])
     ct_start_channel = 16
     # x.shape: [B, 16, 16, 16, 1536]
     ap_decoded = SkipUpsample3D(filters=1536)(ap_output, ct_start_channel)
