@@ -244,9 +244,12 @@ def get_x2ct_model_ap_lat_v2(xray_shape, ct_series_shape,
             concat_output = TransformerEncoder(heads=num_head * 2, dim_head=attn_dim,
                                                dropout=0.3)(concat_output)
 
-        ap_output = layers.Reshape((H, W, C))(ap_output)
-        lat_output = layers.Reshape((H, W, C))(lat_output)
-        concat_output = layers.Reshape((H, W, 2 * C))(concat_output)
+        ap_output = layers.Reshape((H * 2, H * 2, C // 4))(ap_output)
+        ap_output = tf.nn.space_to_depth(ap_output, block_size=2)
+        lat_output = layers.Reshape((H * 2, H * 2, C // 4))(lat_output)
+        lat_output = tf.nn.space_to_depth(lat_output, block_size=2)
+        concat_output = layers.Reshape((H * 2, H * 2, C // 2))(concat_output)
+        lat_output = tf.nn.space_to_depth(lat_output, block_size=2)
 
     ct_start_channel = 16
     # x.shape: [B, 16, 16, 16, 1536]
