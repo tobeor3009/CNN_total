@@ -11,31 +11,37 @@ DROPOUT_RATIO = 0.5
 
 
 def get_inception_resnet_v2_classification_model_transformer(input_shape, num_class,
+                                                             padding="valid",
                                                              activation="binary_sigmoid",
-                                                             attn_dim_list=[
-                                                                 48, 48, 48, 48, 48, 48],
-                                                             num_head_list=[
-                                                                 8, 8, 8, 8, 8, 8],
                                                              grad_cam=False,
                                                              transfer_learning=False, train_mode="include_deep_layer",
                                                              layer_name_frozen_to="mixed4",
+                                                             version="v1"
                                                              ):
     attn_dropout_proba = 0.3
     inner_dim = 2048
+    attn_dim_list = [48, 48, 48, 48, 48, 48]
+    num_head_list = [8, 8, 8, 8, 8, 8]
     attn_layer_list = []
     for attn_dim, num_head in zip(attn_dim_list, num_head_list):
         attn_layer = TransformerEncoder(heads=num_head, dim_head=attn_dim,
                                         dropout=attn_dropout_proba)
         attn_layer_list.append(attn_layer)
     attn_sequence = Sequential(attn_layer_list)
-    if grad_cam is True:
-        tf.keras.backend.set_floatx("float64")
+
+    if grad_cam:
+        x *= 1e-1
+        keras_backend.set_floatx('float64')
+        dense_dtype = "float64"
+    else:
+        dense_dtype = "float32"
+
     base_model = InceptionResNetV2(
         include_top=False,
         weights=None,
         input_tensor=None,
         input_shape=(input_shape[0], input_shape[1], input_shape[2]),
-        padding='valid',
+        padding=padding,
         classes=None,
         pooling=None,
         classifier_activation=None,
@@ -53,12 +59,21 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
 
     # add a global spatial average pooling layer
     x = base_model.output
-    # (Batch_Size, 14, 14, 2048) => (Batch_Size, 28, 28, 512)
+    # (Batch_Size, 14, 14, 1536) => (Batch_Size, 28, 28, 384)
     x = tf.nn.depth_to_space(x, block_size=2)
     _, H, W, C = keras_backend.int_shape(x)
-    # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 512)
+    # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 384)
     x = layers.Reshape((H * W, C))(x)
-    x = AddPositionEmbs(input_shape=(H * W, C))(x)
+    if version == "v1":
+        x = AddPositionEmbs(input_shape=(H * W, C))(x)
+    elif version == "v2":
+        x = layers.Permute((2, 1))(x)
+        x = layers.Dense(32, activation=tf.nn.relu6,
+                         dtype=dense_dtype, use_bias=False)(x)
+        x = layers.Permute((2, 1))(x)
+        # (Batch_Size, 32, 384)
+        x = AddPositionEmbs(input_shape=(32, C))(x)
+
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
     # let's add a fully-connected layer
@@ -66,13 +81,6 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     x = layers.Dense(1024, activation='relu')(x)
     # (Batch_Size,1024)
     x = layers.Dropout(DROPOUT_RATIO)(x)
-
-    if grad_cam:
-        x *= 1e-1
-        keras_backend.set_floatx('float64')
-        dense_dtype = "float64"
-    else:
-        dense_dtype = "float32"
 
     if activation == "binary_sigmoid":
         predictions = layers.Dense(1, activation='sigmoid',

@@ -135,10 +135,11 @@ def InceptionResNetV2(include_top=True,
                          ' as true, `classes` should be 1000')
 
     # Determine proper input shape
+    # min_size default:75
     input_shape = imagenet_utils.obtain_input_shape(
         input_shape,
         default_size=299,
-        min_size=75,
+        min_size=32,
         data_format=backend.image_data_format(),
         require_flatten=include_top,
         weights=weights)

@@ -2,7 +2,8 @@ import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 
-from .util.lsgan import base_generator_loss_deceives_discriminator, \
+from .util.gan_loss import rgb_color_histogram_loss
+from .util.lsgan import base_generator_loss_deceive_discriminator, \
     base_discriminator_loss_arrest_generator
 from .util.grad_clip import adaptive_gradient_clipping
 

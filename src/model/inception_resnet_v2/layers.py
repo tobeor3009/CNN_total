@@ -249,30 +249,85 @@ class SelfAttention(layers.Layer):
         return out
 
 
-class TransformerEncoder(layers.Layer):
+class Attention(layers.Layer):
     def __init__(self,
                  heads: int = 8, dim_head: int = 64,
                  dropout: float = 0.):
         super().__init__()
+        inner_dim = dim_head * heads
+        project_out = not heads == 1
+
+        self.heads = heads
+        self.dim_head = dim_head
+        self.scale = dim_head ** -0.5
+        self.attend = layers.Softmax(axis=-1)
+        self.to_q = layers.Dense(inner_dim, use_bias=False)
+        self.to_kv = layers.Dense(inner_dim * 2, use_bias=False)
+        self.to_out = Sequential(
+            [
+                layers.Dense(inner_dim, use_bias=False),
+                layers.Dropout(dropout)
+            ]
+        ) if project_out else layers.Lambda(lambda x: x)
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        self.N = input_shape[1]
+
+    def call(self, current, hidden):
+        # qkv.shape : [B N 3 * dim_head]
+        q = self.to_q(current)
+        kv = self.to_kv(hidden)
+        # qkv.shape : [B N 3 num_heads, dim_head]
+        kv = layers.Reshape((self.N, 2, self.heads, self.dim_head)
+                            )(kv)
+        # shape: 3, B, self.num_heads, self.N, (dim_head)
+        kv = backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
+        k, v = kv[0], kv[1]
+        # q.shape [B num_head N dim]
+        # (k.T).shape [B num_head dim N]
+        # dots.shape [B num_head N N]
+        dots = tf.matmul(q, k, transpose_a=False, transpose_b=True)
+        attn = self.attend(dots)
+        # attn.shape [B num_head N N]
+        # v.shape [B num_head N dim]
+        # out.shape [B num_head N dim]
+        out = tf.matmul(attn, v)
+        # out.shape [B N (num_head * dim)]
+        out = layers.Reshape((self.N, self.heads * self.dim_head))(out)
+        out = self.to_out(out)
+        return out
+
+
+class TransformerEncoder(layers.Layer):
+    def __init__(self,
+                 heads: int = 8, dim_head: int = 64,
+                 hidden_dim=2048, dropout: float = 0.):
+        super().__init__()
         self.inner_dim = heads * dim_head
-        self.attn = SelfAttention(heads, dim_head, dropout)
-        self.attn_dropout = layers.Dropout(dropout)
-        self.attn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
-        self.ffpn_dense_1 = layers.Dense(self.inner_dim * 4, use_bias=False)
+        self.self_attn = SelfAttention(heads, dim_head, dropout)
+        self.self_attn_dropout = layers.Dropout(dropout)
+        self.self_attn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+        self.ffpn_dense_1 = layers.Dense(hidden_dim, use_bias=False)
+        self.ffpn_act_1 = layers.Activation(tf.nn.relu6)
+        self.ffpn_dropout_1 = layers.Dropout(dropout)
         self.ffpn_dense_2 = layers.Dense(self.inner_dim, use_bias=False)
-        self.ffpn_dropout = layers.Dropout(dropout)
+        self.ffpn_act_2 = layers.Activation(tf.nn.relu6)
+        self.ffpn_dropout_2 = layers.Dropout(dropout)
         self.ffpn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
 
     def call(self, x):
-        attn = self.attn(x)
-        attn = self.attn_dropout(attn)
-        attn = self.attn_norm(x + attn)
+        self_attn = self.self_attn(x)
+        self_attn = self.self_attn_dropout(self_attn)
+        self_attn = self.self_attn_norm(x + self_attn)
 
-        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_1(self_attn)
+        out = self.ffpn_dropout_1(out)
+        out = self.ffpn_act_1(out)
         out = self.ffpn_dense_2(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_norm(attn + out)
+        out = self.ffpn_act_2(out)
+        out = self.ffpn_dropout_2(out)
+        out = self.ffpn_norm(self_attn + out)
 
         return out
 
@@ -283,15 +338,17 @@ class TransformerEncoder2D(TransformerEncoder):
 
     def call(self, x, H, W):
         x = layers.Reshape((H * W, self.inner_dim))(x)
-        attn = self.attn(x)
-        attn = self.attn_dropout(attn)
-        attn = self.attn_norm(x + attn)
+        self_attn = self.self_attn(x)
+        self_attn = self.self_attn_dropout(self_attn)
+        self_attn = self.self_attn_norm(x + self_attn)
 
-        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_1(self_attn)
+        out = self.ffpn_dropout_1(out)
+        out = self.ffpn_act_1(out)
         out = self.ffpn_dense_2(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_norm(attn + out)
+        out = self.ffpn_act_2(out)
+        out = self.ffpn_dropout_2(out)
+        out = self.ffpn_norm(self_attn + out)
         out = layers.Reshape((H, W, self.inner_dim))(out)
         return out
 
@@ -302,17 +359,90 @@ class TransformerEncoder3D(TransformerEncoder):
 
     def call(self, x, H, W, Z):
         x = layers.Reshape((H * W * Z, self.inner_dim))(x)
-        attn = self.attn(x)
-        attn = self.attn_dropout(attn)
-        attn = self.attn_norm(x + attn)
+        self_attn = self.self_attn(x)
+        self_attn = self.self_attn_dropout(self_attn)
+        self_attn = self.self_attn_norm(x + self_attn)
 
-        out = self.ffpn_dense_1(attn)
+        out = self.ffpn_dense_1(self_attn)
+        out = self.ffpn_dropout_1(out)
+        out = self.ffpn_act_1(out)
         out = self.ffpn_dense_2(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_dropout(out)
-        out = self.ffpn_norm(attn + out)
+        out = self.ffpn_act_2(out)
+        out = self.ffpn_dropout_2(out)
+        out = self.ffpn_norm(self_attn + out)
+
         out = layers.Reshape((H, W, Z, self.inner_dim))(out)
         return out
+
+
+class TransformerDecoder(layers.Layer):
+    def __init__(self,
+                 heads: int = 8, dim_head: int = 64,
+                 hidden_dim=2048, dropout: float = 0.):
+
+        super().__init__()
+        self.inner_dim = heads * dim_head
+        self.self_attn = SelfAttention(heads, dim_head, dropout)
+        self.self_attn_dropout = layers.Dropout(dropout)
+        self.norm_1 = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+        self.attn = Attention(heads, dim_head, dropout)
+        self.attn_dropout = layers.Dropout(dropout)
+        self.norm_2 = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+        self.attn_dense_1 = layers.Dense(hidden_dim, use_bias=False)
+        self.attn_act_1 = layers.Activation(tf.nn.relu6)
+        self.attn_dropout_1 = layers.Dropout(dropout)
+        self.attn_dense_2 = layers.Dense(self.inner_dim, use_bias=False)
+        self.attn_dropout_2 = layers.Dropout(dropout)
+        self.norm_3 = layers.LayerNormalization(axis=-1, epsilon=1e-6)
+
+    def call(self, current, hidden):
+        self_attn = self.self_attn(current)
+        self_attn = self.self_attn_dropout(self_attn)
+
+        current = current + self_attn
+        current = self.norm_1(current)
+
+        attn = self.attn(current, hidden)
+        attn = self.attn_dropout(attn)
+        current = current + attn
+        current = self.norm2(current)
+
+        attn = self.attn_dense_1(current)
+        attn = self.attn_act_1(attn)
+        attn = self.attn_dropout_1(attn)
+        attn = self.attn_dense_2(attn)
+        attn = self.attn_dropout_2(attn)
+        current = current + attn
+        current = self.norm_3(current)
+        return current
+
+
+def get_transformer_layer(x, num_layer: int = 6, heads: int = 8, dim_head: int = 64,
+                          hidden_dim: int = 2048, dropout: float = 0.):
+
+    encoded_tensor = x
+    encoder_tensor_shape = backend.int_shape(encoded_tensor)
+    encoded_tensor = AddPositionEmbs(
+        input_shape=encoder_tensor_shape)(encoded_tensor)
+
+    for _ in range(num_layer):
+        encoded_tensor = TransformerEncoder(heads=heads, dim_head=dim_head,
+                                            hidden_dim=hidden_dim, dropout=dropout)(encoded_tensor)
+
+    encoded_tensor = layers.LayerNormalization(axis=-1,
+                                               epsilon=1e-6)(encoded_tensor)
+    decoded_tensor = encoded_tensor
+    encoded_tensor = AddPositionEmbs(
+        input_shape=encoder_tensor_shape)(encoded_tensor)
+
+    for _ in range(num_layer):
+        decoded_tensor = TransformerDecoder(heads=heads, dim_head=dim_head,
+                                            hidden_dim=hidden_dim,
+                                            dropout=dropout)(decoded_tensor, encoded_tensor)
+
+    decoded_tensor = layers.LayerNormalization(axis=-1,
+                                               epsilon=1e-6)(decoded_tensor)
+    return decoded_tensor
 
 
 def conv3d_bn(x,
@@ -500,13 +630,46 @@ class SkipUpsample3D(layers.Layer):
         return conv
 
 
+class SkipUpsample3D(layers.Layer):
+    def __init__(self, filters):
+        super().__init__()
+        compress_layer_list = [
+            layers.Conv2D(filters, kernel_size=1, padding="same",
+                          strides=1, use_bias=USE_CONV_BIAS),
+            layers.BatchNormalization(axis=-1),
+            layers.Activation("tanh")
+        ]
+        self.compress_block = Sequential(compress_layer_list)
+        self.conv_block = Sequential([
+            layers.Conv3D(filters, kernel_size=3, padding="same",
+                          strides=1, use_bias=USE_CONV_BIAS),
+            layers.BatchNormalization(axis=-1),
+            layers.Activation("tanh")
+        ])
+
+    def build(self, input_shape):
+        _, self.H, self.W, self.C = input_shape
+
+    def call(self, input_tensor, Z):
+        conv = self.compress_block(input_tensor)
+        if self.include_context == True:
+            conv = self.context_layer(conv, self.H, self.W)
+        # shape: [B H W 1 C]
+        conv = backend.expand_dims(conv, axis=-2)
+        # shape: [B H W Z C]
+        conv = backend.repeat_elements(conv, rep=Z, axis=-2)
+        conv = self.conv_block(conv)
+        return conv
+
+
 class HighwayMulti(layers.Layer):
 
     activation = None
     transform_gate_bias = None
 
-    def __init__(self, dim, activation='relu', transform_gate_bias=-3, **kwargs):
+    def __init__(self, dim, mode='3d', activation='relu', transform_gate_bias=-3, **kwargs):
         super(HighwayMulti, self).__init__(**kwargs)
+        self.mode = mode
         self.activation = activation
         self.transform_gate_bias = transform_gate_bias
         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
@@ -515,8 +678,10 @@ class HighwayMulti(layers.Layer):
                                     use_bias=USE_DENSE_BIAS, bias_initializer=transform_gate_bias_initializer)
 
     def call(self, x, y):
-
-        transform_gate = layers.GlobalAveragePooling3D()(x)
+        if self.mode == '2d':
+            transform_gate = layers.GlobalAveragePooling2D()(x)
+        elif self.mode == '3d':
+            transform_gate = layers.GlobalAveragePooling3D()(x)
         transform_gate = self.dense_1(transform_gate)
         transform_gate = layers.Activation("sigmoid")(transform_gate)
         carry_gate = layers.Lambda(lambda x: 1.0 - x,
@@ -561,7 +726,7 @@ class HighwayResnetDecoder2D(layers.Layer):
 
         self.norm_layer = layers.LayerNormalization(axis=-1)
         self.act_layer = tanh
-        self.highway_layer = HighwayMulti(dim=filters)
+        self.highway_layer = HighwayMulti(dim=filters, mode='2d')
 
     def call(self, input_tensor):
 
@@ -576,6 +741,58 @@ class HighwayResnetDecoder2D(layers.Layer):
         output = self.highway_layer(conv_trans, upsamle)
         output = self.norm_layer(output)
         output = self.act_layer(output)
+        return output
+
+
+class Decoder2D(layers.Layer):
+    def __init__(self, out_channel, in_channel=None, context_ratio=1, kernel_size=2, unsharp=False):
+        super(Decoder2D, self).__init__()
+
+        self.kernel_size = kernel_size
+        self.unsharp = unsharp
+        self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
+                                                      kernel_size=1, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
+                                                     kernel_size=1, padding="same",
+                                                     strides=1, use_bias=USE_CONV_BIAS)
+
+        self.conv_before_upsample = layers.Conv2D(filters=out_channel,
+                                                  kernel_size=1, padding="same",
+                                                  strides=1, use_bias=USE_CONV_BIAS)
+
+        self.upsample_layer = layers.UpSampling2D(
+            size=kernel_size, interpolation="bilinear")
+        self.conv_after_upsample = layers.Conv2D(filters=out_channel,
+                                                 kernel_size=1, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
+
+        self.norm_layer_pixel_shffle = layers.LayerNormalization(axis=-1)
+        self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
+        self.act_layer = tanh
+
+        if self.unsharp is True:
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
+
+    def call(self, input_tensor):
+
+        x = input_tensor
+
+        pixel_shuffle = self.conv_before_pixel_shffle(x)
+        pixel_shuffle = tf.nn.depth_to_space(
+            pixel_shuffle, block_size=self.kernel_size)
+        pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
+        pixel_shuffle = self.norm_layer_pixel_shffle(pixel_shuffle)
+
+        upsample = self.conv_before_upsample(x)
+        upsample = self.upsample_layer(upsample)
+        upsample = self.conv_after_upsample(upsample)
+        upsample = self.norm_layer_upsample(upsample)
+
+        output = pixel_shuffle + upsample
+        output = self.act_layer(output)
+        if self.unsharp is True:
+            output = self.unsharp_mask_layer(output)
         return output
 
 
@@ -604,7 +821,7 @@ class HighwayResnetDecoder3D(layers.Layer):
 
         self.norm_layer = layers.LayerNormalization(axis=-1)
         self.act_layer = tanh
-        self.highway_layer = HighwayMulti(dim=filters)
+        self.highway_layer = HighwayMulti(dim=filters, mode='3d')
 
     def call(self, input_tensor):
 
@@ -622,29 +839,47 @@ class HighwayResnetDecoder3D(layers.Layer):
         return output
 
 
-class OutputLayer3D(layers.Layer):
-    def __init__(self, last_channel_num, act="tanh"):
+class Decoder3D(layers.Layer):
+    def __init__(self, filters, strides):
         super().__init__()
-        self.conv_1x1x1 = layers.Conv3D(filters=last_channel_num,
-                                        kernel_size=1,
-                                        padding="same",
-                                        strides=1,
-                                        use_bias=USE_CONV_BIAS,
-                                        )
-        self.conv_3x3x3 = layers.Conv3D(filters=last_channel_num,
-                                        kernel_size=3,
-                                        padding="same",
-                                        strides=1,
-                                        use_bias=USE_CONV_BIAS,
-                                        )
-        self.act = layers.Activation(act)
+
+        self.filters = filters
+        self.conv_before_trans = layers.Conv3D(filters=filters,
+                                               kernel_size=1, padding="same",
+                                               strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_trans = layers.Conv3DTranspose(filters=filters,
+                                                 kernel_size=3, padding="same",
+                                                 strides=strides, use_bias=USE_CONV_BIAS)
+        self.conv_after_trans = layers.Conv3D(filters=filters,
+                                              kernel_size=1, padding="same",
+                                              strides=1, use_bias=USE_CONV_BIAS)
+
+        self.conv_before_upsample = layers.Conv3D(filters=filters,
+                                                  kernel_size=1, padding="same",
+                                                  strides=1, use_bias=USE_CONV_BIAS)
+        self.upsample_layer = layers.UpSampling3D(size=strides)
+        self.conv_after_upsample = layers.Conv3D(filters=filters,
+                                                 kernel_size=1, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
+
+        self.norm_layer_conv = layers.LayerNormalization(axis=-1)
+        self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
+        self.act_layer = tanh
 
     def call(self, input_tensor):
-        conv_1x1x1 = self.conv_1x1x1(input_tensor)
-        conv_3x3x3 = self.conv_3x3x3(input_tensor)
-        output = conv_1x1x1 + conv_3x3x3
-        output = self.act(output)
 
+        conv_trans = self.conv_before_trans(input_tensor)
+        conv_trans = self.conv_trans(conv_trans)
+        conv_trans = self.conv_after_trans(conv_trans)
+        conv_trans = self.norm_layer_conv(conv_trans)
+
+        upsamle = self.conv_before_upsample(input_tensor)
+        upsamle = self.upsample_layer(upsamle)
+        upsamle = self.conv_after_upsample(upsamle)
+        upsamle = self.norm_layer_upsample(upsamle)
+
+        output = conv_trans + upsamle
+        output = self.act_layer(output)
         return output
 
 
@@ -669,6 +904,32 @@ class OutputLayer2D(layers.Layer):
         conv_1x1 = self.conv_1x1(input_tensor)
         conv_3x3 = self.conv_3x3(input_tensor)
         output = conv_1x1 + conv_3x3
+        output = self.act(output)
+
+        return output
+
+
+class OutputLayer3D(layers.Layer):
+    def __init__(self, last_channel_num, act="tanh"):
+        super().__init__()
+        self.conv_1x1x1 = layers.Conv3D(filters=last_channel_num,
+                                        kernel_size=1,
+                                        padding="same",
+                                        strides=1,
+                                        use_bias=USE_CONV_BIAS,
+                                        )
+        self.conv_3x3x3 = layers.Conv3D(filters=last_channel_num,
+                                        kernel_size=3,
+                                        padding="same",
+                                        strides=1,
+                                        use_bias=USE_CONV_BIAS,
+                                        )
+        self.act = layers.Activation(act)
+
+    def call(self, input_tensor):
+        conv_1x1x1 = self.conv_1x1x1(input_tensor)
+        conv_3x3x3 = self.conv_3x3x3(input_tensor)
+        output = conv_1x1x1 + conv_3x3x3
         output = self.act(output)
 
         return output
