@@ -4,6 +4,7 @@ from .layers import inception_resnet_block_3d, conv3d_bn, get_transformer_layer
 from tensorflow.keras import Model, layers
 from tensorflow.keras import backend
 import tensorflow as tf
+import math
 SKIP_CONNECTION_LAYER_NAMES = ["conv_down_1_ac",
                                "maxpool_1", "maxpool_2", "mixed_6a", "mixed_7a"]
 
@@ -708,4 +709,121 @@ def get_x2ct_model_ap_lat_v4(xray_shape, ct_series_shape,
 
     output_tensor = OutputLayer2D(last_channel_num=last_channel_num,
                                   act=last_channel_activation)(ct_decode)
+    return Model([ap_input, lat_input], output_tensor)
+
+
+def get_x2ct_model_ap_lat_v5(xray_shape, ct_series_shape,
+                             decode_init_filter=64,
+                             last_channel_activation="tanh"):
+
+    ap_model = InceptionResNetV2(
+        include_top=False,
+        weights=None,
+        input_tensor=None,
+        input_shape=(xray_shape[0], xray_shape[1], 1),
+        classes=None,
+        padding="same",
+        pooling=None,
+        classifier_activation=None,
+        name_prefix="ap"
+    )
+    # ap_input.shape [B, 512, 512, 1]
+    # ap_output.shape: [B, 16, 16, 1536]
+    ap_input = ap_model.input
+    ap_output = ap_model.output
+    ap_skip_connection_outputs = [ap_model.get_layer(f"ap_{layer_name}").output
+                                  for layer_name in SKIP_CONNECTION_LAYER_NAMES]
+
+    lat_model = InceptionResNetV2(
+        include_top=False,
+        weights=None,
+        input_tensor=None,
+        input_shape=(xray_shape[0], xray_shape[1], 1),
+        classes=None,
+        padding="same",
+        pooling=None,
+        classifier_activation=None,
+        name_prefix="lat"
+    )
+    # lat_input.shape [B, 512, 512, 2]
+    # lat_output.shape: [B, 16, 16, 1536]
+    lat_input = lat_model.input
+    lat_output = lat_model.output
+    lat_skip_connection_outputs = [lat_model.get_layer(f"lat_{layer_name}").output
+                                   for layer_name in SKIP_CONNECTION_LAYER_NAMES]
+
+    ct_start_channel = 16
+    ct_dim = ct_start_channel
+    if ct_series_shape == (256, 256, 256):
+        decode_start_index = 1
+    elif ct_series_shape == (128, 128, 128):
+        decode_start_index = 2
+    elif ct_series_shape == (64, 64, 64):
+        decode_start_index = 3
+    elif ct_series_shape == (32, 32, 32):
+        decode_start_index = 4
+    else:
+        NotImplementedError(
+            "ct_series_shape is implemented only 128 or 256 intercubic shape")
+
+    # lat_output.shape: [B, 16, 16, 1536]
+    _, H, W, C = backend.int_shape(ap_output)
+    attn_num_head = 8
+    attn_dim = C // attn_num_head
+
+    ap_decoded = layers.Reshape((H * W, C))(ap_output)
+    ap_decoded = AddPositionEmbs(input_shape=(H * W, C))(ap_decoded)
+
+    lat_decoded = layers.Reshape((H * W, C))(lat_output)
+    lat_decoded = AddPositionEmbs(input_shape=(H * W, C))(lat_decoded)
+
+    attn_dim_list = [attn_dim for _ in range(6)]
+    num_head_list = [attn_num_head for _ in range(6)]
+
+    for attn_dim, num_head in zip(attn_dim_list, num_head_list):
+        ap_decoded = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                        dropout=0)(ap_decoded)
+        lat_decoded = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                         dropout=0)(lat_decoded)
+
+    ap_decoded = layers.Reshape((16, 16, 16, 96))(ap_decoded)
+    lat_decoded = layers.Reshape((16, 16, 16, 96))(lat_decoded)
+    concat_decoded = (ap_decoded + lat_decoded) / math.sqrt(2)
+
+    init_filter = decode_init_filter
+    for index, decode_i in enumerate(range(decode_start_index, 5)):
+        current_filter = init_filter // (2 ** decode_i)
+
+        ap_decoded = conv3d_bn(ap_decoded, current_filter, 3)
+        lat_decoded = conv3d_bn(lat_decoded, current_filter, 3)
+        concat_decoded = conv3d_bn(concat_decoded, current_filter, 3)
+
+        _, H, W, _, _ = backend.int_shape(ap_decoded)
+        ap_skip_connect = ap_skip_connection_outputs[4 - index]
+        lat_skip_connect = lat_skip_connection_outputs[4 - index]
+        ap_skip_connect = SkipUpsample3D(
+            current_filter)(ap_skip_connect, ct_dim)
+        lat_skip_connect = SkipUpsample3D(
+            current_filter)(lat_skip_connect, ct_dim)
+
+        ap_decoded = (ap_decoded + ap_skip_connect) / math.sqrt(2)
+        lat_decoded = (lat_decoded + lat_skip_connect) / math.sqrt(2)
+        ap_decoded = conv3d_bn(ap_decoded, current_filter, 3)
+        lat_decoded = conv3d_bn(lat_decoded, current_filter, 3)
+
+        concat_decoded = (ap_decoded + lat_decoded +
+                          concat_decoded) / math.sqrt(3)
+
+        ap_decoded = Decoder3D(current_filter,
+                               strides=(2, 2, 2))(ap_decoded)
+        lat_decoded = Decoder3D(current_filter,
+                                strides=(2, 2, 2))(lat_decoded)
+        concat_decoded = Decoder3D(current_filter,
+                                   strides=(2, 2, 2))(concat_decoded)
+        concat_decoded = conv3d_bn(concat_decoded, current_filter, 3)
+        ct_dim *= 2
+
+    output_tensor = OutputLayer3D(last_channel_num=1,
+                                  act=last_channel_activation)(concat_decoded)
+    output_tensor = backend.squeeze(output_tensor, axis=-1)
     return Model([ap_input, lat_input], output_tensor)

@@ -631,14 +631,19 @@ class SkipUpsample3D(layers.Layer):
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters):
+    def __init__(self, filters, include_context=False, context_head_nums=8):
         super().__init__()
+        self.include_context = include_context
         compress_layer_list = [
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
             layers.Activation("tanh")
         ]
+        if self.include_context == True:
+            up_head_dim = filters // context_head_nums
+            self.context_layer = TransformerEncoder2D(heads=8, dim_head=up_head_dim,
+                                                      dropout=0.3)
         self.compress_block = Sequential(compress_layer_list)
         self.conv_block = Sequential([
             layers.Conv3D(filters, kernel_size=3, padding="same",
@@ -660,6 +665,40 @@ class SkipUpsample3D(layers.Layer):
         conv = backend.repeat_elements(conv, rep=Z, axis=-2)
         conv = self.conv_block(conv)
         return conv
+
+
+# class SkipUpsample3D(layers.Layer):
+#     def __init__(self, filters, context_head_nums=8):
+#         super().__init__()
+#         self.filters = filters
+#         compress_layer_list = [
+#             layers.Conv2D(filters, kernel_size=1, padding="same",
+#                           strides=1, use_bias=USE_CONV_BIAS),
+#             layers.BatchNormalization(axis=-1),
+#             layers.Activation("tanh")
+#         ]
+#         up_head_dim = filters // context_head_nums
+#         self.context_layer = TransformerEncoder2D(heads=context_head_nums, dim_head=up_head_dim,
+#                                                   dropout=0)
+
+#         self.compress_block = Sequential(compress_layer_list)
+#         self.conv_block = Sequential([
+#             layers.Conv3D(filters, kernel_size=3, padding="same",
+#                           strides=1, use_bias=USE_CONV_BIAS),
+#             layers.BatchNormalization(axis=-1),
+#             layers.Activation("tanh")
+#         ])
+
+#     def build(self, input_shape):
+#         _, self.H, self.W, self.C = input_shape
+
+#     def call(self, input_tensor, H, W, Z):
+#         conv = self.compress_block(input_tensor)
+#         conv = self.context_layer(conv, H, W)
+#         conv = layers.Reshape((H, W, Z, self.filters // Z))(conv)
+#         # shape: [B H W Z C]
+#         conv = self.conv_block(conv)
+#         return conv
 
 
 class HighwayMulti(layers.Layer):
@@ -892,18 +931,18 @@ class OutputLayer2D(layers.Layer):
                                       strides=1,
                                       use_bias=USE_CONV_BIAS,
                                       )
-        self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
-                                      kernel_size=3,
-                                      padding="same",
-                                      strides=1,
-                                      use_bias=USE_CONV_BIAS,
-                                      )
+        # self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
+        #                               kernel_size=3,
+        #                               padding="same",
+        #                               strides=1,
+        #                               use_bias=USE_CONV_BIAS,
+        #                               )
         self.act = layers.Activation(act)
 
     def call(self, input_tensor):
         conv_1x1 = self.conv_1x1(input_tensor)
-        conv_3x3 = self.conv_3x3(input_tensor)
-        output = conv_1x1 + conv_3x3
+        # conv_3x3 = self.conv_3x3(input_tensor)
+        output = conv_1x1
         output = self.act(output)
 
         return output
