@@ -5,6 +5,9 @@ from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
 from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
 
+from .transformer_layers import SelfAttention, Attention, AddPositionEmbs
+
+import math
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
 GC_BLOCK_RATIO = 0.125
@@ -171,131 +174,6 @@ class GCBlock3D(layers.Layer):
             channel_add_term = self.channel_add_conv(context_mask)
             out = out + channel_add_term
         # out.shape: [B, H, W, Z, C]
-        return out
-
-
-@tf.keras.utils.register_keras_serializable()
-class AddPositionEmbs(layers.Layer):
-    """Adds (optionally learned) positional embeddings to the inputs."""
-
-    def __init__(self, input_shape):
-        super().__init__()
-        self.pe = tf.Variable(
-            name="pos_embedding",
-            initial_value=tf.random_normal_initializer(stddev=0.06)(
-                shape=(1, *input_shape)
-            ),
-            dtype="float32",
-            trainable=True,
-        )
-
-    def call(self, inputs):
-        return inputs + tf.cast(self.pe, dtype=inputs.dtype)
-
-    def get_config(self):
-        config = super().get_config()
-        return config
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
-
-class SelfAttention(layers.Layer):
-    def __init__(self,
-                 heads: int = 8, dim_head: int = 64,
-                 dropout: float = 0.):
-        super().__init__()
-        inner_dim = dim_head * heads
-        project_out = not heads == 1
-
-        self.heads = heads
-        self.dim_head = dim_head
-        self.scale = dim_head ** -0.5
-        self.attend = layers.Softmax(axis=-1)
-        self.to_qkv = layers.Dense(inner_dim * 3, use_bias=False)
-        self.to_out = Sequential(
-            [
-                layers.Dense(inner_dim, use_bias=False),
-                layers.Dropout(dropout)
-            ]
-        ) if project_out else layers.Lambda(lambda x: x)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        self.N = input_shape[1]
-
-    def call(self, x):
-        # qkv.shape : [B N 3 * dim_head]
-        qkv = self.to_qkv(x)
-        # qkv.shape : [B N 3 num_heads, dim_head]
-        qkv = layers.Reshape((self.N, 3, self.heads, self.dim_head)
-                             )(qkv)
-        # shape: 3, B, self.num_heads, self.N, (dim_head)
-        qkv = backend.permute_dimensions(qkv, (2, 0, 3, 1, 4))
-        q, k, v = qkv[0], qkv[1], qkv[2]
-        # q.shape [B num_head N dim]
-        # (k.T).shape [B num_head dim N]
-        # dots.shape [B num_head N N]
-        dots = tf.matmul(q, k, transpose_a=False, transpose_b=True)
-        attn = self.attend(dots)
-        # attn.shape [B num_head N N]
-        # v.shape [B num_head N dim]
-        # out.shape [B num_head N dim]
-        out = tf.matmul(attn, v)
-        # out.shape [B N (num_head * dim)]
-        out = layers.Reshape((self.N, self.heads * self.dim_head))(out)
-        out = self.to_out(out)
-        return out
-
-
-class Attention(layers.Layer):
-    def __init__(self,
-                 heads: int = 8, dim_head: int = 64,
-                 dropout: float = 0.):
-        super().__init__()
-        inner_dim = dim_head * heads
-        project_out = not heads == 1
-
-        self.heads = heads
-        self.dim_head = dim_head
-        self.scale = dim_head ** -0.5
-        self.attend = layers.Softmax(axis=-1)
-        self.to_q = layers.Dense(inner_dim, use_bias=False)
-        self.to_kv = layers.Dense(inner_dim * 2, use_bias=False)
-        self.to_out = Sequential(
-            [
-                layers.Dense(inner_dim, use_bias=False),
-                layers.Dropout(dropout)
-            ]
-        ) if project_out else layers.Lambda(lambda x: x)
-
-    def build(self, input_shape):
-        super().build(input_shape)
-        self.N = input_shape[1]
-
-    def call(self, current, hidden):
-        # qkv.shape : [B N 3 * dim_head]
-        q = self.to_q(current)
-        kv = self.to_kv(hidden)
-        # qkv.shape : [B N 3 num_heads, dim_head]
-        kv = layers.Reshape((self.N, 2, self.heads, self.dim_head)
-                            )(kv)
-        # shape: 3, B, self.num_heads, self.N, (dim_head)
-        kv = backend.permute_dimensions(kv, (2, 0, 3, 1, 4))
-        k, v = kv[0], kv[1]
-        # q.shape [B num_head N dim]
-        # (k.T).shape [B num_head dim N]
-        # dots.shape [B num_head N N]
-        dots = tf.matmul(q, k, transpose_a=False, transpose_b=True)
-        attn = self.attend(dots)
-        # attn.shape [B num_head N N]
-        # v.shape [B num_head N dim]
-        # out.shape [B num_head N dim]
-        out = tf.matmul(attn, v)
-        # out.shape [B N (num_head * dim)]
-        out = layers.Reshape((self.N, self.heads * self.dim_head))(out)
-        out = self.to_out(out)
         return out
 
 
@@ -701,6 +579,38 @@ class HighwayMulti(layers.Layer):
         return config
 
 
+def get_gaussian_kernel(size=2, mean=0.0, std=1.0):
+    """Makes 2D gaussian Kernel for convolution."""
+
+    d = tf.compat.v1.distributions.Normal(mean, std)
+    vals = d.prob(tf.range(start=-size, limit=size + 1, dtype=tf.float32))
+    gauss_kernel = tf.einsum('i,j->ij',
+                             vals,
+                             vals)
+
+    return gauss_kernel / tf.reduce_sum(gauss_kernel)
+
+
+class UnsharpMasking2D(layers.Layer):
+    def __init__(self, filters):
+        super(UnsharpMasking2D, self).__init__()
+        gauss_kernel_2d = get_gaussian_kernel(2, 0.0, 1.0)
+        self.gauss_kernel = tf.tile(
+            gauss_kernel_2d[:, :, tf.newaxis, tf.newaxis], [1, 1, filters, 1])
+
+        self.pointwise_filter = tf.eye(filters, batch_shape=[1, 1])
+
+    def call(self, input_tensor):
+        blur_tensor = tf.nn.separable_conv2d(input_tensor,
+                                             self.gauss_kernel,
+                                             self.pointwise_filter,
+                                             strides=[1, 1, 1, 1], padding='SAME')
+        unsharp_mask_tensor = 2 * input_tensor - blur_tensor
+        # because it used after tanh
+        unsharp_mask_tensor = tf.clip_by_value(unsharp_mask_tensor, -1, 1)
+        return unsharp_mask_tensor
+
+
 class HighwayResnetDecoder2D(layers.Layer):
     def __init__(self, filters, strides):
         super().__init__()
@@ -745,7 +655,7 @@ class HighwayResnetDecoder2D(layers.Layer):
 
 
 class Decoder2D(layers.Layer):
-    def __init__(self, out_channel, in_channel=None, context_ratio=1, kernel_size=2, unsharp=False):
+    def __init__(self, out_channel, kernel_size=2, unsharp=False):
         super(Decoder2D, self).__init__()
 
         self.kernel_size = kernel_size
@@ -766,6 +676,12 @@ class Decoder2D(layers.Layer):
         self.conv_after_upsample = layers.Conv2D(filters=out_channel,
                                                  kernel_size=1, padding="same",
                                                  strides=1, use_bias=USE_CONV_BIAS)
+        self.pixel_shffle_input_control_conv = layers.Conv2DTranspose(filters=out_channel,
+                                                                      kernel_size=1, padding="same",
+                                                                      strides=2, use_bias=USE_CONV_BIAS)
+        self.upsample_input_control_conv = layers.Conv2DTranspose(filters=out_channel,
+                                                                  kernel_size=1, padding="same",
+                                                                  strides=2, use_bias=USE_CONV_BIAS)
 
         self.norm_layer_pixel_shffle = layers.LayerNormalization(axis=-1)
         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
@@ -774,26 +690,35 @@ class Decoder2D(layers.Layer):
         if self.unsharp is True:
             self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
 
-    def call(self, input_tensor):
+    def call(self, pixel_shuffle_input, upsample_input):
 
-        x = input_tensor
-
-        pixel_shuffle = self.conv_before_pixel_shffle(x)
-        pixel_shuffle = tf.nn.depth_to_space(
-            pixel_shuffle, block_size=self.kernel_size)
+        pixel_shuffle = self.conv_before_pixel_shffle(pixel_shuffle_input)
+        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle,
+                                             block_size=self.kernel_size)
         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
         pixel_shuffle = self.norm_layer_pixel_shffle(pixel_shuffle)
 
-        upsample = self.conv_before_upsample(x)
+        upsample = self.conv_before_upsample(upsample_input)
         upsample = self.upsample_layer(upsample)
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
 
-        output = pixel_shuffle + upsample
-        output = self.act_layer(output)
+        pixel_shuffle_input_resized = self.pixel_shffle_input_control_conv(
+            pixel_shuffle_input)
+        upsample_input_resized = self.upsample_input_control_conv(
+            upsample_input)
+
+        pixel_shuffle_output = (
+            pixel_shuffle_input_resized + upsample) / math.sqrt(2)
+        upsample_output = (upsample_input_resized +
+                           pixel_shuffle) / math.sqrt(2)
+
         if self.unsharp is True:
-            output = self.unsharp_mask_layer(output)
-        return output
+            pixel_shuffle_output = self.unsharp_mask_layer(
+                pixel_shuffle_output)
+            upsample_output = self.unsharp_mask_layer(upsample_output)
+
+        return pixel_shuffle_output, upsample_output
 
 
 class HighwayResnetDecoder3D(layers.Layer):
@@ -878,7 +803,7 @@ class Decoder3D(layers.Layer):
         upsamle = self.conv_after_upsample(upsamle)
         upsamle = self.norm_layer_upsample(upsamle)
 
-        output = conv_trans + upsamle
+        output = (conv_trans + upsamle) / math.sqrt(2)
         output = self.act_layer(output)
         return output
 
@@ -892,18 +817,13 @@ class OutputLayer2D(layers.Layer):
                                       strides=1,
                                       use_bias=USE_CONV_BIAS,
                                       )
-        self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
-                                      kernel_size=3,
-                                      padding="same",
-                                      strides=1,
-                                      use_bias=USE_CONV_BIAS,
-                                      )
         self.act = layers.Activation(act)
 
-    def call(self, input_tensor):
-        conv_1x1 = self.conv_1x1(input_tensor)
-        conv_3x3 = self.conv_3x3(input_tensor)
-        output = conv_1x1 + conv_3x3
+    def call(self, pixel_shuffle_input, upsample_input):
+        pixel_shuffle = self.conv_1x1(pixel_shuffle_input)
+        upsample = self.conv_1x1(upsample_input)
+
+        output = (pixel_shuffle + upsample) / math.sqrt(2)
         output = self.act(output)
 
         return output

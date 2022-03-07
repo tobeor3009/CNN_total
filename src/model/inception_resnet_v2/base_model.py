@@ -31,7 +31,8 @@ from tensorflow.python.lib.io import file_io
 from tensorflow.python.util.tf_export import keras_export
 
 import tensorflow as tf
-from .layers import GCBlock2D, TransformerEncoder2D, AddPositionEmbs
+from .layers import GCBlock2D, TransformerEncoder2D
+from .transformer_layers import AddPositionEmbs
 
 BASE_WEIGHT_URL = ('https://storage.googleapis.com/tensorflow/'
                    'keras-applications/inception_resnet_v2/')
