@@ -1,6 +1,6 @@
 from torch import pixel_shuffle
 from .base_model import InceptionResNetV2, conv2d_bn, inception_resnet_block
-from .layers import HighwayResnetDecoder2D, OutputLayer2D, Decoder2D, TransformerEncoder
+from .layers import HighwayResnetDecoder2D, OutputLayer2D, TwoWayOutputLayer2D, Decoder2D, TransformerEncoder
 from .transformer_layers import AddPositionEmbs, PosEncodingLayer, AddPosEncoding
 from .reformer_layers import ReformerBlock
 from tensorflow.keras import Model, layers
@@ -90,6 +90,6 @@ def get_segmentation_model(input_shape,
         pixel_shuffle, upsample = Decoder2D(current_filter,
                                             kernel_size=2)(pixel_shuffle, upsample)
 
-    output_tensor = OutputLayer2D(last_channel_num=last_channel_num,
-                                  act=last_channel_activation)(pixel_shuffle, upsample)
+    output_tensor = TwoWayOutputLayer2D(last_channel_num=last_channel_num,
+                                        act=last_channel_activation)(pixel_shuffle, upsample)
     return Model(base_input, output_tensor)

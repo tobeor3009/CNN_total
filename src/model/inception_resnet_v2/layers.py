@@ -856,28 +856,46 @@ class OutputLayer2D(layers.Layer):
                                       strides=1,
                                       use_bias=USE_CONV_BIAS,
                                       )
-<<<<<<< HEAD
-        self.act = layers.Activation(act)
-
-    def call(self, pixel_shuffle_input, upsample_input):
-        pixel_shuffle = self.conv_1x1(pixel_shuffle_input)
-        upsample = self.conv_1x1(upsample_input)
-
-        output = (pixel_shuffle + upsample) / math.sqrt(2)
-=======
-        # self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
-        #                               kernel_size=3,
-        #                               padding="same",
-        #                               strides=1,
-        #                               use_bias=USE_CONV_BIAS,
-        #                               )
+        self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
+                                      kernel_size=3,
+                                      padding="same",
+                                      strides=1,
+                                      use_bias=USE_CONV_BIAS,
+                                      )
+        self.highway_layer = HighwayMulti(dim=last_channel_num, mode='2d')
         self.act = layers.Activation(act)
 
     def call(self, input_tensor):
         conv_1x1 = self.conv_1x1(input_tensor)
-        # conv_3x3 = self.conv_3x3(input_tensor)
-        output = conv_1x1
->>>>>>> 3fe74bc1b4290b0f5aae207153cfd654b4406b39
+        conv_3x3 = self.conv_3x3(input_tensor)
+        output = self.highway_layer(conv_1x1, conv_3x3)
+        output = self.act(output)
+
+        return output
+
+
+class TwoWayOutputLayer2D(layers.Layer):
+    def __init__(self, last_channel_num, act="tanh"):
+        super().__init__()
+        self.conv_1 = layers.Conv2D(filters=last_channel_num,
+                                    kernel_size=3,
+                                    padding="same",
+                                    strides=1,
+                                    use_bias=USE_CONV_BIAS,
+                                    )
+        self.conv_2 = layers.Conv2D(filters=last_channel_num,
+                                    kernel_size=3,
+                                    padding="same",
+                                    strides=1,
+                                    use_bias=USE_CONV_BIAS,
+                                    )
+        self.highway_layer = HighwayMulti(dim=last_channel_num, mode='2d')
+        self.act = layers.Activation(act)
+
+    def call(self, x1, x2):
+        conv_1 = self.conv_1(x1)
+        conv_2 = self.conv_2(x2)
+        output = self.highway_layer(conv_1, conv_2)
         output = self.act(output)
 
         return output
@@ -898,12 +916,14 @@ class OutputLayer3D(layers.Layer):
                                         strides=1,
                                         use_bias=USE_CONV_BIAS,
                                         )
+        self.highway_layer = HighwayMulti(dim=last_channel_num, mode='3d')
         self.act = layers.Activation(act)
 
     def call(self, input_tensor):
         conv_1x1x1 = self.conv_1x1x1(input_tensor)
         conv_3x3x3 = self.conv_3x3x3(input_tensor)
-        output = conv_1x1x1 + conv_3x3x3
+
+        output = self.highway_layer(conv_1x1x1, conv_3x3x3)
         output = self.act(output)
 
         return output
