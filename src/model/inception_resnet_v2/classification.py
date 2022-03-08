@@ -13,15 +13,15 @@ DROPOUT_RATIO = 0.5
 def get_inception_resnet_v2_classification_model_transformer(input_shape, num_class,
                                                              padding="valid",
                                                              activation="binary_sigmoid",
+                                                             block_size=16,
                                                              grad_cam=False,
                                                              transfer_learning=False, train_mode="include_deep_layer",
                                                              layer_name_frozen_to="mixed4",
                                                              version="v1"
                                                              ):
-    attn_dropout_proba = 0.3
-    inner_dim = 2048
-    attn_dim_list = [48, 48, 48, 48, 48, 48]
-    num_head_list = [8, 8, 8, 8, 8, 8]
+    attn_dropout_proba = 0.1
+    attn_dim_list = [block_size * 3 for _ in range(6)]
+    num_head_list = [8 for _ in range(6)]
     attn_layer_list = []
     for attn_dim, num_head in zip(attn_dim_list, num_head_list):
         attn_layer = TransformerEncoder(heads=num_head, dim_head=attn_dim,
@@ -41,6 +41,7 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
         weights=None,
         input_tensor=None,
         input_shape=(input_shape[0], input_shape[1], input_shape[2]),
+        block_size=block_size,
         padding=padding,
         classes=None,
         pooling=None,

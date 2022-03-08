@@ -33,6 +33,7 @@ from tensorflow.python.util.tf_export import keras_export
 import tensorflow as tf
 from .layers import GCBlock2D, TransformerEncoder2D
 from .transformer_layers import AddPositionEmbs
+from .cbam_attention_module import attach_attention_module
 
 BASE_WEIGHT_URL = ('https://storage.googleapis.com/tensorflow/'
                    'keras-applications/inception_resnet_v2/')
@@ -50,11 +51,13 @@ def InceptionResNetV2(include_top=True,
                       weights='imagenet',
                       input_tensor=None,
                       input_shape=None,
+                      block_size=16,
                       padding="valid",
                       pooling=None,
                       classes=1000,
                       classifier_activation='softmax',
                       name_prefix="",
+                      attention_module="cbam_block",
                       **kwargs):
     """Instantiates the Inception-ResNet v2 architecture.
 
@@ -160,28 +163,28 @@ def InceptionResNetV2(include_top=True,
     # input shape: [B 512 512 3]
     # Stem block: [B 128 128 192]
     # x.shape: [B 256 256 32]
-    x = conv2d_bn(img_input, 32, 3, strides=2, padding=padding,
+    x = conv2d_bn(img_input, block_size * 2, 3, strides=2, padding=padding,
                   name=f"{name_prefix}conv_down_1")
-    x = conv2d_bn(x, 32, 3, padding=padding)
-    x = conv2d_bn(x, 64, 3)
+    x = conv2d_bn(x, block_size * 2, 3, padding=padding)
+    x = conv2d_bn(x, block_size * 4, 3)
     # x.shape: [B 128 128 64]
     x = layers.MaxPooling2D(3, strides=2, padding=padding,
                             name=f"{name_prefix}maxpool_1")(x)
-    x = conv2d_bn(x, 80, 1, padding=padding)
-    x = conv2d_bn(x, 192, 3, padding=padding)
+    x = conv2d_bn(x, block_size * 5, 1, padding=padding)
+    x = conv2d_bn(x, block_size * 12, 3, padding=padding)
     # x.shape: [B 64 64 192]
     x = layers.MaxPooling2D(3, strides=2, padding=padding,
                             name=f"{name_prefix}maxpool_2")(x)
 
     # Mixed 5b (Inception-A block): [B 64 64 320] or 35 x 35 x 320
-    branch_0 = conv2d_bn(x, 96, 1)
-    branch_1 = conv2d_bn(x, 48, 1)
-    branch_1 = conv2d_bn(branch_1, 64, 5)
-    branch_2 = conv2d_bn(x, 64, 1)
-    branch_2 = conv2d_bn(branch_2, 96, 3)
-    branch_2 = conv2d_bn(branch_2, 96, 3)
+    branch_0 = conv2d_bn(x, block_size * 6, 1)
+    branch_1 = conv2d_bn(x, block_size * 3, 1)
+    branch_1 = conv2d_bn(branch_1, block_size * 4, 5)
+    branch_2 = conv2d_bn(x, block_size * 4, 1)
+    branch_2 = conv2d_bn(branch_2, block_size * 6, 3)
+    branch_2 = conv2d_bn(branch_2, block_size * 6, 3)
     branch_pool = layers.AveragePooling2D(3, strides=1, padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 64, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 4, 1)
     branches = [branch_0, branch_1, branch_2, branch_pool]
     channel_axis = 1 if backend.image_data_format() == 'channels_first' else 3
     x = layers.Concatenate(
@@ -190,13 +193,15 @@ def InceptionResNetV2(include_top=True,
     for block_idx in range(1, 11):
         x = inception_resnet_block(x, scale=0.17,
                                    block_type='block35', block_idx=block_idx,
+                                   attention_module=attention_module,
                                    name_prefix=name_prefix)
 
     # Mixed 6a (Reduction-A block): [B 32 32 1088] or 17 x 17 x 1088
-    branch_0 = conv2d_bn(x, 384, 3, strides=2, padding=padding)
-    branch_1 = conv2d_bn(x, 256, 1)
-    branch_1 = conv2d_bn(branch_1, 256, 3)
-    branch_1 = conv2d_bn(branch_1, 384, 3, strides=2, padding=padding)
+    branch_0 = conv2d_bn(x, block_size * 24, 3, strides=2, padding=padding)
+    branch_1 = conv2d_bn(x, block_size * 16, 1)
+    branch_1 = conv2d_bn(branch_1, block_size * 16, 3)
+    branch_1 = conv2d_bn(branch_1, block_size * 24, 3,
+                         strides=2, padding=padding)
     branch_pool = layers.MaxPooling2D(3, strides=2, padding=padding)(x)
     branches = [branch_0, branch_1, branch_pool]
     x = layers.Concatenate(
@@ -206,15 +211,19 @@ def InceptionResNetV2(include_top=True,
     for block_idx in range(1, 21):
         x = inception_resnet_block(x, scale=0.1,
                                    block_type='block17', block_idx=block_idx,
+                                   attention_module=attention_module,
                                    name_prefix=name_prefix)
     # Mixed 7a (Reduction-B block): [B 16 16 2080] or 8 x 8 x 2080
-    branch_0 = conv2d_bn(x, 256, 1)
-    branch_0 = conv2d_bn(branch_0, 384, 3, strides=2, padding=padding)
-    branch_1 = conv2d_bn(x, 256, 1)
-    branch_1 = conv2d_bn(branch_1, 288, 3, strides=2, padding=padding)
-    branch_2 = conv2d_bn(x, 256, 1)
-    branch_2 = conv2d_bn(branch_2, 288, 3)
-    branch_2 = conv2d_bn(branch_2, 320, 3, strides=2, padding=padding)
+    branch_0 = conv2d_bn(x, block_size * 16, 1)
+    branch_0 = conv2d_bn(branch_0, block_size * 24, 3,
+                         strides=2, padding=padding)
+    branch_1 = conv2d_bn(x, block_size * 16, 1)
+    branch_1 = conv2d_bn(branch_1, block_size * 18, 3,
+                         strides=2, padding=padding)
+    branch_2 = conv2d_bn(x, block_size * 16, 1)
+    branch_2 = conv2d_bn(branch_2, block_size * 18, 3)
+    branch_2 = conv2d_bn(branch_2, block_size * 20, 3,
+                         strides=2, padding=padding)
     branch_pool = layers.MaxPooling2D(3, strides=2, padding=padding)(x)
     branches = [branch_0, branch_1, branch_2, branch_pool]
     x = layers.Concatenate(
@@ -224,9 +233,10 @@ def InceptionResNetV2(include_top=True,
     for block_idx in range(1, 11):
         x = inception_resnet_block(x, scale=0.2,
                                    block_type='block8', block_idx=block_idx,
+                                   attention_module=attention_module,
                                    name_prefix=name_prefix)
     # Final convolution block: [B 16 16 1536] or 8 x 8 x 1536
-    x = conv2d_bn(x, 1536, 1, name=f'{name_prefix}conv_7b')
+    x = conv2d_bn(x, block_size * 96, 1, name=f'{name_prefix}conv_7b')
 
     if include_top:
         # Classification block
@@ -320,8 +330,8 @@ def conv2d_bn(x,
     return x
 
 
-def inception_resnet_block(x, scale, block_type, block_idx, activation='relu',
-                           include_context=False, context_head_nums=8,
+def inception_resnet_block(x, scale, block_type, block_idx, block_size=16, activation='relu',
+                           include_context=False, context_head_nums=8, attention_module="cbam_block",
                            name_prefix=""):
     """Adds an Inception-ResNet block.
 
@@ -358,24 +368,24 @@ def inception_resnet_block(x, scale, block_type, block_idx, activation='relu',
         `'block17'` or `'block8'`.
     """
     if block_type == 'block35':
-        branch_0 = conv2d_bn(x, 32, 1)
-        branch_1 = conv2d_bn(x, 32, 1)
-        branch_1 = conv2d_bn(branch_1, 32, 3)
-        branch_2 = conv2d_bn(x, 32, 1)
-        branch_2 = conv2d_bn(branch_2, 48, 3)
-        branch_2 = conv2d_bn(branch_2, 64, 3)
+        branch_0 = conv2d_bn(x, block_size * 2, 1)
+        branch_1 = conv2d_bn(x, block_size * 2, 1)
+        branch_1 = conv2d_bn(branch_1, block_size * 2, 3)
+        branch_2 = conv2d_bn(x, block_size * 2, 1)
+        branch_2 = conv2d_bn(branch_2, block_size * 3, 3)
+        branch_2 = conv2d_bn(branch_2, block_size * 4, 3)
         branches = [branch_0, branch_1, branch_2]
     elif block_type == 'block17':
-        branch_0 = conv2d_bn(x, 192, 1)
-        branch_1 = conv2d_bn(x, 128, 1)
-        branch_1 = conv2d_bn(branch_1, 160, [1, 7])
-        branch_1 = conv2d_bn(branch_1, 192, [7, 1])
+        branch_0 = conv2d_bn(x, block_size * 12, 1)
+        branch_1 = conv2d_bn(x, block_size * 8, 1)
+        branch_1 = conv2d_bn(branch_1, block_size * 10, [1, 7])
+        branch_1 = conv2d_bn(branch_1, block_size * 12, [7, 1])
         branches = [branch_0, branch_1]
     elif block_type == 'block8':
-        branch_0 = conv2d_bn(x, 192, 1)
-        branch_1 = conv2d_bn(x, 192, 1)
-        branch_1 = conv2d_bn(branch_1, 224, [1, 3])
-        branch_1 = conv2d_bn(branch_1, 256, [3, 1])
+        branch_0 = conv2d_bn(x, block_size * 12, 1)
+        branch_1 = conv2d_bn(x, block_size * 12, 1)
+        branch_1 = conv2d_bn(branch_1, block_size * 14, [1, 3])
+        branch_1 = conv2d_bn(branch_1, block_size * 16, [3, 1])
         branches = [branch_0, branch_1]
     else:
         raise ValueError('Unknown Inception-ResNet block type. '
@@ -394,7 +404,11 @@ def inception_resnet_block(x, scale, block_type, block_idx, activation='relu',
         activation=None,
         use_bias=True,
         name=block_name + '_conv')
-    if include_context == True:
+    # attention_module
+    if attention_module is not None:
+        up = attach_attention_module(up, attention_module)
+
+    if include_context:
         up_shape = backend.int_shape(up)
         up_head_dim = up_shape[-1] // context_head_nums
         up = TransformerEncoder2D(heads=context_head_nums, dim_head=up_head_dim,

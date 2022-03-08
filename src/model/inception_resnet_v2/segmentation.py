@@ -62,8 +62,7 @@ def get_segmentation_model(input_shape,
 
         pixel_shuffle = conv2d_bn(x, init_filter, 3)
         upsample = conv2d_bn(x, init_filter, 3)
-
-    if version == "reformer":
+    elif version == "reformer":
         x1 = x
         x2 = x
         attn_dim_list = [attn_dim for _ in range(6)]
@@ -72,10 +71,19 @@ def get_segmentation_model(input_shape,
             inner_dim = attn_dim * num_head
             x1, x2 = ReformerBlock(d_model=inner_dim, d_ff=inner_dim, max_len=H * W,
                                    attn_config=AttnConfig(inner_dim, num_head))(x1, x2, t=H * W)
-        x = layers.Reshape((H, W, C))(x)
+        x1 = layers.Reshape((H, W, C))(x1)
+        x2 = layers.Reshape((H, W, C))(x2)
 
         pixel_shuffle = conv2d_bn(x1, init_filter, 3)
         upsample = conv2d_bn(x2, init_filter, 3)
+    elif version == "normal":
+        pixel_shuffle = x
+        upsample = x
+        for _ in range(3):
+            pixel_shuffle = conv2d_bn(pixel_shuffle, init_filter, 3)
+            upsample = conv2d_bn(upsample, init_filter, 3)
+    else:
+        raise Exception("not Supported version")
 
     for index, decode_i in enumerate(range(0, 5)):
         if skip_connect:

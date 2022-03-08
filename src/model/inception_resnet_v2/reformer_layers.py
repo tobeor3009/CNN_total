@@ -42,7 +42,8 @@ def hash_vec(x, x_len, num_hashes, bucket_size, seed=None, dropout_rate=0, train
     # Hashing
     rotations_shape = (1, dim, num_hashes, rot_size // 2)
     random_rotations = tf.random.normal(rotations_shape, seed=seed)
-    random_rotations = backend.tile(random_rotations, [N, 1, 1, 1])
+    random_rotations = backend.repeat_elements(random_rotations, rep=N, axis=0)
+    # random_rotations = backend.tile(random_rotations, [N, 1, 1, 1])
     if training:
         x = tf.nn.dropout(x, dropout_rate)
 
@@ -85,7 +86,8 @@ def lsh_attention(qk, v, T, seed=None, num_hashes=2, bucket_size=4, use_full=Fal
     the bucket after sorted  [0, 3, 4, 7, 8, 11]
     """
     ticker = tf.expand_dims(tf.range(num_hashes * T), axis=0)
-    ticker = backend.tile(ticker, [N, 1])
+    ticker = backend.repeat_elements(ticker, rep=N, axis=0)
+    # ticker = backend.tile(ticker, [N, 1])
 
     if use_full:
         buckets_and_t, sbuckets_and_t, sticker = ticker, ticker, ticker
@@ -253,8 +255,9 @@ class PositionalEncoder(tf.keras.layers.Layer):
     def call(self, inputs):
         N, T, _ = inputs.shape
 
-        position_ind = backend.tile(tf.expand_dims(
-            tf.range(T), 0), [N, 1])  # (N, T)
+        position_ind = tf.expand_dims(tf.range(T), 0)
+        position_ind = backend.repeat_elements(position_ind, rep=N, axis=0)
+        # position_ind = backend.tile(position_ind, [N, 1])  # (N, T)
         outputs = tf.nn.embedding_lookup(self.params, position_ind)
 
         # masks
@@ -331,7 +334,8 @@ class MultiheadLSHSelfAttention(tf.keras.layers.Layer):
             assert seq_len is not None
             input_mask = tf.sequence_mask(seq_len, self.max_len)
             input_mask = tf.expand_dims(input_mask, 0)
-            input_masks = backend.tile(input_mask, [N, 1])
+            input_masks = backend.repeat_elements(input_mask, rep=N, axis=0)
+            # input_masks = backend.tile(input_mask, [N, 1])
 
             seq_len += pad_len_lsh(self.config.bucket_size, seq_len)
         else:
