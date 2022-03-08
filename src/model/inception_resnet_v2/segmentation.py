@@ -21,6 +21,7 @@ class AttnConfig():
 
 
 def get_segmentation_model(input_shape,
+                           block_size=16,
                            decode_init_filter=768,
                            skip_connect=True,
                            last_channel_num=1,
@@ -32,6 +33,7 @@ def get_segmentation_model(input_shape,
         weights=None,
         input_tensor=None,
         input_shape=input_shape,
+        block_size=block_size,
         classes=None,
         padding="same",
         pooling=None,
