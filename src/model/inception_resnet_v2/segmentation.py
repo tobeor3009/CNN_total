@@ -1,4 +1,3 @@
-from torch import pixel_shuffle
 from .base_model import InceptionResNetV2, conv2d_bn, inception_resnet_block
 from .layers import HighwayResnetDecoder2D, OutputLayer2D, TwoWayOutputLayer2D, Decoder2D, TransformerEncoder
 from .transformer_layers import AddPositionEmbs, PosEncodingLayer, AddPosEncoding
