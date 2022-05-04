@@ -45,7 +45,7 @@ class MultiScaleDataGetter(BaseDataGetter):
                  ):
         super().__init__()
 
-        self.image_folder_dict = {image_folder: sorted(glob(image_folder, reverse=True))
+        self.image_folder_dict = {image_folder: sorted(glob(f"{image_folder}/level_*_image.png"), reverse=True)
                                   for image_folder in image_folder_list}
         self.mask_folder_dict = {image_folder: [image_path.replace("image", "mask") for image_path in image_path_list]
                                  for image_folder, image_path_list in self.image_folder_dict.items()}
@@ -98,7 +98,7 @@ class MultiScaleDataGetter(BaseDataGetter):
 
             image_array_list = []
             mask_array_list = []
-            for image_path, mask_path in image_path_list, mask_path_list:
+            for image_path, mask_path in zip(image_path_list, mask_path_list):
                 image_array = imread(image_path, channel=self.image_channel)
                 mask_array = imread(mask_path, channel=self.mask_channel)
                 image_array_list.append(image_array)
@@ -122,6 +122,12 @@ class MultiScaleDataGetter(BaseDataGetter):
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
         return self.single_data_dict
+
+    def __len__(self):
+        if self.data_len is None:
+            self.data_len = len(self.image_folder_dict)
+
+        return self.data_len
 
     def get_data_on_disk(self):
 

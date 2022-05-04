@@ -1,5 +1,6 @@
 from functools import partial
 import tensorflow as tf
+from tensorflow_addons.layers import GroupNormalization
 from tensorflow.keras import backend
 from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
@@ -12,94 +13,6 @@ USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
 GC_BLOCK_RATIO = 0.125
 kaiming_initializer = tf.keras.initializers.HeNormal()
-
-
-def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
-                   downsample=False, same_channel=True,
-                   padding="same", activation="relu",
-                   use_bias=False, name=None):
-    ################################################
-    ################# Define Layer #################
-    ################################################
-    if downsample:
-        strides = 2
-    else:
-        strides = 1
-    if downsample or (not same_channel):
-        residual_conv_layer = layers.Conv2D(filters,
-                                            kernel_size=1,
-                                            strides=strides,
-                                            padding=padding,
-                                            use_bias=use_bias)
-        residual_norm_layer = layers.BatchNormalization(axis=-1,
-                                                        scale=False)
-
-    conv_layer = layers.Conv2D(filters,
-                               kernel_size,
-                               strides=strides,
-                               padding=padding,
-                               use_bias=use_bias)
-    norm_name = None if name is None else name + '_norm'
-    norm_layer = layers.BatchNormalization(
-        axis=-1, scale=False, name=norm_name)
-
-    act_name = None if name is None else name + '_act'
-    if activation is None:
-        pass
-    elif activation == 'relu':
-        act_layer = layers.Activation(tf.nn.relu6, name=act_name)
-    elif activation == 'leakyrelu':
-        act_layer = layers.LeakyReLU(0.3, name=act_name)
-    else:
-        act_layer = layers.Activation(activation, name=act_name)
-
-    output_name = None if name is None else name + '_output'
-
-    ################################################
-    ################# Define call ##################
-    ################################################
-    if downsample or (not same_channel):
-        residual = residual_conv_layer(input_tensor)
-        residual = residual_norm_layer(residual)
-        residual = act_layer(residual)
-    else:
-        residual = input_tensor
-
-    conv = conv_layer(input_tensor)
-    norm = norm_layer(conv)
-    act = act_layer(norm)
-    output = highway_multi(act, residual,
-                           dim=filters, mode="2d", output_name=output_name)
-
-    return output
-
-
-def highway_multi(x, y, dim,
-                  mode='3d', transform_gate_bias=-3, output_name=None):
-
-    ################################################
-    ################# Define Layer #################
-    ################################################
-    transform_gate_bias_initializer = Constant(transform_gate_bias)
-    dense_1 = layers.Dense(units=dim,
-                           use_bias=USE_DENSE_BIAS,
-                           bias_initializer=transform_gate_bias_initializer)
-    if mode == '2d':
-        transform_gate = layers.GlobalAveragePooling2D()(x)
-    elif mode == '3d':
-        transform_gate = layers.GlobalAveragePooling3D()(x)
-    ################################################
-    ################# Define call ##################
-    ################################################
-    transform_gate = dense_1(transform_gate)
-    transform_gate = layers.Activation("sigmoid")(transform_gate)
-    carry_gate = layers.Lambda(lambda x: 1.0 - x,
-                               output_shape=(dim,))(transform_gate)
-    transformed_gated = layers.Multiply()([transform_gate, x])
-    identity_gated = layers.Multiply()([carry_gate, y])
-    value = layers.Add(name=output_name)([transformed_gated,
-                                          identity_gated])
-    return value
 
 
 class TransformerEncoder(layers.Layer):
@@ -575,20 +488,19 @@ class UnsharpMasking2D(layers.Layer):
         return unsharp_mask_tensor
 
 
-class HighwayResnetDecoder2D(layers.Layer):
-    def __init__(self, filters, strides):
+class HighwayDecoder2D(layers.Layer):
+    def __init__(self, filters, strides, kernel_size=2, unsharp=False):
         super().__init__()
 
         self.filters = filters
-        self.conv_before_trans = layers.Conv2D(filters=filters,
-                                               kernel_size=1, padding="same",
-                                               strides=1, use_bias=USE_CONV_BIAS)
-        self.conv_trans = layers.Conv2DTranspose(filters=filters,
-                                                 kernel_size=3, padding="same",
-                                                 strides=strides, use_bias=USE_CONV_BIAS)
-        self.conv_after_trans = layers.Conv2D(filters=filters,
-                                              kernel_size=1, padding="same",
-                                              strides=1, use_bias=USE_CONV_BIAS)
+        self.kernel_size = kernel_size
+        self.unsharp = unsharp
+        self.conv_before_pixel_shffle = layers.Conv2D(filters=filters,
+                                                      kernel_size=1, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_after_pixel_shffle = layers.Conv2D(filters=filters,
+                                                     kernel_size=1, padding="same",
+                                                     strides=1, use_bias=USE_CONV_BIAS)
 
         self.conv_before_upsample = layers.Conv2D(filters=filters,
                                                   kernel_size=1, padding="same",
@@ -602,19 +514,27 @@ class HighwayResnetDecoder2D(layers.Layer):
         self.act_layer = tanh
         self.highway_layer = HighwayMulti(dim=filters, mode='2d')
 
+        if self.unsharp is True:
+            self.unsharp_mask_layer = UnsharpMasking2D(filters)
+
     def call(self, input_tensor):
 
-        conv_trans = self.conv_before_trans(input_tensor)
-        conv_trans = self.conv_trans(conv_trans)
-        conv_trans = self.conv_after_trans(conv_trans)
+        pixel_shffle = self.conv_before_pixel_shffle(input_tensor)
+        pixel_shffle = tf.nn.depth_to_space(pixel_shffle,
+                                            block_size=self.kernel_size)
+        pixel_shffle = self.conv_after_pixel_shffle(pixel_shffle)
 
         upsamle = self.conv_before_upsample(input_tensor)
         upsamle = self.upsample_layer(upsamle)
         upsamle = self.conv_after_upsample(upsamle)
 
-        output = self.highway_layer(conv_trans, upsamle)
+        output = self.highway_layer(pixel_shffle, upsamle)
         output = self.norm_layer(output)
         output = self.act_layer(output)
+
+        if self.unsharp is True:
+            output = self.unsharp_mask_layer(output)
+
         return output
 
 
@@ -668,7 +588,7 @@ class Decoder2D(layers.Layer):
         return output
 
 
-class HighwayResnetDecoder3D(layers.Layer):
+class HighwayDecoder3D(layers.Layer):
     def __init__(self, filters, strides):
         super().__init__()
 

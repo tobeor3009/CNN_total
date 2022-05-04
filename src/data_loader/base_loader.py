@@ -120,7 +120,7 @@ class PreprocessPolicy():
         elif preprocess_input == "-1~1":
             self.preprocess_method = \
                 lambda image_array: (image_array / 127.5) - 1
-        elif preprocess_input == "mask":
+        elif preprocess_input == "mask" or preprocess_input == "0~1":
             self.preprocess_method = lambda image_array: image_array / 255
         else:
             self.preprocess_method = preprocess_input
