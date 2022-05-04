@@ -98,7 +98,6 @@ class MultiLabelDataGetter(BaseDataGetter):
 
             image_array = imread(image_path, channel=self.image_channel)
             mask_array = imread(mask_path)
-
             image_array = self.resize_method(image_array)
             mask_array = self.resize_method(mask_array)
 
