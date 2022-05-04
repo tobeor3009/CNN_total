@@ -18,14 +18,20 @@ def base_discriminator_loss_arrest_generator(real_img, fake_img):
 
 
 @tf.function
-def gradient_penalty(discriminator, batch_size, real_images, fake_images, smooth=1e-7):
+def gradient_penalty(discriminator, batch_size,
+                     real_images, fake_images,
+                     mode="2d", smooth=1e-7):
     """ Calculates the gradient penalty.
 
     This loss is calculated on an interpolated image
     and added to the discriminator loss.
     """
+    if mode == "2d":
+        alpha_shape = [batch_size, 1, 1, 1]
+    elif mode == "3d":
+        alpha_shape = [batch_size, 1, 1, 1, 1]
     # Get the interpolated image
-    alpha = tf.random.normal([batch_size, 1, 1, 1], 0.0, 1.0)
+    alpha = tf.random.normal(alpha_shape, 0.0, 1.0)
     diff = fake_images - real_images
     interpolated = real_images + alpha * diff
 

@@ -14,167 +14,92 @@ GC_BLOCK_RATIO = 0.125
 kaiming_initializer = tf.keras.initializers.HeNormal()
 
 
-class GCBlock2D(layers.Layer):
-    def __init__(self, in_channel, ratio=GC_BLOCK_RATIO, fusion_types=('channel_add',), **kwargs):
-        super().__init__(**kwargs)
-        assert in_channel is not None, 'GCBlock needs in_channel'
-        assert isinstance(fusion_types, (list, tuple))
-        valid_fusion_types = ['channel_add', 'channel_mul']
-        assert all([f in valid_fusion_types for f in fusion_types])
-        assert len(fusion_types) > 0, 'at least one fusion should be used'
-        self.in_channel = in_channel
-        self.ratio = ratio
-        self.middle_channel = max(int(in_channel * ratio), 2)
-        self.fusion_types = fusion_types
-        self.key_mask = layers.Conv2D(filters=self.middle_channel,
-                                      kernel_size=1,
-                                      kernel_initializer=kaiming_initializer,
-                                      padding="same",
-                                      use_bias=USE_CONV_BIAS)
-        self.value_mask = layers.Conv2D(filters=1,
-                                        kernel_size=1,
-                                        kernel_initializer=kaiming_initializer,
-                                        padding="same",
-                                        use_bias=USE_CONV_BIAS)
-        self.softmax = partial(softmax, axis=-2)
+def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
+                   downsample=False, same_channel=True,
+                   padding="same", activation="relu",
+                   use_bias=False, name=None):
+    ################################################
+    ################# Define Layer #################
+    ################################################
+    if downsample:
+        strides = 2
+    else:
+        strides = 1
+    if downsample or (not same_channel):
+        residual_conv_layer = layers.Conv2D(filters,
+                                            kernel_size=1,
+                                            strides=strides,
+                                            padding=padding,
+                                            use_bias=use_bias)
+        residual_norm_layer = layers.BatchNormalization(axis=-1,
+                                                        scale=False)
 
-        if 'channel_add' in fusion_types:
-            self.channel_add_conv = Sequential(
-                [layers.Conv2D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
-                 layers.LayerNormalization(axis=-1),
-                 layers.ReLU(max_value=6),  # yapf: disable
-                 layers.Conv2D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
-        else:
-            self.channel_add_conv = None
-        if 'channel_mul' in fusion_types:
-            self.channel_mul_conv = Sequential(
-                [layers.Conv2D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
-                 layers.LayerNormalization(axis=-1),
-                 layers.ReLU(max_value=6),  # yapf: disable
-                 layers.Conv2D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
-        else:
-            self.channel_mul_conv = None
+    conv_layer = layers.Conv2D(filters,
+                               kernel_size,
+                               strides=strides,
+                               padding=padding,
+                               use_bias=use_bias)
+    norm_name = None if name is None else name + '_norm'
+    norm_layer = layers.BatchNormalization(
+        axis=-1, scale=False, name=norm_name)
 
-    def build(self, input_shape):
-        _, self.H, self.W, self.C = input_shape
+    act_name = None if name is None else name + '_act'
+    if activation is None:
+        pass
+    elif activation == 'relu':
+        act_layer = layers.Activation(tf.nn.relu6, name=act_name)
+    elif activation == 'leakyrelu':
+        act_layer = layers.LeakyReLU(0.3, name=act_name)
+    else:
+        act_layer = layers.Activation(activation, name=act_name)
 
-    def call(self, x):
+    output_name = None if name is None else name + '_output'
 
-        # x.shape: [B, H, W, C]
-        # key_mask.shape: [B, H, W, middle_channel]
-        key_mask = self.key_mask(x)
-        # key_mask.shape: [B, (H * W), middle_channel]
-        key_mask = layers.Reshape(
-            (self.H * self.W, self.middle_channel))(key_mask)
-        # key_mask.shape: [B, middle_channel, (H * W)]
-        key_mask = layers.Permute((2, 1))(key_mask)
+    ################################################
+    ################# Define call ##################
+    ################################################
+    if downsample or (not same_channel):
+        residual = residual_conv_layer(input_tensor)
+        residual = residual_norm_layer(residual)
+        residual = act_layer(residual)
+    else:
+        residual = input_tensor
 
-        # value_mask.shape: [B, H, W, 1]
-        value_mask = self.value_mask(x)
-        # value_mask.shape: [B, (H * W), 1]
-        value_mask = layers.Reshape((self.H * self.W, 1))(value_mask)
-        value_mask = self.softmax(value_mask)
+    conv = conv_layer(input_tensor)
+    norm = norm_layer(conv)
+    act = act_layer(norm)
+    output = highway_multi(act, residual,
+                           dim=filters, mode="2d", output_name=output_name)
 
-        # [B, middle_channel, (H * W)] @ [B, (H * W), 1]
-        # context_mask.shape: [B, middle_channel, 1]
-        context_mask = tf.matmul(key_mask, value_mask)
-        # context_mask.shape: [B, 1, 1, middle_channel]
-        context_mask = layers.Reshape(
-            (1, 1, self.middle_channel))(context_mask)
-
-        out = x
-        if self.channel_mul_conv is not None:
-            # [B, 1, 1, C]
-            channel_mul_term = sigmoid(self.channel_mul_conv(context_mask))
-            out = out * channel_mul_term
-        if self.channel_add_conv is not None:
-            # [B, 1, 1, C]
-            channel_add_term = self.channel_add_conv(context_mask)
-            out = out + channel_add_term
-        # out.shape: [B, H, W, C]
-        return out
+    return output
 
 
-class GCBlock3D(layers.Layer):
-    def __init__(self, in_channel, ratio=GC_BLOCK_RATIO, fusion_types=('channel_add',), **kwargs):
-        super().__init__(**kwargs)
-        assert in_channel is not None, 'GCBlock needs in_channel'
-        assert isinstance(fusion_types, (list, tuple))
-        valid_fusion_types = ['channel_add', 'channel_mul']
-        assert all([f in valid_fusion_types for f in fusion_types])
-        assert len(fusion_types) > 0, 'at least one fusion should be used'
-        self.in_channel = in_channel
-        self.ratio = ratio
-        self.middle_channel = max(int(in_channel * ratio), 2)
-        self.fusion_types = fusion_types
+def highway_multi(x, y, dim,
+                  mode='3d', transform_gate_bias=-3, output_name=None):
 
-        self.key_mask = layers.Conv3D(filters=self.middle_channel,
-                                      kernel_size=1,
-                                      kernel_initializer=kaiming_initializer,
-                                      padding="same",
-                                      use_bias=USE_CONV_BIAS)
-        self.value_mask = layers.Conv3D(filters=1,
-                                        kernel_size=1,
-                                        kernel_initializer=kaiming_initializer,
-                                        padding="same",
-                                        use_bias=USE_CONV_BIAS)
-        self.softmax = partial(softmax, axis=-2)
-
-        if 'channel_add' in fusion_types:
-            self.channel_add_conv = Sequential(
-                [layers.Conv3D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
-                 layers.LayerNormalization(axis=-1),
-                 layers.ReLU(max_value=6),  # yapf: disable
-                 layers.Conv3D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
-        else:
-            self.channel_add_conv = None
-        if 'channel_mul' in fusion_types:
-            self.channel_mul_conv = Sequential(
-                [layers.Conv3D(self.middle_channel, kernel_size=1, use_bias=USE_CONV_BIAS),
-                 layers.LayerNormalization(axis=-1),
-                 layers.ReLU(max_value=6),  # yapf: disable
-                 layers.Conv3D(self.in_channel, kernel_size=1, use_bias=USE_CONV_BIAS)])
-        else:
-            self.channel_mul_conv = None
-
-    def build(self, input_shape):
-        _, self.H, self.W, self.Z, self.C = input_shape
-
-    def call(self, x):
-
-        # x.shape: [B, H, W, Z, C]
-        # key_mask.shape: [B, H, W, Z, C]
-        key_mask = self.key_mask(x)
-        # key_mask.shape: [B, (H * W * Z), C]
-        key_mask = layers.Reshape(
-            (self.H * self.W * self.Z, self.middle_channel))(key_mask)
-        # key_mask.shape: [B, C, (H * W)]
-        key_mask = layers.Permute((2, 1))(key_mask)
-
-        # value_mask.shape: [B, H, W, Z, 1]
-        value_mask = self.value_mask(x)
-        # value_mask.shape: [B, (H * W * Z), 1]
-        value_mask = layers.Reshape((self.H * self.W * self.Z, 1))(value_mask)
-        value_mask = self.softmax(value_mask)
-
-        # [B, C, (H * W * Z)] @ [B, (H * W * Z), 1]
-        # context_mask.shape: [B, C, 1]
-        context_mask = tf.matmul(key_mask, value_mask)
-        # context_mask.shape: [B, 1, 1, 1, C]
-        context_mask = layers.Reshape(
-            (1, 1, 1, self.middle_channel))(context_mask)
-
-        out = x
-        if self.channel_mul_conv is not None:
-            # [B, 1, 1, 1, C]
-            channel_mul_term = sigmoid(self.channel_mul_conv(context_mask))
-            out = out * channel_mul_term
-        if self.channel_add_conv is not None:
-            # [B, 1, 1, 1, C]
-            channel_add_term = self.channel_add_conv(context_mask)
-            out = out + channel_add_term
-        # out.shape: [B, H, W, Z, C]
-        return out
+    ################################################
+    ################# Define Layer #################
+    ################################################
+    transform_gate_bias_initializer = Constant(transform_gate_bias)
+    dense_1 = layers.Dense(units=dim,
+                           use_bias=USE_DENSE_BIAS,
+                           bias_initializer=transform_gate_bias_initializer)
+    if mode == '2d':
+        transform_gate = layers.GlobalAveragePooling2D()(x)
+    elif mode == '3d':
+        transform_gate = layers.GlobalAveragePooling3D()(x)
+    ################################################
+    ################# Define call ##################
+    ################################################
+    transform_gate = dense_1(transform_gate)
+    transform_gate = layers.Activation("sigmoid")(transform_gate)
+    carry_gate = layers.Lambda(lambda x: 1.0 - x,
+                               output_shape=(dim,))(transform_gate)
+    transformed_gated = layers.Multiply()([transform_gate, x])
+    identity_gated = layers.Multiply()([carry_gate, y])
+    value = layers.Add(name=output_name)([transformed_gated,
+                                          identity_gated])
+    return value
 
 
 class TransformerEncoder(layers.Layer):
@@ -283,7 +208,7 @@ class TransformerDecoder(layers.Layer):
         attn = self.attn(current, hidden)
         attn = self.attn_dropout(attn)
         current = current + attn
-        current = self.norm2(current)
+        current = self.norm_2(current)
 
         attn = self.attn_dense_1(current)
         attn = self.attn_act_1(attn)
@@ -545,38 +470,38 @@ class SkipUpsample3D(layers.Layer):
         return conv
 
 
-# class SkipUpsample3D(layers.Layer):
-#     def __init__(self, filters, context_head_nums=8):
-#         super().__init__()
-#         self.filters = filters
-#         compress_layer_list = [
-#             layers.Conv2D(filters, kernel_size=1, padding="same",
-#                           strides=1, use_bias=USE_CONV_BIAS),
-#             layers.BatchNormalization(axis=-1),
-#             layers.Activation("tanh")
-#         ]
-#         up_head_dim = filters // context_head_nums
-#         self.context_layer = TransformerEncoder2D(heads=context_head_nums, dim_head=up_head_dim,
-#                                                   dropout=0)
+class Pixelshuffle3D(layers.Layer):
+    def __init__(self, kernel_size=2):
+        super().__init__()
+        self.kernel_size = self.to_tuple(kernel_size)
 
-#         self.compress_block = Sequential(compress_layer_list)
-#         self.conv_block = Sequential([
-#             layers.Conv3D(filters, kernel_size=3, padding="same",
-#                           strides=1, use_bias=USE_CONV_BIAS),
-#             layers.BatchNormalization(axis=-1),
-#             layers.Activation("tanh")
-#         ])
+    # k: kernel, r: resized, o: original
+    def call(self, x):
+        _, o_h, o_w, o_z, o_c = backend.int_shape(x)
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (k_h * k_w * k_z)
 
-#     def build(self, input_shape):
-#         _, self.H, self.W, self.C = input_shape
+        r_x = layers.Reshape((o_h, o_w, o_z, r_c, k_h, k_w, k_z))(x)
+        r_x = layers.Permute((1, 5, 2, 6, 3, 7, 4))(r_x)
+        r_x = layers.Reshape((r_h, r_w, r_z, r_c))(r_x)
 
-#     def call(self, input_tensor, H, W, Z):
-#         conv = self.compress_block(input_tensor)
-#         conv = self.context_layer(conv, H, W)
-#         conv = layers.Reshape((H, W, Z, self.filters // Z))(conv)
-#         # shape: [B H W Z C]
-#         conv = self.conv_block(conv)
-#         return conv
+        return r_x
+
+    def compute_output_shape(self, input_shape):
+        _, o_h, o_w, o_z, o_c = input_shape
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (r_h * r_w * r_z)
+
+        return (r_h, r_w, r_z, r_c)
+
+    def to_tuple(self, int_or_tuple):
+        if isinstance(int_or_tuple, int):
+            convert_tuple = (int_or_tuple, int_or_tuple, int_or_tuple)
+        else:
+            convert_tuple = int_or_tuple
+        return convert_tuple
 
 
 class HighwayMulti(layers.Layer):
@@ -584,13 +509,13 @@ class HighwayMulti(layers.Layer):
     activation = None
     transform_gate_bias = None
 
-    def __init__(self, dim, mode='3d', activation='relu', transform_gate_bias=-3, **kwargs):
+    def __init__(self, dim, mode='3d', transform_gate_bias=-3, name=None, **kwargs):
         super(HighwayMulti, self).__init__(**kwargs)
         self.mode = mode
-        self.activation = activation
         self.transform_gate_bias = transform_gate_bias
         transform_gate_bias_initializer = Constant(self.transform_gate_bias)
         self.dim = dim
+        self.output_name = name
         self.dense_1 = layers.Dense(units=self.dim,
                                     use_bias=USE_DENSE_BIAS, bias_initializer=transform_gate_bias_initializer)
 
@@ -605,7 +530,8 @@ class HighwayMulti(layers.Layer):
                                    output_shape=(self.dim,))(transform_gate)
         transformed_gated = layers.Multiply()([transform_gate, x])
         identity_gated = layers.Multiply()([carry_gate, y])
-        value = layers.Add()([transformed_gated, identity_gated])
+        value = layers.Add(name=self.output_name)(
+            [transformed_gated, identity_gated])
         return value
 
     def compute_output_shape(self, input_shape):
@@ -613,7 +539,6 @@ class HighwayMulti(layers.Layer):
 
     def get_config(self):
         config = super(HighwayMulti, self).get_config()
-        config['activation'] = self.activation
         config['transform_gate_bias'] = self.transform_gate_bias
         return config
 
@@ -715,13 +640,6 @@ class Decoder2D(layers.Layer):
         self.conv_after_upsample = layers.Conv2D(filters=out_channel,
                                                  kernel_size=1, padding="same",
                                                  strides=1, use_bias=USE_CONV_BIAS)
-        self.pixel_shffle_input_control_conv = layers.Conv2DTranspose(filters=out_channel,
-                                                                      kernel_size=1, padding="same",
-                                                                      strides=2, use_bias=USE_CONV_BIAS)
-        self.upsample_input_control_conv = layers.Conv2DTranspose(filters=out_channel,
-                                                                  kernel_size=1, padding="same",
-                                                                  strides=2, use_bias=USE_CONV_BIAS)
-
         self.norm_layer_pixel_shffle = layers.LayerNormalization(axis=-1)
         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
         self.act_layer = tanh
@@ -729,35 +647,25 @@ class Decoder2D(layers.Layer):
         if self.unsharp is True:
             self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
 
-    def call(self, pixel_shuffle_input, upsample_input):
+    def call(self, x):
 
-        pixel_shuffle = self.conv_before_pixel_shffle(pixel_shuffle_input)
+        pixel_shuffle = self.conv_before_pixel_shffle(x)
         pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle,
                                              block_size=self.kernel_size)
         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
         pixel_shuffle = self.norm_layer_pixel_shffle(pixel_shuffle)
 
-        upsample = self.conv_before_upsample(upsample_input)
+        upsample = self.conv_before_upsample(x)
         upsample = self.upsample_layer(upsample)
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
 
-        pixel_shuffle_input_resized = self.pixel_shffle_input_control_conv(
-            pixel_shuffle_input)
-        upsample_input_resized = self.upsample_input_control_conv(
-            upsample_input)
-
-        pixel_shuffle_output = (
-            pixel_shuffle_input_resized + upsample) / math.sqrt(2)
-        upsample_output = (upsample_input_resized +
-                           pixel_shuffle) / math.sqrt(2)
+        output = (pixel_shuffle + upsample) / math.sqrt(2)
 
         if self.unsharp is True:
-            pixel_shuffle_output = self.unsharp_mask_layer(
-                pixel_shuffle_output)
-            upsample_output = self.unsharp_mask_layer(upsample_output)
+            output = self.unsharp_mask_layer(output)
 
-        return pixel_shuffle_output, upsample_output
+        return output
 
 
 class HighwayResnetDecoder3D(layers.Layer):
@@ -808,15 +716,13 @@ class Decoder3D(layers.Layer):
         super().__init__()
 
         self.filters = filters
-        self.conv_before_trans = layers.Conv3D(filters=filters,
-                                               kernel_size=1, padding="same",
-                                               strides=1, use_bias=USE_CONV_BIAS)
-        self.conv_trans = layers.Conv3DTranspose(filters=filters,
-                                                 kernel_size=3, padding="same",
-                                                 strides=strides, use_bias=USE_CONV_BIAS)
-        self.conv_after_trans = layers.Conv3D(filters=filters,
-                                              kernel_size=1, padding="same",
-                                              strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_before_pixel_shuffle = layers.Conv3D(filters=filters,
+                                                       kernel_size=1, padding="same",
+                                                       strides=1, use_bias=USE_CONV_BIAS)
+        self.pixel_shuffle = Pixelshuffle3D(kernel_size=2)
+        self.conv_after_pixel_shuffle = layers.Conv3D(filters=filters,
+                                                      kernel_size=1, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
 
         self.conv_before_upsample = layers.Conv3D(filters=filters,
                                                   kernel_size=1, padding="same",
@@ -826,23 +732,23 @@ class Decoder3D(layers.Layer):
                                                  kernel_size=1, padding="same",
                                                  strides=1, use_bias=USE_CONV_BIAS)
 
-        self.norm_layer_conv = layers.LayerNormalization(axis=-1)
+        self.norm_layer_pixel_shuffle = layers.LayerNormalization(axis=-1)
         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
         self.act_layer = tanh
 
     def call(self, input_tensor):
 
-        conv_trans = self.conv_before_trans(input_tensor)
-        conv_trans = self.conv_trans(conv_trans)
-        conv_trans = self.conv_after_trans(conv_trans)
-        conv_trans = self.norm_layer_conv(conv_trans)
+        pixel_shuffle = self.conv_before_pixel_shuffle(input_tensor)
+        pixel_shuffle = self.pixel_shuffle(pixel_shuffle)
+        pixel_shuffle = self.conv_after_pixel_shuffle(pixel_shuffle)
+        pixel_shuffle = self.norm_layer_pixel_shuffle(pixel_shuffle)
 
         upsamle = self.conv_before_upsample(input_tensor)
         upsamle = self.upsample_layer(upsamle)
         upsamle = self.conv_after_upsample(upsamle)
         upsamle = self.norm_layer_upsample(upsamle)
 
-        output = (conv_trans + upsamle) / math.sqrt(2)
+        output = (pixel_shuffle + upsamle) / math.sqrt(2)
         output = self.act_layer(output)
         return output
 

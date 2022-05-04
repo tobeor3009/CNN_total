@@ -12,10 +12,40 @@ base_argumentation_policy_dict = {
     "positional": True,
     "noise": True,
     "elastic": True,
+    "randomcrop": False,
     "brightness_contrast": True,
     "color": True,
     "to_jpeg": True
 }
+
+positional_transform = A.OneOf([
+    A.HorizontalFlip(p=1),
+    A.VerticalFlip(p=1),
+    A.Transpose(p=1),
+    A.RandomRotate90(p=1)
+], p=0.5)
+
+noise_transform = A.OneOf([
+    A.Blur(blur_limit=(2, 2), p=1),
+    A.GaussNoise(var_limit=(0.01, 5), p=1),
+], p=0.5)
+
+elastic_tranform = A.ElasticTransform(p=0.5)
+
+brightness_value = 0.1
+brightness_contrast_transform = A.OneOf([
+    A.RandomBrightnessContrast(
+        brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
+], p=0.5)
+
+color_transform = A.OneOf([
+    A.ChannelShuffle(p=1),
+    A.ToGray(p=1),
+    A.ToSepia(p=1),
+], p=0.5)
+
+to_jpeg_transform = A.ImageCompression(
+    quality_lower=99, quality_upper=100, p=0.5)
 
 
 class BaseDataGetter():
@@ -144,36 +174,11 @@ class ClassifyArgumentationPolicy():
                  argumentation_proba,
                  argumentation_policy_dict):
 
-        positional_transform = A.OneOf([
-            A.HorizontalFlip(p=1),
-            A.VerticalFlip(p=1),
-            A.Transpose(p=1),
-            A.RandomRotate90(p=1)
-        ], p=0.5)
-
-        noise_transform = A.OneOf([
-            A.Blur(blur_limit=(2, 2), p=1),
-            A.GaussNoise(var_limit=(0.01, 5), p=1),
-        ], p=0.5)
-
-        elastic_tranform = A.ElasticTransform(p=0.5)
-
-        brightness_value = 0.2
-        brightness_contrast_transform = A.OneOf([
-            A.RandomBrightnessContrast(
-                brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
-        ], p=0.5)
-
-        color_transform = A.OneOf([
-            A.ChannelShuffle(p=1),
-            A.ToGray(p=1),
-            A.ToSepia(p=1),
-        ], p=0.5)
-
-        to_jpeg_transform = A.ImageCompression(
-            quality_lower=99, quality_upper=100, p=0.5)
-
         final_transform_list = []
+        if argumentation_policy_dict["randomcrop"]:
+            randomcrop_transform = A.RandomCrop(
+                argumentation_policy_dict["randomcrop"], p=1)
+            final_transform_list.append(randomcrop_transform)
         if argumentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
         if argumentation_policy_dict["noise"] is True:
@@ -205,36 +210,11 @@ class SegArgumentationPolicy():
                  argumentation_proba,
                  argumentation_policy_dict):
 
-        positional_transform = A.OneOf([
-            A.HorizontalFlip(p=1),
-            A.VerticalFlip(p=1),
-            A.Transpose(p=1),
-            A.RandomRotate90(p=1)
-        ], p=0.5)
-
-        noise_transform = A.OneOf([
-            A.Blur(blur_limit=(2, 2), p=1),
-            A.GaussNoise(var_limit=(0.01, 5), p=1),
-        ], p=0.5)
-
-        elastic_tranform = A.ElasticTransform(p=0.5)
-
-        brightness_value = 0.2
-        brightness_contrast_transform = A.OneOf([
-            A.RandomBrightnessContrast(
-                brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
-        ], p=0.5)
-
-        color_transform = A.OneOf([
-            A.ChannelShuffle(p=1),
-            A.ToGray(p=1),
-            A.ToSepia(p=1),
-        ], p=0.5)
-
-        to_jpeg_transform = A.ImageCompression(
-            quality_lower=99, quality_upper=100, p=0.5)
-
         final_transform_list = []
+        if argumentation_policy_dict["randomcrop"] is tuple:
+            randomcrop_transform = A.RandomCrop(
+                *argumentation_policy_dict["randomcrop"], p=1)
+            final_transform_list.append(randomcrop_transform)
         if argumentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
         if argumentation_policy_dict["noise"] is True:

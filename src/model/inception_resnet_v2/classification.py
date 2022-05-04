@@ -2,6 +2,7 @@ from tensorflow import keras
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras import layers, Sequential, Model
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 from .base_model import InceptionResNetV2
 from .layers import AddPositionEmbs, TransformerEncoder
@@ -95,4 +96,107 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
 
     # this is the model we will train
     model = Model(base_input, predictions)
+    return model
+
+
+def get_inception_resnet_v2_discriminator(input_shape,
+                                          padding="valid",
+                                          activation="relu",
+                                          last_act="sigmoid",
+                                          block_size=16
+                                          ):
+    base_model = InceptionResNetV2(
+        include_top=False,
+        weights=None,
+        input_tensor=None,
+        input_shape=(input_shape[0], input_shape[1], input_shape[2]),
+        block_size=block_size,
+        padding=padding,
+        classes=None,
+        pooling=None,
+        base_act=activation,
+        last_act=None,
+        classifier_activation=None,
+    )
+    base_input = base_model.input
+
+    # add a global spatial average pooling layer
+    x = base_model.output
+    predictions = layers.Activation(last_act)(x)
+    model = Model(base_input, predictions)
+    return model
+
+
+# Weights initializer for the layers.
+kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
+# Gamma initializer for instance normalization.
+gamma_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
+
+
+def downsample(
+    x,
+    filters,
+    activation,
+    kernel_initializer=kernel_init,
+    kernel_size=(3, 3),
+    strides=(2, 2),
+    padding="same",
+    gamma_initializer=gamma_init,
+    use_bias=False,
+):
+    x = layers.Conv2D(
+        filters,
+        kernel_size,
+        strides=strides,
+        kernel_initializer=kernel_initializer,
+        padding=padding,
+        use_bias=use_bias,
+    )(x)
+    x = tfa.layers.InstanceNormalization(
+        gamma_initializer=gamma_initializer)(x)
+    if activation:
+        x = activation(x)
+    return x
+
+
+def get_discriminator(
+    input_shape, filters=64,
+    kernel_initializer=kernel_init,
+    num_downsampling=5, name="disc"
+):
+    img_input = layers.Input(shape=input_shape, name=name + "_img_input")
+    x = layers.Conv2D(
+        filters,
+        (4, 4),
+        strides=(2, 2),
+        padding="same",
+        kernel_initializer=kernel_initializer,
+    )(img_input)
+    x = layers.LeakyReLU(0.2)(x)
+
+    num_filters = filters
+    for num_downsample_block in range(num_downsampling):
+        num_filters *= 2
+        if num_downsample_block < 2:
+            x = downsample(
+                x,
+                filters=num_filters,
+                activation=layers.LeakyReLU(0.2),
+                kernel_size=(4, 4),
+                strides=(2, 2),
+            )
+        else:
+            x = downsample(
+                x,
+                filters=num_filters,
+                activation=layers.LeakyReLU(0.2),
+                kernel_size=(4, 4),
+                strides=(1, 1),
+            )
+
+    x = layers.Conv2D(
+        1, (4, 4), strides=(1, 1), padding="same", kernel_initializer=kernel_initializer
+    )(x)
+
+    model = keras.models.Model(inputs=img_input, outputs=x, name=name)
     return model
