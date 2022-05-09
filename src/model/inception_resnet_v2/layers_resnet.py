@@ -1,11 +1,12 @@
 from functools import partial
+from turtle import back
 import tensorflow as tf
 from tensorflow_addons.layers import GroupNormalization
 from tensorflow.keras import backend
 from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
 from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
-from layers import UnsharpMasking2D
+from .layers import UnsharpMasking2D
 import math
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
@@ -22,7 +23,7 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
         def get_norm_layer(groups, name=None): return layers.BatchNormalization(axis=-1,
                                                                                 scale=not use_bias,
                                                                                 name=name)
-    elif:
+    elif groups > 1:
         def get_norm_layer(groups, name=None): return GroupNormalization(groups=groups,
                                                                          axis=-1,
                                                                          scale=not use_bias,
@@ -94,7 +95,7 @@ def highway_decode2d(input_tensor, filters,
         def get_norm_layer(groups, name=None): return layers.BatchNormalization(axis=-1,
                                                                                 scale=not use_bias,
                                                                                 name=name)
-    elif:
+    elif groups >= 1:
         def get_norm_layer(groups, name=None): return GroupNormalization(groups=groups,
                                                                          axis=-1,
                                                                          scale=not use_bias,
@@ -136,7 +137,7 @@ def highway_decode2d(input_tensor, filters,
     ################################################
     pixel_shffle = conv_before_pixel_shffle(input_tensor)
     pixel_shffle = tf.nn.depth_to_space(pixel_shffle,
-                                        block_size=self.kernel_size)
+                                        block_size=2)
     pixel_shffle = conv_after_pixel_shffle(pixel_shffle)
 
     upsamle = conv_before_upsample(input_tensor)
@@ -180,3 +181,113 @@ def highway_multi(x, y, dim,
     value = layers.Add(name=output_name)([transformed_gated,
                                           identity_gated])
     return value
+
+
+def vector_quantizer(latent_tensor, num_embeddings, embedding_dim, beta=0.25):
+    ################################################
+    ################# Define Layer #################
+    ################################################
+    beta = (beta)
+    w_init = tf.random_uniform_initializer()
+    w_init_value = w_init(shape=(embedding_dim, num_embeddings),
+                          dtype="float32"
+                          )
+    embeddings = tf.Variable(initial_value=w_init_value,
+                             trainable=True,
+                             name="embeddings_vqvae"
+                             )
+    ################################################
+    ################# Define call ##################
+    ################################################
+    # C = embedding_dim
+    _, H, W, C = backend.int_shape()
+    # latent_tensor: [B H W C]
+    # flattend: [(B*H*W) C]
+    flattend = backend.reshape(latent_tensor, [-1, embedding_dim])
+    # encoding_indices: [N] with 0~num_embeddings-1
+    encoding_indices = get_code_indices(flattend, embeddings)
+    # encodings: [N num_embeddings]
+    encodings = tf.one_hot(encoding_indices, num_embeddings)
+    # quantized: [N, embedding_dim]
+    quantized = tf.matmul(encodings, embeddings, transpose_b=True)
+    quantized = tf.reshape(quantized, [-1, H, W, C])
+
+
+def get_code_indices(flattened_inputs, embeddings):
+    # Calculate L2-normalized distance between the inputs and the codes.
+    # flattend_inputs: [N embedding_dim]
+    # embeddings: [embedding_dim num_embeddings]
+    # similarity: [N num_embeddings]
+    similarity = tf.matmul(flattened_inputs, embeddings)
+    # [N 1] + [num_embeddings] - [N num_embeddings]
+    # distances: [N num_embeddings]
+    distances = (
+        tf.reduce_sum(flattened_inputs ** 2, axis=1, keepdims=True)
+        + tf.reduce_sum(embeddings ** 2, axis=0)
+        - 2 * similarity
+    )
+
+    # Derive the indices for minimum distances.
+    # encoding_indices: [N]
+    encoding_indices = tf.argmin(distances, axis=1)
+    return encoding_indices
+
+
+class VectorQuantizer(layers.Layer):
+    def __init__(self, num_embeddings, embedding_dim, beta=0.25, **kwargs):
+        super().__init__(**kwargs)
+        self.embedding_dim = embedding_dim
+        self.num_embeddings = num_embeddings
+        self.beta = (
+            # This parameter is best kept between [0.25, 2] as per the paper.
+            beta
+        )
+
+        # Initialize the embeddings which we will quantize.
+        w_init = tf.random_uniform_initializer()
+        self.embeddings = tf.Variable(
+            initial_value=w_init(
+                shape=(self.embedding_dim, self.num_embeddings), dtype="float32"
+            ),
+            trainable=True,
+            name="embeddings_vqvae",
+        )
+
+    def call(self, x):
+        # Calculate the input shape of the inputs and
+        # then flatten the inputs keeping `embedding_dim` intact.
+        input_shape = tf.shape(x)
+        flattened = tf.reshape(x, [-1, self.embedding_dim])
+
+        # Quantization.
+        encoding_indices = self.get_code_indices(flattened)
+        encodings = tf.one_hot(encoding_indices, self.num_embeddings)
+        quantized = tf.matmul(encodings, self.embeddings, transpose_b=True)
+        quantized = tf.reshape(quantized, input_shape)
+
+        # Calculate vector quantization loss and add that to the layer. You can learn more
+        # about adding losses to different layers here:
+        # https://keras.io/guides/making_new_layers_and_models_via_subclassing/. Check
+        # the original paper to get a handle on the formulation of the loss function.
+        commitment_loss = self.beta * tf.reduce_mean(
+            (tf.stop_gradient(quantized) - x) ** 2
+        )
+        codebook_loss = tf.reduce_mean((quantized - tf.stop_gradient(x)) ** 2)
+        self.add_loss(commitment_loss + codebook_loss)
+
+        # Straight-through estimator.
+        quantized = x + tf.stop_gradient(quantized - x)
+        return quantized
+
+    def get_code_indices(self, flattened_inputs):
+        # Calculate L2-normalized distance between the inputs and the codes.
+        similarity = tf.matmul(flattened_inputs, self.embeddings)
+        distances = (
+            tf.reduce_sum(flattened_inputs ** 2, axis=1, keepdims=True)
+            + tf.reduce_sum(self.embeddings ** 2, axis=0)
+            - 2 * similarity
+        )
+
+        # Derive the indices for minimum distances.
+        encoding_indices = tf.argmin(distances, axis=1)
+        return encoding_indices
