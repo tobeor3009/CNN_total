@@ -6,6 +6,7 @@ from tensorflow.keras import backend
 
 
 def get_multi_scale_task_model(input_shape, num_class, block_size=16,
+                               encoder_output_filter=16,
                                groups=10, num_downsample=5,
                                base_act="relu", last_act="tanh",
                                latent_dim=16, num_embeddings=64):
@@ -15,7 +16,7 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
     ################################################
     vq_layer = VectorQuantizer(num_embeddings, embedding_dim=latent_dim,
                                name="vector_quantizer")
-    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=latent_dim,
+    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
                                                            groups=groups, num_downsample=num_downsample, padding=padding,
                                                            base_act=base_act, last_act=base_act)
     _, H, W, C = encoder.output.shape
@@ -53,6 +54,69 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
 
 
 def get_vq_vae_model(input_shape, block_size=16,
+                     encoder_output_filter=16,
+                     groups=1, num_downsample=5,
+                     base_act="relu", last_act="tanh",
+                     latent_dim=16):
+    padding = "same"
+    ################################################
+    ################# Define Layer #################
+    ################################################
+    mean_std_layer = MeanSTD(latent_dim=latent_dim, name="mean_var")
+    sampling_layer = Sampling(name="sampling")
+    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
+                                                           groups=groups, num_downsample=num_downsample, padding=padding,
+                                                           base_act=base_act, last_act=base_act)
+    _, H, W, C = encoder.output.shape
+    ################################################
+    ################# Define call ##################
+    ################################################
+    input_tensor = encoder.input
+    encoder_output = encoder(input_tensor)
+
+    z_mean, z_log_var = mean_std_layer(encoder_output)
+
+    recon_output = HighWayDecoder2D(input_tensor=quantized_latents,
+                                    encoder=None, skip_connection_layer_names=None,
+                                    last_filter=input_shape[-1],
+                                    block_size=block_size, groups=1, num_downsample=num_downsample, padding=padding,
+                                    base_act=base_act, last_act=last_act, name_prefix="recon")
+
+    model = Model(input_tensor, recon_output)
+    return model
+
+
+class MeanSTD(layers.Layer):
+    def __init__(self, latent_dim, **kwargs):
+        super().__init__(**kwargs)
+        self.flatten_layer = layers.Flatten()
+        self.latent_dense_layer = layers.Dense(latent_dim * 4,
+                                               activation=tf.nn.relu6)
+        self.mean_dense_layer = layers.Dense(latent_dim, name="z_mean")
+        self.log_var_dense_layer = layers.Dense(latent_dim, name="z_log_var")
+
+    def call(self, x):
+        flattend = self.flatten_layer(x)
+        latent = self.latent_dense_layer(flattend)
+        z_mean = self.mean_dense_layer(latent)
+        z_log_var = self.log_var_dense_layer(latent)
+
+        return z_mean, z_log_var
+
+
+class Sampling(layers.Layer):
+    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
+    def call(self, inputs):
+        z_mean, z_log_var = inputs
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+
+def get_vq_vae_model(input_shape, block_size=16,
+                     encoder_output_filter=16,
                      groups=1, num_downsample=5,
                      base_act="relu", last_act="tanh",
                      latent_dim=16, num_embeddings=64):
@@ -62,7 +126,7 @@ def get_vq_vae_model(input_shape, block_size=16,
     ################################################
     vq_layer = VectorQuantizer(num_embeddings, embedding_dim=latent_dim,
                                name="vector_quantizer")
-    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=latent_dim,
+    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
                                                            groups=groups, num_downsample=num_downsample, padding=padding,
                                                            base_act=base_act, last_act=base_act)
     _, H, W, C = encoder.output.shape

@@ -1,5 +1,3 @@
-from functools import partial
-from turtle import back
 import tensorflow as tf
 from tensorflow_addons.layers import GroupNormalization
 from tensorflow.keras import backend
