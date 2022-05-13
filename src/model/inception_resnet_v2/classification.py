@@ -127,6 +127,35 @@ def get_inception_resnet_v2_discriminator(input_shape,
     return model
 
 
+def get_inception_resnet_v2_disc_wgan(input_shape,
+                                      padding="valid",
+                                      activation="relu",
+                                      block_size=16
+                                      ):
+    base_model = InceptionResNetV2(
+        include_top=False,
+        weights=None,
+        input_tensor=None,
+        input_shape=(input_shape[0], input_shape[1], input_shape[2]),
+        block_size=block_size,
+        padding=padding,
+        classes=None,
+        pooling=None,
+        base_act=activation,
+        last_act=None,
+        classifier_activation=None,
+    )
+    base_input = base_model.input
+
+    # add a global spatial average pooling layer
+    x = base_model.output
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.2)(x)
+    predictions = layers.Dense(1)(x)
+    model = Model(base_input, predictions)
+    return model
+
+
 # Weights initializer for the layers.
 kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
 # Gamma initializer for instance normalization.

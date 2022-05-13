@@ -48,6 +48,22 @@ to_jpeg_transform = A.ImageCompression(
     quality_lower=99, quality_upper=100, p=0.5)
 
 
+def identity_fn(any):
+    return any
+
+
+def identity_multi_fn(image_array, mask_array):
+    return image_array, mask_array
+
+
+def normalize_image(image_array):
+    return (image_array / 127.5) - 1
+
+
+def normalize_mask(mask_array):
+    return mask_array / 255
+
+
 class BaseDataGetter():
 
     def __init__(self):
@@ -116,12 +132,11 @@ class PreprocessPolicy():
     def __init__(self, preprocess_input):
 
         if preprocess_input is None:
-            self.preprocess_method = lambda image_array: image_array
+            self.preprocess_method = identity_fn
         elif preprocess_input == "-1~1":
-            self.preprocess_method = \
-                lambda image_array: (image_array / 127.5) - 1
+            self.preprocess_method = normalize_image
         elif preprocess_input == "mask" or preprocess_input == "0~1":
-            self.preprocess_method = lambda image_array: image_array / 255
+            self.preprocess_method = normalize_mask
         else:
             self.preprocess_method = preprocess_input
 
@@ -139,14 +154,12 @@ class ResizePolicy():
             "bilinear": cv2.INTER_LINEAR,
             "cubic": cv2.INTER_CUBIC
         }
-
+        self.target_size = target_size
+        self.interpolation = interpolation_dict[interpolation]
         if target_size is None:
-            self.resize_method = lambda image_array: image_array
+            self.resize_method = identity_fn
         else:
-            self.resize_method = lambda image_array: cv2.resize(src=image_array,
-                                                                dsize=target_size,
-                                                                interpolation=interpolation_dict[interpolation]
-                                                                )
+            self.resize_method = self.resize_fn
 
     def __call__(self, image_array):
         image_resized_array = self.resize_method(image_array)
@@ -154,20 +167,32 @@ class ResizePolicy():
             image_resized_array = np.expand_dims(image_resized_array, axis=-1)
         return image_resized_array
 
+    def resize_fn(self, image_array):
+        resized_array = cv2.resize(src=image_array,
+                                   dsize=self.target_size,
+                                   interpolation=self.interpolation
+                                   )
+        return resized_array
+
 
 class CategorizePolicy():
 
     def __init__(self, class_mode, num_classes, dtype):
+        self.num_classes = num_classes
+        self.dtype = dtype
         if class_mode == "binary":
-            self.categorize_method = lambda label: label
+            self.categorize_method = identity_fn
         elif class_mode == "categorical":
-            self.categorize_method = \
-                lambda label: to_categorical(label, num_classes, dtype=dtype)
+            self.categorize_method = self.one_hot_fn
 
     def __call__(self, label):
         label = self.categorize_method(label)
         return label
 
+    def one_hot_fn(self, label):
+        label_array = to_categorical(label,
+                                     self.num_classes, dtype=self.dtype)
+        return label_array
 
 class ClassifyArgumentationPolicy():
     def __init__(self,
@@ -195,13 +220,19 @@ class ClassifyArgumentationPolicy():
         final_transform = A.Compose(
             final_transform_list, p=argumentation_proba)
         if argumentation_proba:
-            self.transform = lambda image_array: \
-                final_transform(image=image_array)['image']
+            self.transform = self.image_transform
         else:
-            self.transform = lambda image_array: image_array
+            self.transform = identity_fn
 
     def __call__(self, image_array):
         image_transformed_array = self.transform(image_array)
+        return image_transformed_array
+
+    def image_transform(self, image_array):
+
+        transformed = self.final_transform(image=image_array)
+        image_transformed_array = transformed["image"]
+
         return image_transformed_array
 
 
@@ -234,8 +265,7 @@ class SegArgumentationPolicy():
         if argumentation_proba:
             self.transform = self.image_mask_sync_transform
         else:
-            self.transform = lambda image_array, mask_array: \
-                (image_array, mask_array)
+            self.transform = identity_multi_fn
 
     def __call__(self, image_array, mask_array):
         image_transformed_array, mask_transformed_array = \

@@ -1,5 +1,6 @@
 import cv2
 import os
+import json
 import numpy as np
 from collections.abc import Mapping
 
@@ -92,3 +93,11 @@ def get_npy_array(path, target_size, data_key, shape, dtype):
             np.memmap(memmap_npy_path, dtype=dtype, mode="w+", shape=shape)
 
     return memmap_array, lock_path
+
+
+def read_json_as_dict(json_path):
+    json_file = open(json_path, encoding="utf-8")
+    json_str = json_file.read()
+    json_dict = json.loads(json_str)
+
+    return json_dict

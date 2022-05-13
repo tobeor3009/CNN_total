@@ -9,7 +9,7 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
                                encoder_output_filter=16,
                                groups=10, num_downsample=5,
                                base_act="relu", last_act="tanh",
-                               latent_dim=16, num_embeddings=64):
+                               latent_dim=16):
     padding = "same"
     ################################################
     ################# Define Layer #################
@@ -20,8 +20,7 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
     _, H, W, C = encoder.output.shape
     mean_std_layer = MeanSTD(latent_dim=latent_dim, name="mean_var")
     sampling_layer = Sampling(name="sampling")
-
-    decode_dense_layer = layers.Dense(H * W * encoder_output_filter,
+    decode_dense_layer = layers.Dense(H * W * C,
                                       activation=tf.nn.relu6)
     ################################################
     ################# Define call ##################
@@ -29,32 +28,32 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
     input_tensor = encoder.input
     encoder_output = encoder(input_tensor)
 
-    classification_embedding = layers.GlobalAveragePooling2D()(encoder_output)
-    classification_embedding = layers.Dense(C // 2)(classification_embedding)
-    classification_embedding = layers.Dropout(0.2)(classification_embedding)
-    classification_embedding = layers.Activation(
-        tf.nn.relu6)(classification_embedding)
-
-    classification_output = layers.Dense(
-        num_class, activation="sigmoid")(classification_embedding)
-    seg_output = HighWayDecoder2D(input_tensor=encoder_output, encoder=encoder,
-                                  skip_connection_layer_names=SKIP_CONNECTION_LAYER_NAMES,
-                                  last_filter=num_class,
-                                  block_size=block_size, groups=1, num_downsample=num_downsample, padding=padding,
-                                  base_act=base_act, last_act="sigmoid", name_prefix="seg")
     z_mean, z_log_var = mean_std_layer(encoder_output)
-    z = sampling_layer([z_mean, z_log_var])
-    z = decode_dense_layer(z)
-    z = backend.reshape(z, (-1, H, W, encoder_output_filter))
+    sampling_z = sampling_layer([z_mean, z_log_var])
+    z = decode_dense_layer(sampling_z)
+    z = backend.reshape(z, (-1, H, W, C))
     recon_output = HighWayDecoder2D(input_tensor=z,
                                     encoder=None, skip_connection_layer_names=None,
                                     last_filter=input_shape[-1],
                                     block_size=block_size, groups=1, num_downsample=num_downsample, padding=padding,
                                     base_act=base_act, last_act=last_act, name_prefix="recon")
 
-    model = Model(input_tensor, [classification_output,
+    seg_output = HighWayDecoder2D(input_tensor=encoder_output, encoder=encoder,
+                                  skip_connection_layer_names=SKIP_CONNECTION_LAYER_NAMES,
+                                  last_filter=num_class,
+                                  block_size=block_size, groups=1, num_downsample=num_downsample, padding=padding,
+                                  base_act=base_act, last_act="sigmoid", name_prefix="seg")
+
+    classification_embedding = layers.Dense(latent_dim // 2,
+                                            activation=tf.nn.relu6)(sampling_z)
+    classification_embedding = layers.Dropout(0.2)(classification_embedding)
+    classification_output = layers.Dense(num_class,
+                                         activation="sigmoid",
+                                         name="classification_output")(classification_embedding)
+
+    model = Model(input_tensor, [recon_output,
                                  seg_output,
-                                 recon_output])
+                                 classification_output])
     return model
 
 
@@ -64,13 +63,16 @@ def get_vae_model(input_shape, block_size=16,
                   base_act="relu", last_act="tanh",
                   latent_dim=16):
     padding = "same"
+
     ################################################
     ################# Define Layer #################
     ################################################
-    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=None,
+    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
                                                            groups=groups, num_downsample=num_downsample, padding=padding,
                                                            base_act=base_act, last_act=base_act)
     _, H, W, C = encoder.output.shape
+    if encoder_output_filter is None:
+        encoder_output_filter = C
     mean_std_layer = MeanSTD(latent_dim=latent_dim, name="mean_var")
     sampling_layer = Sampling(name="sampling")
 

@@ -35,12 +35,14 @@ def HighWayResnet2D(input_shape=None,
         x = highway_conv2d(input_tensor=x, filters=filter_size,
                            downsample=False, same_channel=False,
                            padding=padding, activation=base_act,
-                           groups=groups)
+                           groups=groups, name=f"{name_prefix}conv_down_{idx}_0")
         x = highway_conv2d(input_tensor=x, filters=filter_size, downsample=False,
-                           padding=padding, activation=base_act, groups=groups)
+                           padding=padding, activation=base_act, groups=groups,
+                           name=f"{name_prefix}conv_down_same_{idx}_1")
         if idx == num_downsample - 1:
             x = highway_conv2d(input_tensor=x, filters=filter_size * 2, downsample=True,
-                               padding=padding, activation=base_act, groups=groups)
+                               padding=padding, activation=base_act, groups=groups,
+                               name=f"{name_prefix}conv_down_same_{idx}_2")
             if last_filter is None:
                 last_filter = filter_size * 2
                 last_same_channel = True
@@ -85,12 +87,15 @@ def HighWayDecoder2D(input_tensor=None,
             x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = highway_conv2d(input_tensor=x, filters=filter_size,
                            downsample=False, same_channel=False,
-                           padding=padding, activation=base_act)
+                           padding=padding, activation=base_act,
+                           name=f"{name_prefix}conv_up_same_{idx}_0")
         x = highway_conv2d(input_tensor=x, filters=filter_size, downsample=False,
-                           padding=padding, activation=base_act)
+                           padding=padding, activation=base_act,
+                           name=f"{name_prefix}conv_up_same_{idx}_1")
         if idx == 0:
             x = highway_decode2d(input_tensor=x, filters=filter_size * 2, unsharp=True,
-                                 activation=base_act)
+                                 activation=base_act,
+                                 name=f"{name_prefix}conv_up_same_{idx}_2")
             if last_filter is None:
                 last_filter = filter_size * 2
                 last_same_channel = True

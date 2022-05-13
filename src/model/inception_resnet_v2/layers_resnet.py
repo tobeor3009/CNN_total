@@ -8,23 +8,23 @@ from .layers import UnsharpMasking2D
 import math
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
-GC_BLOCK_RATIO = 0.125
 kaiming_initializer = tf.keras.initializers.HeNormal()
+USE_BIAS = True
 
 
 def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
                    downsample=False, same_channel=True,
                    padding="same", activation="relu",
-                   use_bias=False, groups=1, name=None):
+                   use_bias=USE_BIAS, groups=1, name=None):
 
     if groups == 1:
         def get_norm_layer(groups, name=None): return layers.BatchNormalization(axis=-1,
-                                                                                scale=not use_bias,
+                                                                                scale=use_bias,
                                                                                 name=name)
     elif groups > 1:
         def get_norm_layer(groups, name=None): return GroupNormalization(groups=groups,
                                                                          axis=-1,
-                                                                         scale=not use_bias,
+                                                                         scale=use_bias,
                                                                          name=name)
     else:
         raise Exception(
@@ -42,7 +42,7 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
                                             strides=strides,
                                             padding=padding,
                                             groups=groups,
-                                            use_bias=use_bias)
+                                            use_bias=False)
         residual_norm_layer = get_norm_layer(groups)
 
     conv_layer = layers.Conv2D(filters,
@@ -50,7 +50,7 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
                                strides=strides,
                                padding=padding,
                                groups=groups,
-                               use_bias=use_bias)
+                               use_bias=False)
     norm_name = None if name is None else name + '_norm'
     norm_layer = get_norm_layer(groups, name=norm_name)
 
@@ -88,15 +88,15 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
 def highway_decode2d(input_tensor, filters,
                      unsharp=False,
                      activation="relu",
-                     use_bias=False, groups=1, name=None):
+                     use_bias=USE_BIAS, groups=1, name=None):
     if groups == 1:
         def get_norm_layer(groups, name=None): return layers.BatchNormalization(axis=-1,
-                                                                                scale=not use_bias,
+                                                                                scale=use_bias,
                                                                                 name=name)
     elif groups >= 1:
         def get_norm_layer(groups, name=None): return GroupNormalization(groups=groups,
                                                                          axis=-1,
-                                                                         scale=not use_bias,
+                                                                         scale=use_bias,
                                                                          name=name)
     else:
         raise Exception(

@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import tensorflow as tf
+from tensorflow.keras import backend
 from tensorflow.keras.models import Model
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras.losses import MeanAbsoluteError
@@ -18,11 +19,15 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        batch_size,
+        lambda_gp=1,
         lambda_disc=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
+        self.batch_size = batch_size
+        self.lambda_gp = lambda_gp
         self.lambda_disc = lambda_disc
 
     def compile(
@@ -55,6 +60,7 @@ class Pix2PixGan(Model):
         # =================================================================================== #
         real_x, real_y = batch_data
         real_x = [real_x[..., 0:1], real_x[..., 1:]]
+        disc_real_input = backend.concatenate([real_y, real_y])
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
@@ -63,16 +69,22 @@ class Pix2PixGan(Model):
             # another domain mapping
             fake_y = self.generator(real_x)
             # discriminator loss
-            disc_real_y = self.discriminator(real_y, training=True)
-            disc_fake_y = self.discriminator(fake_y, training=True)
-            disc_loss = self.discriminator_loss_arrest_generator(
-                disc_real_y, disc_fake_y)
+            disc_fake_input = backend.concatenate([real_y, fake_y])
+            disc_real_y = self.discriminator(disc_real_input, training=True)
+            disc_fake_y = self.discriminator(disc_fake_input, training=True)
+            disc_loss = self.discriminator_loss_arrest_generator(disc_real_y,
+                                                                 disc_fake_y)
+            # gp = gradient_penalty(self.discriminator,
+            #                       self.batch_size, real_y, fake_y,
+            #                       mode="2d")
+            # disc_loss += gp * self.lambda_gp
         # Get the gradients for the discriminators
-        disc_grads = disc_tape.gradient(
-            disc_loss, self.discriminator.trainable_variables)
+        disc_grads = disc_tape.gradient(disc_loss,
+                                        self.discriminator.trainable_variables)
         if self.apply_adaptive_gradient_clipping:
-            disc_grads = adaptive_gradient_clipping(
-                disc_grads, self.discriminator.trainable_variables, lambda_clip=self.lambda_clip)
+            disc_grads = adaptive_gradient_clipping(disc_grads,
+                                                    self.discriminator.trainable_variables,
+                                                    lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
         self.discriminator_optimizer.apply_gradients(
@@ -84,10 +96,11 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
+            disc_fake_input = backend.concatenate([real_y, fake_y])
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
             # Generator adverserial loss
-            disc_fake_y = self.discriminator(fake_y)
+            disc_fake_y = self.discriminator(disc_fake_input)
             gen_adverserial_loss = self.generator_loss_deceive_discriminator(
                 disc_fake_y)
 

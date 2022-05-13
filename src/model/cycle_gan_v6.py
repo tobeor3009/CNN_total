@@ -29,7 +29,6 @@ class CycleGan(Model):
         lambda_gen_2_disc=1.0,
         lambda_cycle=10.0,
         lambda_identity=0.5,
-        lambda_histogram=0.,
         gp_weight=10.0
     ):
         super(CycleGan, self).__init__()
@@ -42,7 +41,6 @@ class CycleGan(Model):
         self.lambda_gen_2_disc = lambda_gen_2_disc
         self.lambda_cycle = lambda_cycle
         self.lambda_identity = lambda_identity
-        self.lambda_histogram = lambda_histogram
         self.turn_on_identity_loss = True
         self.turn_on_discriminator_on_identity = False
         self.gp_weight = gp_weight
@@ -57,7 +55,6 @@ class CycleGan(Model):
         generator_loss_deceive_discriminator=base_generator_loss_deceive_discriminator,
         discriminator_loss_arrest_generator=base_discriminator_loss_arrest_generator,
         identity_loss=True,
-        histogram_loss=None,
         active_gradient_clip=True,
         lambda_clip=0.1,
     ):
@@ -71,12 +68,6 @@ class CycleGan(Model):
         self.cycle_loss_fn = image_loss_fn
         self.identity_loss_fn = image_loss_fn
         self.identity_loss = identity_loss
-        if histogram_loss == "gray":
-            self.histogram_loss = gray_histogram_loss
-        elif histogram_loss == "rgb":
-            self.histogram_loss = rgb_color_histogram_loss
-        else:
-            self.histogram_loss = histogram_loss
         self.active_gradient_clip = active_gradient_clip
         self.lambda_clip = lambda_clip
 
@@ -90,7 +81,10 @@ class CycleGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
-
+        disc_real_input_x = keras_backend.concatenate(
+            [real_x, real_x], axis=-1)
+        disc_real_input_y = keras_backend.concatenate(
+            [real_y, real_y], axis=-1)
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
@@ -98,27 +92,46 @@ class CycleGan(Model):
             # another domain mapping
             fake_x = self.generator_F(real_y)
             fake_y = self.generator_G(real_x)
+            disc_fake_input_x = keras_backend.concatenate([real_x, fake_x],
+                                                          axis=-1)
+            disc_fake_input_y = keras_backend.concatenate([real_y, fake_y],
+                                                          axis=-1)
 
             # back to original domain mapping
             cycle_x = self.generator_F(fake_y)
             cycle_y = self.generator_G(fake_x)
+            disc_cycle_input_x = keras_backend.concatenate([real_x, cycle_x],
+                                                           axis=-1)
+            disc_cycle_input_y = keras_backend.concatenate([real_y, cycle_y],
+                                                           axis=-1)
 
             # Discriminator output
-            disc_real_x = self.discriminator_X(real_x, training=True)
-            disc_fake_x = self.discriminator_X(fake_x, training=True)
-            disc_cycle_x = self.discriminator_X(cycle_x, training=True)
+            disc_real_x = self.discriminator_X(disc_real_input_x,
+                                               training=True)
+            disc_fake_x = self.discriminator_X(disc_fake_input_x,
+                                               training=True)
+            disc_cycle_x = self.discriminator_X(disc_cycle_input_x,
+                                                training=True)
 
-            disc_real_y = self.discriminator_Y(real_y, training=True)
-            disc_fake_y = self.discriminator_Y(fake_y, training=True)
-            disc_cycle_y = self.discriminator_Y(cycle_y, training=True)
+            disc_real_y = self.discriminator_Y(disc_real_input_y,
+                                               training=True)
+            disc_fake_y = self.discriminator_Y(disc_fake_input_y,
+                                               training=True)
+            disc_cycle_y = self.discriminator_Y(disc_cycle_input_y,
+                                                training=True)
 
             if self.identity_loss is True:
                 # Identity mapping
                 same_x = self.generator_F(real_x)
                 same_y = self.generator_G(real_y)
-
-                disc_same_x = self.discriminator_X(same_x, training=True)
-                disc_same_y = self.discriminator_Y(same_y, training=True)
+                disc_same_input_x = keras_backend.concatenate([real_x, same_x],
+                                                              axis=-1)
+                disc_same_input_y = keras_backend.concatenate([real_y, same_y],
+                                                              axis=-1)
+                disc_same_x = self.discriminator_X(disc_same_input_x,
+                                                   training=True)
+                disc_same_y = self.discriminator_Y(disc_same_input_y,
+                                                   training=True)
 
                 disc_X_identity_loss = self.discriminator_loss_arrest_generator(
                     disc_real_x, disc_same_x)
@@ -152,10 +165,12 @@ class CycleGan(Model):
 
         if self.active_gradient_clip is True:
             # Apply Active Gradient Clipping on discriminator's grad
-            disc_X_grads = adaptive_gradient_clipping(
-                disc_X_grads, self.discriminator_X.trainable_variables, lambda_clip=self.lambda_clip)
-            disc_Y_grads = adaptive_gradient_clipping(
-                disc_Y_grads, self.discriminator_Y.trainable_variables, lambda_clip=self.lambda_clip)
+            disc_X_grads = adaptive_gradient_clipping(disc_X_grads,
+                                                      self.discriminator_X.trainable_variables,
+                                                      lambda_clip=self.lambda_clip)
+            disc_Y_grads = adaptive_gradient_clipping(disc_Y_grads,
+                                                      self.discriminator_Y.trainable_variables,
+                                                      lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
         self.discriminator_X_optimizer.apply_gradients(
@@ -173,31 +188,35 @@ class CycleGan(Model):
             # another domain mapping
             fake_x = self.generator_F(real_y, training=True)
             fake_y = self.generator_G(real_x, training=True)
-
+            disc_fake_input_x = keras_backend.concatenate([real_x, fake_x],
+                                                          axis=-1)
+            disc_fake_input_y = keras_backend.concatenate([real_y, fake_y],
+                                                          axis=-1)
             # back to original domain mapping
             cycle_x = self.generator_F(fake_y, training=True)
             cycle_y = self.generator_G(fake_x, training=True)
-
-            if self.histogram_loss is not None:
-                gen_G_histo_loss = self.lambda_histogram * \
-                    self.histogram_loss(real_y, fake_y)
-                gen_F_histo_loss = self.lambda_histogram * \
-                    self.histogram_loss(real_x, fake_x)
+            disc_cycle_input_x = keras_backend.concatenate([real_x, cycle_x],
+                                                           axis=-1)
+            disc_cycle_input_y = keras_backend.concatenate([real_y, cycle_y],
+                                                           axis=-1)
 
             # Discriminator output
-            disc_fake_x = self.discriminator_X(fake_x)
-            disc_fake_y = self.discriminator_Y(fake_y)
+            disc_fake_x = self.discriminator_X(disc_fake_input_x)
+            disc_fake_y = self.discriminator_Y(disc_fake_input_y)
 
-            disc_cycle_x = self.discriminator_X(cycle_x)
-            disc_cycle_y = self.discriminator_Y(cycle_y)
+            disc_cycle_x = self.discriminator_X(disc_cycle_input_x)
+            disc_cycle_y = self.discriminator_Y(disc_cycle_input_y)
 
             if self.identity_loss is True:
                 # Identity mapping
                 same_x = self.generator_F(real_x, training=True)
                 same_y = self.generator_G(real_y, training=True)
-
-                disc_same_x = self.discriminator_X(same_x)
-                disc_same_y = self.discriminator_Y(same_y)
+                disc_same_input_x = keras_backend.concatenate([real_x, same_x],
+                                                              axis=-1)
+                disc_same_input_y = keras_backend.concatenate([real_y, same_y],
+                                                              axis=-1)
+                disc_same_x = self.discriminator_X(disc_same_input_x)
+                disc_same_y = self.discriminator_Y(disc_same_input_y)
 
                 gen_G_identity_image_loss = (
                     self.identity_loss_fn(real_y, same_y)
@@ -249,12 +268,6 @@ class CycleGan(Model):
             gen_G_total_loss = gen_G_image_loss + gen_G_disc_loss
             gen_F_total_loss = gen_F_image_loss + gen_F_disc_loss
 
-            if self.histogram_loss is not None:
-                gen_G_total_loss += gen_G_histo_loss
-                gen_F_total_loss += gen_F_histo_loss
-            else:
-                gen_G_histo_loss = 0
-                gen_F_histo_loss = 0
         # Get the gradients for the generators
         gen_G_grads = gen_tape.gradient(
             gen_G_total_loss, self.generator_G.trainable_variables)
@@ -263,10 +276,12 @@ class CycleGan(Model):
 
         if self.active_gradient_clip is True:
             # Apply Active Gradient Clipping on generator's grad
-            gen_G_grads = adaptive_gradient_clipping(
-                gen_G_grads, self.generator_G.trainable_variables, lambda_clip=self.lambda_clip)
-            gen_F_grads = adaptive_gradient_clipping(
-                gen_F_grads, self.generator_F.trainable_variables, lambda_clip=self.lambda_clip)
+            gen_G_grads = adaptive_gradient_clipping(gen_G_grads,
+                                                     self.generator_G.trainable_variables,
+                                                     lambda_clip=self.lambda_clip)
+            gen_F_grads = adaptive_gradient_clipping(gen_F_grads,
+                                                     self.generator_F.trainable_variables,
+                                                     lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators
         self.generator_G_optimizer.apply_gradients(
@@ -282,8 +297,6 @@ class CycleGan(Model):
             "D_Y_loss": disc_Y_total_loss,
             "generator_G_loss": gen_G_fake_disc_loss,
             "generator_F_loss": gen_F_fake_disc_loss,
-            "generator_G_histo_loss": gen_G_histo_loss,
-            "generator_F_histo_loss": gen_F_histo_loss,
             "identity_loss_G": gen_G_identity_image_loss,
             "identity_loss_F": gen_F_identity_image_loss,
             "cycle_loss_G": gen_G_cycle_image_loss,
