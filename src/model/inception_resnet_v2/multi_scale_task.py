@@ -45,7 +45,7 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
                                   base_act=base_act, last_act="sigmoid", name_prefix="seg")
 
     classification_embedding = layers.Dense(latent_dim // 2,
-                                            activation=tf.nn.relu6)(sampling_z)
+                                            activation=tf.nn.relu6)(z_mean)
     classification_embedding = layers.Dropout(0.2)(classification_embedding)
     classification_output = layers.Dense(num_class,
                                          activation="sigmoid",
