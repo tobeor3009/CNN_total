@@ -31,7 +31,10 @@ def gradient_penalty(discriminator, batch_size,
         alpha_shape = [batch_size, 1, 1, 1, 1]
     # Get the interpolated image
     alpha = tf.random.normal(alpha_shape, 0.0, 1.0)
-    interpolated = real_images * alpha + fake_images * (1 - alpha)
+    interpolated_real = real_images
+    interpolated_fake = real_images * alpha + fake_images * (1 - alpha)
+    interpolated = keras_backend.concatenate(
+        [interpolated_real, interpolated_fake], axis=-1)
     with tf.GradientTape() as gp_tape:
         gp_tape.watch(interpolated)
         # 1. Get the discriminator output for this interpolated image.
