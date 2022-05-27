@@ -200,8 +200,7 @@ def conv2d_bn(x,
 
 
 def inception_resnet_block(x, scale, block_type, block_idx, block_size=16, activation='relu',
-                           include_context=False, context_head_nums=8, attention_module="cbam_block",
-                           name_prefix=""):
+                           attention_module="cbam_block", name_prefix=""):
     """Adds an Inception-ResNet block.
 
     This function builds 3 types of Inception-ResNet blocks mentioned
@@ -284,11 +283,6 @@ def inception_resnet_block(x, scale, block_type, block_idx, block_size=16, activ
     if attention_module is not None:
         up = attach_attention_module(up, attention_module)
 
-    if include_context:
-        up_shape = backend.int_shape(up)
-        up_head_dim = up_shape[-1] // context_head_nums
-        up = TransformerEncoder2D(heads=context_head_nums, dim_head=up_head_dim,
-                                  dropout=0.3)(up, *up_shape[1:-1])
     x = layers.Lambda(
         lambda inputs, scale: inputs[0] + inputs[1] * scale,
         output_shape=backend.int_shape(x)[1:],

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from .base_model_resnet import HighWayResnet2D, HighWayDecoder2D
+from .base_model_resnet import HighWayResnet2D, HighWayDecoder2D, highway_conv2d
 from tensorflow.keras import Model
 from tensorflow.keras import layers
 from tensorflow.keras import backend
@@ -18,20 +18,28 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
                                                            groups=groups, num_downsample=num_downsample, padding=padding,
                                                            base_act=base_act, last_act=base_act)
     _, H, W, C = encoder.output.shape
+
     mean_std_layer = MeanSTD(latent_dim=latent_dim, name="mean_var")
     sampling_layer = Sampling(name="sampling")
-    decode_dense_layer = layers.Dense(H * W * C,
+    decode_dense_layer = layers.Dense(H * W * C // 64,
                                       activation=tf.nn.relu6)
     ################################################
     ################# Define call ##################
     ################################################
     input_tensor = encoder.input
     encoder_output = encoder(input_tensor)
-
-    z_mean, z_log_var = mean_std_layer(encoder_output)
+    x = highway_conv2d(input_tensor=encoder.output, filters=C // 2,
+                       downsample=True, same_channel=False,
+                       padding=padding, activation=base_act,
+                       groups=1)
+    x = highway_conv2d(input_tensor=x, filters=C // 4,
+                       downsample=True, same_channel=False,
+                       padding=padding, activation=base_act,
+                       groups=1)
+    z_mean, z_log_var = mean_std_layer(x)
     sampling_z = sampling_layer([z_mean, z_log_var])
     z = decode_dense_layer(sampling_z)
-    z = backend.reshape(z, (-1, H, W, C))
+    z = backend.reshape(z, (-1, H // 4, W // 4, C // 4))
     recon_output = HighWayDecoder2D(input_tensor=z,
                                     encoder=None, skip_connection_layer_names=None,
                                     last_filter=input_shape[-1],
@@ -100,13 +108,18 @@ def get_vae_model(input_shape, block_size=16,
 
 
 class MeanSTD(layers.Layer):
-    def __init__(self, latent_dim, **kwargs):
+    def __init__(self, latent_dim, name=None, **kwargs):
         super().__init__(**kwargs)
+        if name is None:
+            name = ""
+        else:
+            name = name + "_"
         self.flatten_layer = layers.Flatten()
         self.latent_dense_layer = layers.Dense(latent_dim * 4,
                                                activation=tf.nn.relu6)
-        self.mean_dense_layer = layers.Dense(latent_dim, name="z_mean")
-        self.log_var_dense_layer = layers.Dense(latent_dim, name="z_log_var")
+        self.mean_dense_layer = layers.Dense(latent_dim, name=f"{name}z_mean")
+        self.log_var_dense_layer = layers.Dense(
+            latent_dim, name=f"{name}z_log_var")
 
     def call(self, x):
         flattend = self.flatten_layer(x)

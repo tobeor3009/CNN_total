@@ -5,29 +5,11 @@ from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
 from tensorflow.keras.activations import tanh, gelu, softmax, sigmoid
 from .layers import UnsharpMasking2D
-from tensorflow_addons.layers import InstanceNormalization
 import math
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
 kaiming_initializer = tf.keras.initializers.HeNormal()
 USE_BIAS = True
-
-
-def get_layer_name(name, ext):
-    name = None if name is None else name + ext
-    return name
-
-
-def get_act_layer(activation, name=None):
-    if activation is None:
-        def act_layer(x): return x
-    elif activation == 'relu':
-        act_layer = layers.Activation(tf.nn.relu6, name=name)
-    elif activation == 'leakyrelu':
-        act_layer = layers.LeakyReLU(0.3, name=name)
-    else:
-        act_layer = layers.Activation(activation, name=name)
-    return act_layer
 
 
 def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
@@ -54,25 +36,35 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
         strides = 2
     else:
         strides = 1
-
-    conv_name = get_layer_name(name, '_conv')
-    norm_name = get_layer_name(name, '_norm')
-    act_name = get_layer_name(name, '_act')
-    output_name = get_layer_name(name, '_output')
-
     if downsample or (not same_channel):
-        residual_conv_name = get_layer_name(name, '_residual_conv')
-        residual_conv_layer = EqualizedConv(out_channels=filters,
-                                            downsample=downsample,
-                                            kernel=1, name=residual_conv_name)
+        residual_conv_layer = layers.Conv2D(filters,
+                                            kernel_size=1,
+                                            strides=strides,
+                                            padding=padding,
+                                            groups=groups,
+                                            use_bias=False)
         residual_norm_layer = get_norm_layer(groups)
 
-    conv_layer = EqualizedConv(out_channels=filters,
-                               downsample=downsample,
-                               kernel=3, name=conv_name)
-
+    conv_layer = layers.Conv2D(filters,
+                               kernel_size,
+                               strides=strides,
+                               padding=padding,
+                               groups=groups,
+                               use_bias=False)
+    norm_name = None if name is None else name + '_norm'
     norm_layer = get_norm_layer(groups, name=norm_name)
-    act_layer = get_act_layer(activation, name=act_name)
+
+    act_name = None if name is None else name + '_act'
+    if activation is None:
+        pass
+    elif activation == 'relu':
+        act_layer = layers.Activation(tf.nn.relu6, name=act_name)
+    elif activation == 'leakyrelu':
+        act_layer = layers.LeakyReLU(0.3, name=act_name)
+    else:
+        act_layer = layers.Activation(activation, name=act_name)
+
+    output_name = None if name is None else name + '_output'
 
     ################################################
     ################# Define call ##################
@@ -112,27 +104,32 @@ def highway_decode2d(input_tensor, filters,
     ################################################
     ################# Define Layer #################
     ################################################
-    conv_name_1 = get_layer_name(name, '_conv_1')
-    conv_name_2 = get_layer_name(name, '_conv_2')
-    conv_name_3 = get_layer_name(name, '_conv_3')
-    conv_name_4 = get_layer_name(name, '_conv_4')
-    norm_name = get_layer_name(name, '_norm')
-    output_name = get_layer_name(name, '_output')
-
-    conv_before_pixel_shffle = EqualizedConv(
-        out_channels=filters, kernel=1, name=conv_name_1)
-    conv_after_pixel_shffle = EqualizedConv(
-        out_channels=filters, kernel=1, name=conv_name_2)
-    conv_before_upsample = EqualizedConv(
-        out_channels=filters, kernel=1, name=conv_name_3)
+    conv_before_pixel_shffle = layers.Conv2D(filters=filters,
+                                             kernel_size=1, padding="same",
+                                             strides=1, use_bias=USE_CONV_BIAS)
+    conv_after_pixel_shffle = layers.Conv2D(filters=filters,
+                                            kernel_size=1, padding="same",
+                                            strides=1, use_bias=USE_CONV_BIAS)
+    conv_before_upsample = layers.Conv2D(filters=filters,
+                                         kernel_size=1, padding="same",
+                                         strides=1, use_bias=USE_CONV_BIAS)
     upsample_layer = layers.UpSampling2D(size=2)
-    conv_after_upsample = EqualizedConv(
-        out_channels=filters, kernel=1, name=conv_name_4)
-
-    norm_layer = get_norm_layer(groups, name=norm_name)
-    act_layer = get_act_layer(activation)
+    conv_after_upsample = layers.Conv2D(filters=filters,
+                                        kernel_size=1, padding="same",
+                                        strides=1, use_bias=USE_CONV_BIAS)
+    norm_layer = get_norm_layer(groups)
+    if activation is None:
+        pass
+    elif activation == 'relu':
+        act_layer = layers.Activation(tf.nn.relu6)
+    elif activation == 'leakyrelu':
+        act_layer = layers.LeakyReLU(0.3)
+    else:
+        act_layer = layers.Activation(activation)
+    output_name = None if name is None else name + '_output'
     if unsharp is True:
         unsharp_mask_layer = UnsharpMasking2D(filters)
+
     ################################################
     ################# Define call ##################
     ################################################
@@ -163,8 +160,9 @@ def highway_multi(x, y, dim,
     ################# Define Layer #################
     ################################################
     transform_gate_bias_initializer = Constant(transform_gate_bias)
-    dense_1 = EqualizedDense(
-        units=dim, bias_initializer=transform_gate_bias_initializer)
+    dense_1 = layers.Dense(units=dim,
+                           use_bias=USE_DENSE_BIAS,
+                           bias_initializer=transform_gate_bias_initializer)
     if mode == '2d':
         transform_gate = layers.GlobalAveragePooling2D()(x)
     elif mode == '3d':
@@ -181,77 +179,6 @@ def highway_multi(x, y, dim,
     value = layers.Add(name=output_name)([transformed_gated,
                                           identity_gated])
     return value
-
-
-class EqualizedConv(layers.Layer):
-    def __init__(self, out_channels, downsample=False, kernel=3, gain=2, **kwargs):
-        super(EqualizedConv, self).__init__(**kwargs)
-        if downsample:
-            self.strides = 2
-        else:
-            self.strides = 1
-        self.kernel = kernel
-        self.out_channels = out_channels
-        self.gain = gain
-        self.pad = kernel != 1
-
-    def build(self, input_shape):
-        self.in_channels = input_shape[-1]
-        initializer = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0)
-        self.w = self.add_weight(
-            shape=[self.kernel, self.kernel,
-                   self.in_channels, self.out_channels],
-            initializer=initializer,
-            trainable=True,
-            name="kernel",
-        )
-        self.b = self.add_weight(
-            shape=(self.out_channels,), initializer="zeros", trainable=True, name="bias"
-        )
-        fan_in = self.kernel * self.kernel * self.in_channels
-        self.scale = tf.sqrt(self.gain / fan_in)
-
-    def call(self, inputs):
-        if self.pad:
-            x = tf.pad(inputs, [[0, 0], [1, 1], [
-                       1, 1], [0, 0]], mode="REFLECT")
-        else:
-            x = inputs
-        output = (
-            tf.nn.conv2d(x, self.scale * self.w, strides=self.strides,
-                         padding="VALID") + self.b
-        )
-        return output
-
-
-class EqualizedDense(layers.Layer):
-    def __init__(self, units, gain=2, learning_rate_multiplier=1, bias_initializer="zeros", **kwargs):
-        super(EqualizedDense, self).__init__(**kwargs)
-        self.units = units
-        self.gain = gain
-        self.learning_rate_multiplier = learning_rate_multiplier
-        self.bias_initializer = bias_initializer
-
-    def build(self, input_shape):
-        self.in_channels = input_shape[-1]
-        initializer = tf.keras.initializers.RandomNormal(
-            mean=0.0, stddev=1.0 / self.learning_rate_multiplier
-        )
-        self.w = self.add_weight(
-            shape=[self.in_channels, self.units],
-            initializer=initializer,
-            trainable=True,
-            name="kernel",
-        )
-        self.b = self.add_weight(
-            shape=(self.units,), initializer=self.bias_initializer, trainable=True, name="bias"
-        )
-        fan_in = self.in_channels
-        self.scale = tf.sqrt(self.gain / fan_in)
-
-    def call(self, inputs):
-        output = tf.add(tf.matmul(inputs, self.scale * self.w), self.b)
-        return output * self.learning_rate_multiplier
 
 
 def vector_quantizer(latent_tensor, num_embeddings, embedding_dim, beta=0.25):
@@ -362,3 +289,69 @@ class VectorQuantizer(layers.Layer):
         # Derive the indices for minimum distances.
         encoding_indices = tf.argmin(distances, axis=1)
         return encoding_indices
+
+
+class EqualizedConv(layers.Layer):
+    def __init__(self, out_channels, kernel=3, gain=2, **kwargs):
+        super(EqualizedConv, self).__init__(**kwargs)
+        self.kernel = kernel
+        self.out_channels = out_channels
+        self.gain = gain
+        self.pad = kernel != 1
+
+    def build(self, input_shape):
+        self.in_channels = input_shape[-1]
+        initializer = keras.initializers.RandomNormal(mean=0.0, stddev=1.0)
+        self.w = self.add_weight(
+            shape=[self.kernel, self.kernel,
+                   self.in_channels, self.out_channels],
+            initializer=initializer,
+            trainable=True,
+            name="kernel",
+        )
+        self.b = self.add_weight(
+            shape=(self.out_channels,), initializer="zeros", trainable=True, name="bias"
+        )
+        fan_in = self.kernel * self.kernel * self.in_channels
+        self.scale = tf.sqrt(self.gain / fan_in)
+
+    def call(self, inputs):
+        if self.pad:
+            x = tf.pad(inputs, [[0, 0], [1, 1], [
+                       1, 1], [0, 0]], mode="REFLECT")
+        else:
+            x = inputs
+        output = (
+            tf.nn.conv2d(x, self.scale * self.w, strides=1,
+                         padding="VALID") + self.b
+        )
+        return output
+
+
+class EqualizedDense(layers.Layer):
+    def __init__(self, units, gain=2, learning_rate_multiplier=1, **kwargs):
+        super(EqualizedDense, self).__init__(**kwargs)
+        self.units = units
+        self.gain = gain
+        self.learning_rate_multiplier = learning_rate_multiplier
+
+    def build(self, input_shape):
+        self.in_channels = input_shape[-1]
+        initializer = keras.initializers.RandomNormal(
+            mean=0.0, stddev=1.0 / self.learning_rate_multiplier
+        )
+        self.w = self.add_weight(
+            shape=[self.in_channels, self.units],
+            initializer=initializer,
+            trainable=True,
+            name="kernel",
+        )
+        self.b = self.add_weight(
+            shape=(self.units,), initializer="zeros", trainable=True, name="bias"
+        )
+        fan_in = self.in_channels
+        self.scale = tf.sqrt(self.gain / fan_in)
+
+    def call(self, inputs):
+        output = tf.add(tf.matmul(inputs, self.scale * self.w), self.b)
+        return output * self.learning_rate_multiplier

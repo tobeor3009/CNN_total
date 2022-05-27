@@ -211,6 +211,13 @@ class SegDataloader(BaseDataLoader):
 
         return self.batch_image_array, self.batch_mask_array
 
+    def change_batch_size(self, batch_size):
+        self.batch_size = batch_size
+        self.batch_image_array = np.zeros(
+            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_mask_array = np.zeros(
+            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
+
     def print_data_info(self):
         data_num = len(self.data_getter)
         print(f"Total data num {data_num}")

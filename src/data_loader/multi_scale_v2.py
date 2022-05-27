@@ -51,7 +51,7 @@ class MultiScaleDataGetter(BaseDataGetter):
         self.target_size = target_size
         self.interpolation = interpolation
 
-        self.resize_method = ResizePolicy(target_size, interpolation)
+        self.resize_method = ResizePolicy(target_size // 4, interpolation)
 
         self.is_cached = not on_memory
         self.data_index_dict = {idx: idx for idx in range(len(self))}
@@ -80,21 +80,21 @@ class MultiScaleDataGetter(BaseDataGetter):
         else:
             folder = self.folder_dict[current_index]
             image_array = np.load(
-                f"{folder}/{self.target_size}_image.npy").astype("float32")
+                f"{folder}/{self.target_size}_image.npy")
             mask_array = np.load(
-                f"{folder}/{self.target_size}_mask.npy").astype("float32")
+                f"{folder}/{self.target_size}_mask.npy")
             label_array = np.load(
-                f"{folder}/{self.target_size}_label.npy").astype("float32")
-
-            image_array = (image_array / 127.5) - 1
+                f"{folder}/{self.target_size}_label.npy")
             image_array, mask_array = \
                 self.argumentation_method(image_array, mask_array)
-
+            image_array = (image_array / 127.5) - 1
+            recon_array = self.resize_method(image_array)
             if self.is_cached is False:
                 self.single_data_dict = deepcopy(self.single_data_dict)
                 self.is_cached = None not in self.data_on_ram_dict.values()
 
         self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["recon_array"] = recon_array
         self.single_data_dict["mask_array"] = mask_array
         self.single_data_dict["label_array"] = label_array
 
@@ -139,14 +139,18 @@ class MultiScaleDataloader(BaseDataLoader):
                                                 interpolation=interpolation
                                                 )
         self.batch_size = batch_size
-        self.image_data_shape = self.data_getter[0]["image_array"].shape
-        self.mask_data_shape = self.data_getter[0]["mask_array"].shape
-        self.label_data_shape = self.data_getter[0]["label_array"].shape
+        sample_data = self.data_getter[0]
+        self.image_data_shape = sample_data["image_array"].shape
+        self.recon_data_shape = sample_data["recon_array"].shape
+        self.mask_data_shape = sample_data["mask_array"].shape
+        self.label_data_shape = sample_data["label_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
 
         self.batch_image_array = np.zeros(
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_recon_array = np.zeros(
+            (self.batch_size, *self.recon_data_shape), dtype=self.dtype)
         self.batch_mask_array = np.zeros(
             (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
         self.batch_label_array = np.zeros(
@@ -162,10 +166,11 @@ class MultiScaleDataloader(BaseDataLoader):
         for batch_index, total_index in enumerate(range(start, end)):
             single_data_dict = self.data_getter[total_index]
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_recon_array[batch_index] = single_data_dict["recon_array"]
             self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
             self.batch_label_array[batch_index] = single_data_dict["label_array"]
-
-        return self.batch_image_array, (self.batch_image_array, self.batch_mask_array, self.batch_label_array)
+        return self.batch_image_array, self.batch_mask_array[..., 5::6]
+        # return self.batch_image_array, (self.batch_recon_array, self.batch_mask_array, self.batch_label_array)
 
     def print_data_info(self):
         data_num = len(self.data_getter)

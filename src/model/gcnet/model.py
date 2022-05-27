@@ -115,7 +115,6 @@ def get_highway_resnet_generator_stargan_unet(input_shape, label_len, target_lab
     input_label_shape = (input_shape[0] // (2 ** encoder_depth),
                          input_shape[1] // (2 ** encoder_depth),
                          init_filters * encoder_depth)
-
     target_label_shape = (input_shape[0] // (2 ** encoder_depth),
                           input_shape[1] // (2 ** encoder_depth),
                           init_filters * encoder_depth)

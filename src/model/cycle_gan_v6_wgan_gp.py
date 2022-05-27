@@ -28,7 +28,7 @@ class CycleGan(Model):
         lambda_gen_2_disc=1.0,
         lambda_cycle=10.0,
         lambda_identity=0.5,
-        gp_weight=10.0
+        gp_weight=10
     ):
         super(CycleGan, self).__init__()
 
@@ -50,7 +50,6 @@ class CycleGan(Model):
         generator_F_optimizer,
         discriminator_X_optimizer,
         discriminator_Y_optimizer,
-        batch_size,
         image_loss_fn=base_image_loss_fn,
         generator_loss_deceive_discriminator=None,
         discriminator_loss_arrest_generator=None,
@@ -63,7 +62,6 @@ class CycleGan(Model):
         self.generator_F_optimizer = generator_F_optimizer
         self.discriminator_X_optimizer = discriminator_X_optimizer
         self.discriminator_Y_optimizer = discriminator_Y_optimizer
-        self.batch_size = batch_size
         self.cycle_loss_fn = image_loss_fn
         self.identity_loss_fn = image_loss_fn
         self.identity_loss = identity_loss
@@ -80,6 +78,7 @@ class CycleGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
+        batch_size = tf.shape(real_x)[0]
         disc_real_input_x = keras_backend.concatenate(
             [real_x, real_x], axis=-1)
         disc_real_input_y = keras_backend.concatenate(
@@ -141,20 +140,30 @@ class CycleGan(Model):
 
             # Discriminator loss
             disc_X_real_loss = to_real_wasserstein_loss(disc_real_x)
-            disc_Y_real_loss = to_real_wasserstein_loss(disc_real_y)
             disc_X_fake_loss = to_fake_wasserstein_loss(disc_fake_x)
-            disc_Y_fake_loss = to_fake_wasserstein_loss(disc_fake_y)
             disc_X_cycle_loss = to_fake_wasserstein_loss(disc_cycle_x)
+            disc_Y_real_loss = to_real_wasserstein_loss(disc_real_y)
+            disc_Y_fake_loss = to_fake_wasserstein_loss(disc_fake_y)
             disc_Y_cycle_loss = to_fake_wasserstein_loss(disc_cycle_y)
-            X_gradient_penalty = gradient_penalty(self.discriminator_X, self.batch_size,
-                                                  real_x, fake_x, gp_weight=10.0, mode="2d")
-            Y_gradient_penalty = gradient_penalty(self.discriminator_Y, self.batch_size,
-                                                  real_y, fake_y, gp_weight=10.0, mode="2d")
+            X_gradient_penalty = gradient_penalty(self.discriminator_X, batch_size,
+                                                  disc_real_input_x, disc_fake_input_x,
+                                                  gp_weight=self.gp_weight, mode="2d")
+            Y_gradient_penalty = gradient_penalty(self.discriminator_Y, batch_size,
+                                                  disc_real_input_y, disc_fake_input_y,
+                                                  gp_weight=self.gp_weight, mode="2d")
+            X_same_gradient_penalty = gradient_penalty(self.discriminator_X, batch_size,
+                                                       disc_real_input_x, disc_same_input_x,
+                                                       gp_weight=self.gp_weight, mode="2d")
+            Y_same_gradient_penalty = gradient_penalty(self.discriminator_Y, batch_size,
+                                                       disc_real_input_y, disc_same_input_y,
+                                                       gp_weight=self.gp_weight, mode="2d")
 
             disc_X_total_loss = disc_X_real_loss + disc_X_fake_loss + disc_X_cycle_loss + \
-                X_gradient_penalty + disc_X_identity_loss * self.lambda_identity
+                disc_X_identity_loss * self.lambda_identity + \
+                X_gradient_penalty + X_same_gradient_penalty
             disc_Y_total_loss = disc_Y_real_loss + disc_Y_fake_loss + disc_Y_cycle_loss + \
-                Y_gradient_penalty + disc_Y_identity_loss * self.lambda_identity
+                disc_Y_identity_loss * self.lambda_identity + \
+                Y_gradient_penalty + Y_same_gradient_penalty
 
         # Get the gradients for the discriminators
         disc_X_grads = disc_tape.gradient(disc_X_total_loss,

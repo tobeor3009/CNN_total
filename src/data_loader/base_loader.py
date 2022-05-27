@@ -64,6 +64,12 @@ def normalize_mask(mask_array):
     return mask_array / 255
 
 
+def to_tuple(int_or_tuple):
+    if isinstance(int_or_tuple, int):
+        int_or_tuple = (int_or_tuple, int_or_tuple)
+    return int_or_tuple
+
+
 class BaseDataGetter():
 
     def __init__(self):
@@ -154,7 +160,7 @@ class ResizePolicy():
             "bilinear": cv2.INTER_LINEAR,
             "cubic": cv2.INTER_CUBIC
         }
-        self.target_size = target_size
+        self.target_size = to_tuple(target_size)
         self.interpolation = interpolation_dict[interpolation]
         if target_size is None:
             self.resize_method = identity_fn
@@ -193,6 +199,7 @@ class CategorizePolicy():
         label_array = to_categorical(label,
                                      self.num_classes, dtype=self.dtype)
         return label_array
+
 
 class ClassifyArgumentationPolicy():
     def __init__(self,

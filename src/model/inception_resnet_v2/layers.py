@@ -1,5 +1,6 @@
 from functools import partial
 import tensorflow as tf
+import numpy as np
 from tensorflow_addons.layers import GroupNormalization
 from tensorflow.keras import backend
 from tensorflow.keras import layers, Sequential
@@ -13,6 +14,115 @@ USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
 GC_BLOCK_RATIO = 0.125
 kaiming_initializer = tf.keras.initializers.HeNormal()
+
+
+def to_kernel_tuple(int_or_list_or_tuple):
+    if isinstance(int_or_list_or_tuple, int):
+        int_or_list_or_tuple = (int_or_list_or_tuple, int_or_list_or_tuple)
+    kernel_tuple = (int_or_list_or_tuple[0],
+                    int_or_list_or_tuple[1])
+    return kernel_tuple
+
+
+def to_pad_tuple(int_or_list_or_tuple):
+    if isinstance(int_or_list_or_tuple, int):
+        int_or_list_or_tuple = (int_or_list_or_tuple, int_or_list_or_tuple)
+    pad_tuple = (int_or_list_or_tuple[0] // 2,
+                 int_or_list_or_tuple[1] // 2)
+    return pad_tuple
+
+
+def get_act_layer(activation, name=None):
+    if activation is None:
+        def act_layer(x): return x
+    elif activation == 'relu':
+        act_layer = layers.Activation(tf.nn.relu6, name=name)
+    elif activation == 'leakyrelu':
+        act_layer = layers.LeakyReLU(0.3, name=name)
+    else:
+        act_layer = layers.Activation(activation, name=name)
+    return act_layer
+
+
+class EqualizedConv(layers.Layer):
+    def __init__(self, out_channels, downsample=False, kernel=3,
+                 padding="same", use_bias=True, gain=2, **kwargs):
+        super(EqualizedConv, self).__init__(**kwargs)
+        if downsample:
+            self.strides = 2
+        else:
+            self.strides = 1
+        self.kernel = to_kernel_tuple(kernel)
+        self.out_channels = out_channels
+        self.use_bias = use_bias
+        self.gain = gain
+        if padding == "same":
+            self.pad = to_pad_tuple(kernel)
+        elif padding == "valid":
+            self.pad = False
+
+    def build(self, input_shape):
+        self.in_channels = input_shape[-1]
+        initializer = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0)
+        self.w = self.add_weight(
+            shape=[self.kernel[0], self.kernel[1],
+                   self.in_channels, self.out_channels],
+            initializer=initializer,
+            trainable=True,
+            name="kernel",
+        )
+        if self.use_bias:
+            self.b = self.add_weight(
+                shape=(self.out_channels,), initializer="zeros", trainable=True, name="bias"
+            )
+        fan_in = self.kernel[0] * self.kernel[1] * self.in_channels
+        self.scale = tf.sqrt(self.gain / fan_in)
+
+    def call(self, inputs):
+        if isinstance(self.pad, tuple):
+            x = tf.pad(inputs, [[0, 0],
+                                [self.pad[0], self.pad[0]],
+                                [self.pad[1], self.pad[1]],
+                                [0, 0]
+                                ], mode="REFLECT")
+        else:
+            x = inputs
+        output = tf.nn.conv2d(x, self.scale * self.w, strides=self.strides,
+                              padding="VALID")
+        if self.use_bias:
+            output = output + self.b
+
+        return output
+
+
+class EqualizedDense(layers.Layer):
+    def __init__(self, units, gain=2, learning_rate_multiplier=1, bias_initializer="zeros", **kwargs):
+        super(EqualizedDense, self).__init__(**kwargs)
+        self.units = units
+        self.gain = gain
+        self.learning_rate_multiplier = learning_rate_multiplier
+        self.bias_initializer = bias_initializer
+
+    def build(self, input_shape):
+        self.in_channels = input_shape[-1]
+        initializer = tf.keras.initializers.RandomNormal(
+            mean=0.0, stddev=1.0 / self.learning_rate_multiplier
+        )
+        self.w = self.add_weight(
+            shape=[self.in_channels, self.units],
+            initializer=initializer,
+            trainable=True,
+            name="kernel",
+        )
+        self.b = self.add_weight(
+            shape=(self.units,), initializer=self.bias_initializer, trainable=True, name="bias"
+        )
+        fan_in = self.in_channels
+        self.scale = tf.sqrt(self.gain / fan_in)
+
+    def call(self, inputs):
+        output = tf.add(tf.matmul(inputs, self.scale * self.w), self.b)
+        return output * self.learning_rate_multiplier
 
 
 class TransformerEncoder(layers.Layer):
@@ -202,10 +312,7 @@ def conv3d_bn(x,
             axis=bn_axis, scale=False, name=bn_name)(x)
     if activation is not None:
         ac_name = None if name is None else name + '_ac'
-        if activation == 'relu':
-            x = layers.Activation(tf.nn.relu6, name=ac_name)(x)
-        else:
-            x = layers.Activation(activation, name=ac_name)(x)
+        x = get_act_layer(activation, name=ac_name)(x)
     if include_context == True:
         context_shape = backend.int_shape(x)
         context_head_dim = context_shape[-1] // context_head_nums
@@ -310,14 +417,14 @@ def inception_resnet_block_3d(x, scale, block_type, block_idx, activation='relu'
 
 
 class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters, include_context=False, context_head_nums=8):
+    def __init__(self, filters, include_context=False, context_head_nums=8, activation="tanh"):
         super().__init__()
         self.include_context = include_context
         compress_layer_list = [
             layers.Conv2D(filters, kernel_size=1, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
-            layers.Activation("tanh")
+            get_act_layer(activation)
         ]
         if self.include_context == True:
             up_head_dim = filters // context_head_nums
@@ -328,7 +435,7 @@ class SkipUpsample3D(layers.Layer):
             layers.Conv3D(filters, kernel_size=3, padding="same",
                           strides=1, use_bias=USE_CONV_BIAS),
             layers.BatchNormalization(axis=-1),
-            layers.Activation("tanh")
+            get_act_layer(activation)
         ])
 
     def build(self, input_shape):
@@ -339,46 +446,9 @@ class SkipUpsample3D(layers.Layer):
         if self.include_context == True:
             conv = self.context_layer(conv, self.H, self.W)
         # shape: [B H W 1 C]
-        conv = backend.expand_dims(conv, axis=-2)
+        conv = backend.expand_dims(conv, axis=1)
         # shape: [B H W Z C]
-        conv = backend.repeat_elements(conv, rep=Z, axis=-2)
-        conv = self.conv_block(conv)
-        return conv
-
-
-class SkipUpsample3D(layers.Layer):
-    def __init__(self, filters, include_context=False, context_head_nums=8):
-        super().__init__()
-        self.include_context = include_context
-        compress_layer_list = [
-            layers.Conv2D(filters, kernel_size=1, padding="same",
-                          strides=1, use_bias=USE_CONV_BIAS),
-            layers.BatchNormalization(axis=-1),
-            layers.Activation("tanh")
-        ]
-        if self.include_context == True:
-            up_head_dim = filters // context_head_nums
-            self.context_layer = TransformerEncoder2D(heads=8, dim_head=up_head_dim,
-                                                      dropout=0.3)
-        self.compress_block = Sequential(compress_layer_list)
-        self.conv_block = Sequential([
-            layers.Conv3D(filters, kernel_size=3, padding="same",
-                          strides=1, use_bias=USE_CONV_BIAS),
-            layers.BatchNormalization(axis=-1),
-            layers.Activation("tanh")
-        ])
-
-    def build(self, input_shape):
-        _, self.H, self.W, self.C = input_shape
-
-    def call(self, input_tensor, Z):
-        conv = self.compress_block(input_tensor)
-        if self.include_context == True:
-            conv = self.context_layer(conv, self.H, self.W)
-        # shape: [B H W 1 C]
-        conv = backend.expand_dims(conv, axis=-2)
-        # shape: [B H W Z C]
-        conv = backend.repeat_elements(conv, rep=Z, axis=-2)
+        conv = backend.repeat_elements(conv, rep=Z, axis=1)
         conv = self.conv_block(conv)
         return conv
 
@@ -489,7 +559,7 @@ class UnsharpMasking2D(layers.Layer):
 
 
 class HighwayDecoder2D(layers.Layer):
-    def __init__(self, filters, strides, kernel_size=2, unsharp=False):
+    def __init__(self, filters, strides, kernel_size=2, activation="tanh", unsharp=False):
         super().__init__()
 
         self.filters = filters
@@ -511,7 +581,7 @@ class HighwayDecoder2D(layers.Layer):
                                                  strides=1, use_bias=USE_CONV_BIAS)
 
         self.norm_layer = layers.LayerNormalization(axis=-1)
-        self.act_layer = tanh
+        self.act_layer = get_act_layer(activation)
         self.highway_layer = HighwayMulti(dim=filters, mode='2d')
 
         if self.unsharp is True:
@@ -539,7 +609,7 @@ class HighwayDecoder2D(layers.Layer):
 
 
 class Decoder2D(layers.Layer):
-    def __init__(self, out_channel, kernel_size=2, unsharp=False):
+    def __init__(self, out_channel, kernel_size=2, activation="tanh", unsharp=False):
         super(Decoder2D, self).__init__()
 
         self.kernel_size = kernel_size
@@ -562,7 +632,7 @@ class Decoder2D(layers.Layer):
                                                  strides=1, use_bias=USE_CONV_BIAS)
         self.norm_layer_pixel_shffle = layers.LayerNormalization(axis=-1)
         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
-        self.act_layer = tanh
+        self.act_layer = get_act_layer(activation)
 
         if self.unsharp is True:
             self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
@@ -589,7 +659,7 @@ class Decoder2D(layers.Layer):
 
 
 class HighwayDecoder3D(layers.Layer):
-    def __init__(self, filters, strides):
+    def __init__(self, filters, strides, activation):
         super().__init__()
 
         self.filters = filters
@@ -612,7 +682,7 @@ class HighwayDecoder3D(layers.Layer):
                                                  strides=1, use_bias=USE_CONV_BIAS)
 
         self.norm_layer = layers.LayerNormalization(axis=-1)
-        self.act_layer = tanh
+        self.act_layer = get_act_layer(activation)
         self.highway_layer = HighwayMulti(dim=filters, mode='3d')
 
     def call(self, input_tensor):
@@ -632,7 +702,7 @@ class HighwayDecoder3D(layers.Layer):
 
 
 class Decoder3D(layers.Layer):
-    def __init__(self, filters, strides):
+    def __init__(self, filters, strides, activation):
         super().__init__()
 
         self.filters = filters
@@ -654,7 +724,7 @@ class Decoder3D(layers.Layer):
 
         self.norm_layer_pixel_shuffle = layers.LayerNormalization(axis=-1)
         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
-        self.act_layer = tanh
+        self.act_layer = get_act_layer(activation)
 
     def call(self, input_tensor):
 
@@ -673,6 +743,32 @@ class Decoder3D(layers.Layer):
         return output
 
 
+# class Decoder3D(layers.Layer):
+#     def __init__(self, filters, strides, activation):
+#         super().__init__()
+
+#         self.filters = filters
+#         self.conv_before_upsample = layers.Conv3D(filters=filters,
+#                                                   kernel_size=1, padding="same",
+#                                                   strides=1, use_bias=USE_CONV_BIAS)
+#         self.upsample_layer = layers.UpSampling3D(size=strides)
+#         self.conv_after_upsample = layers.Conv3D(filters=filters,
+#                                                  kernel_size=1, padding="same",
+#                                                  strides=1, use_bias=USE_CONV_BIAS)
+
+#         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
+#         self.act_layer = get_act_layer(activation)
+
+#     def call(self, input_tensor):
+
+#         upsamle = self.conv_before_upsample(input_tensor)
+#         upsamle = self.upsample_layer(upsamle)
+#         upsamle = self.conv_after_upsample(upsamle)
+#         upsamle = self.norm_layer_upsample(upsamle)
+#         output = self.act_layer(upsamle)
+#         return output
+
+
 class OutputLayer2D(layers.Layer):
     def __init__(self, last_channel_num, act="tanh"):
         super().__init__()
@@ -689,7 +785,7 @@ class OutputLayer2D(layers.Layer):
                                       use_bias=USE_CONV_BIAS,
                                       )
         self.highway_layer = HighwayMulti(dim=last_channel_num, mode='2d')
-        self.act = layers.Activation(act)
+        self.act = get_act_layer(act)
 
     def call(self, input_tensor):
         conv_1x1 = self.conv_1x1(input_tensor)
@@ -716,7 +812,7 @@ class TwoWayOutputLayer2D(layers.Layer):
                                     use_bias=USE_CONV_BIAS,
                                     )
         self.highway_layer = HighwayMulti(dim=last_channel_num, mode='2d')
-        self.act = layers.Activation(act)
+        self.act = get_act_layer(act)
 
     def call(self, x1, x2):
         conv_1 = self.conv_1(x1)
@@ -743,7 +839,7 @@ class OutputLayer3D(layers.Layer):
                                         use_bias=USE_CONV_BIAS,
                                         )
         self.highway_layer = HighwayMulti(dim=last_channel_num, mode='3d')
-        self.act = layers.Activation(act)
+        self.act = get_act_layer(act)
 
     def call(self, input_tensor):
         conv_1x1x1 = self.conv_1x1x1(input_tensor)

@@ -63,13 +63,8 @@ class StarGanDataGetter(BaseDataGetter):
 
         self.is_class_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
-        self.target_data_index_list = list(range(len(self)))
-        self.target_data_index_list = \
-            syncron_shuffle(self.target_data_index_list)
-        self.target_data_index_quque_len = len(self)
 
         self.single_data_dict = {"image_array": None, "label": None}
-        self.target_single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
         self.argumentation_method = ClassifyArgumentationPolicy(
@@ -91,64 +86,33 @@ class StarGanDataGetter(BaseDataGetter):
         if i >= len(self):
             raise IndexError
 
-        if self.target_data_index_quque_len != 0:
-            self.target_data_index_quque_len -= 1
-        else:
-            self.target_data_index_quque_len = len(self) - 1
-            self.target_data_index_list = syncron_shuffle(
-                self.target_data_index_list)
-
         current_index = self.data_index_dict[i]
-        target_index = self.target_data_index_list[i]
 
         if self.on_memory:
             image_array, label = \
                 self.data_on_ram_dict[current_index].values()
-            target_image_array, target_label = \
-                self.data_on_ram_dict[target_index].values()
             image_array = self.argumentation_method(image_array)
-            target_image_array = self.argumentation_method(target_image_array)
 
             image_array = self.preprocess_method(image_array)
-            target_image_array = self.preprocess_method(target_image_array)
         else:
             image_path = self.image_path_dict[current_index]
-            target_image_path = self.image_path_dict[target_index]
 
             image_array = imread(image_path, channel=self.image_channel)
-            target_image_array = imread(
-                target_image_path, channel=self.image_channel)
-
             image_array = self.resize_method(image_array)
-            target_image_array = self.resize_method(target_image_array)
-
             image_array = self.argumentation_method(image_array)
-            target_image_array = self.argumentation_method(target_image_array)
-
             image_array = self.preprocess_method(image_array)
-            target_image_array = self.preprocess_method(target_image_array)
 
             if self.is_class_cached:
                 label = self.class_dict[current_index]
-                target_label = self.class_dict[target_index]
             else:
                 label = self.label_policy(image_path)
-                target_label = self.label_policy(target_image_path)
-
                 self.class_dict[current_index] = label
-                self.class_dict[target_index] = target_label
-
                 self.single_data_dict = deepcopy(self.single_data_dict)
-                self.target_single_data_dict = deepcopy(
-                    self.target_single_data_dict)
-                self.is_class_cached = self.check_class_dict_cached()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["label"] = label
-        self.target_single_data_dict["image_array"] = target_image_array
-        self.target_single_data_dict["label"] = target_label
 
-        return self.single_data_dict, self.target_single_data_dict
+        return self.single_data_dict
 
     def get_data_on_ram(self):
 
@@ -247,7 +211,7 @@ class StarGanDataloader(BaseDataLoader):
                                              dtype=dtype
                                              )
         self.batch_size = batch_size
-        temp_data = self.data_getter[0][0]
+        temp_data = self.data_getter[0]
         self.image_data_shape = temp_data["image_array"].shape
         self.label_data_shape = temp_data["label"].shape
         self.shuffle = shuffle
@@ -259,11 +223,6 @@ class StarGanDataloader(BaseDataLoader):
         self.batch_label_array = np.zeros(
             (self.batch_size, *self.label_data_shape), dtype=self.dtype)
 
-        self.batch_target_image_array = np.zeros(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_target_label_array = np.zeros(
-            (self.batch_size, *self.label_data_shape), dtype=self.dtype)
-
         self.print_data_info()
         self.on_epoch_end()
 
@@ -273,16 +232,12 @@ class StarGanDataloader(BaseDataLoader):
         end = start + self.batch_size
 
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_dict, target_single_data_dict = self.data_getter[total_index]
+            single_data_dict = self.data_getter[total_index]
 
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
             self.batch_label_array[batch_index] = single_data_dict["label"]
 
-            self.batch_target_image_array[batch_index] = target_single_data_dict["image_array"]
-            self.batch_target_label_array[batch_index] = target_single_data_dict["label"]
-
-        return np.array([self.batch_image_array, self.batch_target_image_array]), \
-            np.array([self.batch_label_array, self.batch_target_label_array])
+        return self.batch_image_array, self.batch_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

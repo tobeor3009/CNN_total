@@ -31,7 +31,34 @@ def get_resnet_disc(input_shape,
     x = encoder.output
     x = layers.Flatten()(x)
     x = layers.Dropout(0.2)(x)
-    predictions = layers.Dense(1)(x)
+    predictions = layers.Dense(1, activation=last_act)(x)
+    model = Model(base_input, predictions)
+    return model
+
+
+def get_resnet_disc_progressive(input_shape,
+                                base_act="leakyrelu",
+                                last_act="sigmoid",
+                                num_downsample=5,
+                                final_downsample=5,
+                                block_size=16
+                                ):
+    padding = "same"
+    encoder_output_filter = None
+    groups = 1
+    ################################################
+    ################# Define Layer #################
+    ################################################
+    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
+                                                           groups=groups, num_downsample=num_downsample, final_downsample=final_downsample,
+                                                           padding=padding, base_act=base_act, last_act=base_act)
+    base_input = encoder.input
+
+    # add a global spatial average pooling layer
+    x = encoder.output
+    x = layers.Flatten()(x)
+    x = layers.Dropout(0.2)(x)
+    predictions = layers.Dense(1, activation=last_act)(x)
     model = Model(base_input, predictions)
     return model
 

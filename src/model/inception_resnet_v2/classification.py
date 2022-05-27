@@ -5,6 +5,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
 from .base_model import InceptionResNetV2
+from .base_model_as_class import InceptionResNetV2_progressive, Conv2DBN
 from .layers import AddPositionEmbs, TransformerEncoder
 np.random.seed(1337)  # for reproducibility
 
@@ -99,9 +100,61 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     return model
 
 
+def get_inception_resnet_v2_transformer_disc(input_shape,
+                                             padding="valid",
+                                             base_act="relu",
+                                             last_act="sigmoid",
+                                             block_size=16
+                                             ):
+    base_model = InceptionResNetV2(
+        include_top=False,
+        weights=None,
+        input_tensor=None,
+        input_shape=(input_shape[0], input_shape[1], input_shape[2]),
+        block_size=block_size,
+        padding=padding,
+        classes=None,
+        pooling=None,
+        base_act=base_act,
+        last_act=None,
+        classifier_activation=None,
+    )
+    attn_dropout_proba = 0.1
+    attn_dim_list = [block_size * 3 for _ in range(6)]
+    num_head_list = [8 for _ in range(6)]
+    attn_layer_list = []
+    for attn_dim, num_head in zip(attn_dim_list, num_head_list):
+        attn_layer = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                        dropout=attn_dropout_proba)
+        attn_layer_list.append(attn_layer)
+    attn_sequence = Sequential(attn_layer_list)
+
+    base_input = base_model.input
+    # add a global spatial average pooling layer
+    x = base_model.output
+    x = base_model.output
+    # (Batch_Size, 14, 14, 1536) => (Batch_Size, 28, 28, 384)
+    x = tf.nn.depth_to_space(x, block_size=2)
+    _, H, W, C = keras_backend.int_shape(x)
+    # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 384)
+    x = layers.Reshape((H * W, C))(x)
+    x = AddPositionEmbs(input_shape=(H * W, C))(x)
+    x = attn_sequence(x)
+    x = keras_backend.mean(x, axis=1)
+    # let's add a fully-connected layer
+    # (Batch_Size,1)
+    x = layers.Dense(1024, activation='relu')(x)
+    # (Batch_Size,1024)
+    x = layers.Dropout(DROPOUT_RATIO)(x)
+    predictions = layers.Dense(1, activation=last_act,
+                               use_bias=False)(x)
+    model = Model(base_input, predictions)
+    return model
+
+
 def get_inception_resnet_v2_discriminator(input_shape,
                                           padding="valid",
-                                          activation="relu",
+                                          base_act="relu",
                                           last_act="sigmoid",
                                           block_size=16
                                           ):
@@ -114,7 +167,7 @@ def get_inception_resnet_v2_discriminator(input_shape,
         padding=padding,
         classes=None,
         pooling=None,
-        base_act=activation,
+        base_act=base_act,
         last_act=None,
         classifier_activation=None,
     )
@@ -124,6 +177,60 @@ def get_inception_resnet_v2_discriminator(input_shape,
     x = base_model.output
     predictions = layers.Activation(last_act)(x)
     model = Model(base_input, predictions)
+    return model
+
+
+def get_inception_resnet_v2_disc_stargan(input_shape,
+                                         label_len,
+                                         block_size=16,
+                                         num_downsample=5,
+                                         padding="valid",
+                                         base_act="leakyrelu",
+                                         last_act="sigmoid",
+                                         ):
+    target_shape = (input_shape[0] * (2 ** (5 - num_downsample)),
+                    input_shape[1] * (2 ** (5 - num_downsample)),
+                    input_shape[2])
+    attn_dropout_proba = 0.1
+    attn_dim_list = [block_size * 3 for _ in range(6)]
+    num_head_list = [8 for _ in range(6)]
+    attn_layer_list = []
+    for attn_dim, num_head in zip(attn_dim_list, num_head_list):
+        attn_layer = TransformerEncoder(heads=num_head, dim_head=attn_dim,
+                                        dropout=attn_dropout_proba)
+        attn_layer_list.append(attn_layer)
+    attn_sequence = Sequential(attn_layer_list)
+
+    base_model = InceptionResNetV2_progressive(target_shape=target_shape,
+                                               block_size=block_size,
+                                               padding=padding,
+                                               base_act=base_act,
+                                               last_act=base_act,
+                                               name_prefix="x2ct",
+                                               num_downsample=num_downsample,
+                                               use_attention=True)
+    base_input = base_model.input
+    base_output = base_model.output
+
+    # (Batch_Size, 14, 14, 1536) => (Batch_Size, 28, 28, 384)
+    x = tf.nn.depth_to_space(base_output, block_size=2)
+    _, H, W, C = keras_backend.int_shape(x)
+    # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 384)
+    x = layers.Reshape((H * W, C))(x)
+    x = AddPositionEmbs(input_shape=(H * W, C))(x)
+
+    x = attn_sequence(x)
+    x = keras_backend.mean(x, axis=1)
+    # let's add a fully-connected layer
+    # (Batch_Size,1)
+    x = layers.Dense(1024, activation='relu')(x)
+    # (Batch_Size,1024)
+    x = layers.Dropout(DROPOUT_RATIO)(x)
+    predictions = layers.Dense(label_len, activation='sigmoid',
+                               use_bias=False)(x)
+    validity = Conv2DBN(C, 3, activation=last_act)(base_output)
+
+    model = Model(base_input, [validity, predictions])
     return model
 
 
