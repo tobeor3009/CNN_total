@@ -1,9 +1,11 @@
 import tensorflow as tf
-from .base_model_as_class import InceptionResNetV2, Conv2DBN, DecoderBlock2D
+from .base_model_as_class import InceptionResNetV2, InceptionResNetV2_SkipConnectLevel_0, InceptionResNetV2_SkipConnectLevel_1
+from .base_model_as_class import Conv2DBN, DecoderBlock2D
 from tensorflow.keras import Model
 from tensorflow.keras import layers
 from tensorflow.keras import backend
-from .util.pathology import restore_overlapping_patches
+from itertools import zip_longest
+from .util.pathology import recon_overlapping_patches
 
 
 def get_multi_scale_task_model(input_shape, num_class, block_size=16,
@@ -215,17 +217,57 @@ def get_seg_multi_scale_model(input_shape, block_size=16,
     split_shape = (input_shape[0],
                    input_shape[1],
                    input_shape[2] // 10)
-    encoder_0, skip_connect_layer_names_0 = InceptionResNetV2(input_shape=split_shape, block_size=block_size, padding=padding,
-                                                              groups=1, base_act=base_act, last_act=base_act, name_prefix="level_1",
-                                                              skip_connect_names=True)
-    encoder_1, skip_connect_layer_names_1 = InceptionResNetV2(input_shape=split_shape, block_size=block_size, padding=padding,
-                                                              groups=1, base_act=base_act, last_act=base_act, name_prefix="level_0",
-                                                              skip_connect_names=True)
-    _, H, W, C = encoder_0.output.shape
-    encoder_input_0 = encoder_0.input
-    encoder_input_1 = encoder_1.input
-    encoder_output_0 = encoder_0.output
-    encoder_output_1 = encoder_1.output
+    encoder_0 = InceptionResNetV2_SkipConnectLevel_0(input_shape=split_shape, block_size=block_size, padding=padding,
+                                                     groups=1, base_act=base_act, last_act=base_act, name_prefix="level_1")
+    encoder_1 = InceptionResNetV2_SkipConnectLevel_1(input_shape=split_shape, block_size=block_size, padding=padding,
+                                                     groups=1, base_act=base_act, last_act=base_act, name_prefix="level_0")
+    input_tensor = layers.Input(input_shape)
+    input_tensor_list = tf.split(input_tensor, num_or_size_splits=10, axis=-1)
+
+    output_tensor_list_list = []
+    for idx, split_tensor in enumerate(input_tensor_list):
+        if idx < 9:
+            output_tensor_list = encoder_0(split_tensor)
+        else:
+            output_tensor_list = encoder_1(split_tensor)
+        output_tensor_list_list.append(output_tensor_list)
+    level_0_tensor_recon_list = []
+    level_0_tensor_concat_list_list = []
+    level_1_tensor_concat_list = []
+    # level_0 : [down_2, down_3, down_4, down_5, output]
+    # level_1 : [down_1, down_2, down_3, down_4, down_5, output]
+    # output_tensor_list_list: [level_1_0, level_1_1, ... level_1_8, level_0]
+    for idx, level_0_output_tensor_list in enumerate(zip(*output_tensor_list_list[:9])):
+        level_0_recon = recon_overlapping_patches(
+            level_0_output_tensor_list)
+        level_0_tensor_recon_list.append(level_0_recon)
+    print(level_0_tensor_recon_list)
+    print(output_tensor_list_list[9])
+    # level_1_tensor_concat_list : [level_1_down_2,  level_1_down_3,  level_1_down_4, level_1_down_5, level_1_output]
+    #                               level_0_recon_2, level_0_recon_3, level_0_recon_4, level_0_recon_5,
+    for idx, level_1_output_tensor in enumerate(output_tensor_list_list[9]):
+        print(level_1_output_tensor.shape)
+        print(level_0_tensor_recon_list[idx + 1].shape)
+        level_1_concat_overlay = layers.Concatenate(axis=-1)([level_1_output_tensor,
+                                                              level_0_tensor_recon_list[idx + 1]])
+        level_1_tensor_concat_list.append(level_1_concat_overlay)
+
+    # level_0_tensor_concat_list : [level_1_down_1, level_1_down_2, level_1_down_3, level_1_down_4, level_1_down_5, level_1_output]
+    #                               level_0_down_2, level_0_down_3, level_0_down_4, level_0_down_5,
+    for idx, output_tensor_list in enumerate(zip_longest(*output_tensor_list_list)):
+        level_1_tensor_concat_list = []
+        level_1_tensor_list = output_tensor_list[:9]
+        if idx >= 4:
+            level_1_tensor_concat_list = level_1_tensor_list
+        else:
+            level_0_tensor = output_tensor_list[9]
+            for level_1_tensor in level_1_tensor_list:
+                level_1_concat_tensor = layers.Concatenate()([level_1_tensor,
+                                                              level_0_tensor])
+                level_1_tensor_concat_list.append(level_1_concat_tensor)
+        level_0_tensor_concat_list_list.append(level_1_tensor_concat_list)
+
+    return Model(input_tensor, level_0_tensor_concat_list_list), Model(input_tensor, level_1_tensor_concat_list)
 
     seg_output_0 = DecoderBlock2D(input_tensor=encoder_output_0, encoder=encoder_0,
                                   skip_connection_layer_names=skip_connect_layer_names_0, use_skip_connect=True,
@@ -239,19 +281,6 @@ def get_seg_multi_scale_model(input_shape, block_size=16,
                                   base_act=base_act, last_act=last_act, name_prefix="seg_1")
     model_0 = Model(encoder_input_0, seg_output_0)
     model_1 = Model(encoder_input_1, seg_output_1)
-
-    input_tensor = layers.Input(input_shape)
-    input_tensor_list = tf.split(input_tensor, num_or_size_splits=10, axis=-1)
-
-    output_tensor_list = []
-    for idx, split_tensor in enumerate(input_tensor_list):
-        print(idx)
-        if idx < 9:
-            output_tensor_list.append(model_0(split_tensor))
-        else:
-            output_tensor_list.append(model_1(split_tensor))
-    output_tensor = layers.Concatenate(axis=-1)(output_tensor_list)
-    return Model(input_tensor, output_tensor)
 
 
 class MeanSTD(layers.Layer):
@@ -281,96 +310,3 @@ class Sampling(layers.Layer):
         dim = tf.shape(z_mean)[1]
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
         return z_mean + tf.exp(0.5 * z_log_var) * epsilon
-
-
-def get_vq_vae_model(input_shape, block_size=16,
-                     encoder_output_filter=16,
-                     groups=1, num_downsample=5,
-                     base_act="relu", last_act="tanh",
-                     latent_dim=16, num_embeddings=64):
-    padding = "same"
-    ################################################
-    ################# Define Layer #################
-    ################################################
-    vq_layer = VectorQuantizer(num_embeddings, embedding_dim=latent_dim,
-                               name="vector_quantizer")
-    encoder, SKIP_CONNECTION_LAYER_NAMES = HighWayResnet2D(input_shape=input_shape, block_size=block_size, last_filter=encoder_output_filter,
-                                                           groups=groups, num_downsample=num_downsample, padding=padding,
-                                                           base_act=base_act, last_act=base_act)
-    _, H, W, C = encoder.output.shape
-    ################################################
-    ################# Define call ##################
-    ################################################
-    input_tensor = encoder.input
-    encoder_output = encoder(input_tensor)
-
-    quantized_latents = vq_layer(encoder_output)
-
-    recon_output = HighWayDecoder2D(input_tensor=quantized_latents,
-                                    encoder=None, skip_connection_layer_names=None,
-                                    last_filter=input_shape[-1],
-                                    block_size=block_size, groups=1, num_downsample=num_downsample, padding=padding,
-                                    base_act=base_act, last_act=last_act, name_prefix="recon")
-
-    model = Model(input_tensor, recon_output)
-    return model
-
-
-class VectorQuantizer(layers.Layer):
-    def __init__(self, num_embeddings, embedding_dim, beta=0.25, **kwargs):
-        super().__init__(**kwargs)
-        self.embedding_dim = embedding_dim
-        self.num_embeddings = num_embeddings
-        self.beta = (
-            # This parameter is best kept between [0.25, 2] as per the paper.
-            beta
-        )
-
-        # Initialize the embeddings which we will quantize.
-        w_init = tf.random_uniform_initializer()
-        self.embeddings = tf.Variable(
-            initial_value=w_init(
-                shape=(self.embedding_dim, self.num_embeddings), dtype="float32"
-            ),
-            trainable=True,
-            name="embeddings_vqvae",
-        )
-
-    def call(self, x):
-        # Calculate the input shape of the inputs and
-        # then flatten the inputs keeping `embedding_dim` intact.
-        _, H, W, C = backend.int_shape(x)
-        flattened = tf.reshape(x, [-1, self.embedding_dim])
-
-        # Quantization.
-        encoding_indices = self.get_code_indices(flattened)
-        encodings = tf.one_hot(encoding_indices, self.num_embeddings)
-        quantized = tf.matmul(encodings, self.embeddings, transpose_b=True)
-        quantized = tf.reshape(quantized, [-1, H, W, C])
-
-        # Calculate vector quantization loss and add that to the layer. You can learn more
-        # about adding losses to different layers here:
-        # https://keras.io/guides/making_new_layers_and_models_via_subclassing/. Check
-        # the original paper to get a handle on the formulation of the loss function.
-        commitment_loss = self.beta * tf.reduce_mean(
-            (tf.stop_gradient(quantized) - x) ** 2
-        )
-        codebook_loss = tf.reduce_mean((quantized - tf.stop_gradient(x)) ** 2)
-        self.add_loss(commitment_loss + codebook_loss)
-
-        # Straight-through estimator.
-        quantized = x + tf.stop_gradient(quantized - x)
-        return quantized
-
-    def get_code_indices(self, flattened_inputs):
-        # Calculate L2-normalized distance between the inputs and the codes.
-        similarity = tf.matmul(flattened_inputs, self.embeddings)
-        distances = (
-            tf.reduce_sum(flattened_inputs ** 2, axis=1, keepdims=True)
-            + tf.reduce_sum(self.embeddings ** 2, axis=0)
-            - 2 * similarity
-        )
-
-        # Derive the indices for minimum distances.
-        encoding_indices = tf.argmin(distances, axis=1)
-        return encoding_indices

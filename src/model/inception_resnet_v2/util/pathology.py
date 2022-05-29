@@ -13,10 +13,11 @@ def get_region(image_tensor, h, w, position):
     return image_tensor
 
 
-def restore_overlapping_patches(image_tensor_concat):
-    _, H, W, _ = image_tensor_concat.shape
+def restore_overlapping_patches(image_tensor):
+    # _, H, W, _ = image_tensor_concat.shape
+    _, H, W, _ = image_tensor[0].shape
     h, w = H // 2, W // 2
-    image_tensor = tf.split(image_tensor_concat, 10, -1)
+    # image_tensor = tf.split(image_tensor_concat, 10, -1)
     image_tensor_list = []
     row_0_col_0 = get_region(image_tensor[0], h, w, "left_upper") * 1
     row_0_col_1 = get_region(image_tensor[0], h, w, "right_upper") * \
