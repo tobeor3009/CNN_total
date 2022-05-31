@@ -598,7 +598,6 @@ class Decoder3D(layers.Layer):
         super().__init__()
         USE_CONV_BIAS = True
         self.kernel_size = kernel_size
-        self.unsharp = unsharp
         self.conv_before_pixel_shffle = layers.Conv3D(filters=out_channel * (kernel_size ** 2),
                                                       kernel_size=1, padding="same",
                                                       strides=1, use_bias=USE_CONV_BIAS)
@@ -634,8 +633,8 @@ class Decoder3D(layers.Layer):
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
 
-        output = (pixel_shuffle + upsample) / math.sqrt(2)
-
+        output = layers.Concatenate()([pixel_shuffle, upsample])
+        output = self.act_layer(output)
         return output
 
 

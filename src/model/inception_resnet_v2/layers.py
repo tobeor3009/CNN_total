@@ -635,7 +635,7 @@ class Decoder2D(layers.Layer):
         self.act_layer = get_act_layer(activation)
 
         if self.unsharp is True:
-            self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel * 2)
 
     def call(self, x):
 
@@ -650,8 +650,8 @@ class Decoder2D(layers.Layer):
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
 
-        output = (pixel_shuffle + upsample) / math.sqrt(2)
-
+        output = layers.Concatenate()([pixel_shuffle, upsample])
+        output = self.act_layer(output)
         if self.unsharp is True:
             output = self.unsharp_mask_layer(output)
 
@@ -701,6 +701,48 @@ class HighwayDecoder3D(layers.Layer):
         return output
 
 
+# class Decoder3D(layers.Layer):
+#     def __init__(self, filters, strides, activation):
+#         super().__init__()
+
+#         self.filters = filters
+#         self.conv_before_pixel_shuffle = layers.Conv3D(filters=filters,
+#                                                        kernel_size=1, padding="same",
+#                                                        strides=1, use_bias=USE_CONV_BIAS)
+#         self.pixel_shuffle = Pixelshuffle3D(kernel_size=2)
+#         self.conv_after_pixel_shuffle = layers.Conv3D(filters=filters,
+#                                                       kernel_size=3, padding="same",
+#                                                       strides=1, use_bias=USE_CONV_BIAS)
+
+#         self.conv_before_upsample = layers.Conv3D(filters=filters,
+#                                                   kernel_size=1, padding="same",
+#                                                   strides=1, use_bias=USE_CONV_BIAS)
+#         self.upsample_layer = layers.UpSampling3D(size=strides)
+#         self.conv_after_upsample = layers.Conv3D(filters=filters,
+#                                                  kernel_size=3, padding="same",
+#                                                  strides=1, use_bias=USE_CONV_BIAS)
+
+#         self.norm_layer_pixel_shuffle = layers.BatchNormalization(axis=-1)
+#         self.norm_layer_upsample = layers.BatchNormalization(axis=-1)
+#         self.act_layer = get_act_layer(activation)
+
+#     def call(self, input_tensor):
+
+#         pixel_shuffle = self.conv_before_pixel_shuffle(input_tensor)
+#         pixel_shuffle = self.pixel_shuffle(pixel_shuffle)
+#         pixel_shuffle = self.conv_after_pixel_shuffle(pixel_shuffle)
+#         pixel_shuffle = self.norm_layer_pixel_shuffle(pixel_shuffle)
+
+#         upsample = self.conv_before_upsample(input_tensor)
+#         upsample = self.upsample_layer(upsample)
+#         upsample = self.conv_after_upsample(upsample)
+#         upsample = self.norm_layer_upsample(upsample)
+
+#         output = layers.Concatenate()([pixel_shuffle, upsample])
+#         output = self.act_layer(output)
+#         return output
+
+
 class Decoder3D(layers.Layer):
     def __init__(self, filters, strides, activation):
         super().__init__()
@@ -708,22 +750,35 @@ class Decoder3D(layers.Layer):
         self.filters = filters
         self.conv_before_pixel_shuffle = layers.Conv3D(filters=filters,
                                                        kernel_size=1, padding="same",
-                                                       strides=1, use_bias=USE_CONV_BIAS)
+                                                       strides=1, use_bias=False)
         self.pixel_shuffle = Pixelshuffle3D(kernel_size=2)
         self.conv_after_pixel_shuffle = layers.Conv3D(filters=filters,
-                                                      kernel_size=1, padding="same",
-                                                      strides=1, use_bias=USE_CONV_BIAS)
+                                                      kernel_size=3, padding="same",
+                                                      strides=1, use_bias=False)
 
         self.conv_before_upsample = layers.Conv3D(filters=filters,
                                                   kernel_size=1, padding="same",
-                                                  strides=1, use_bias=USE_CONV_BIAS)
+                                                  strides=1, use_bias=False)
         self.upsample_layer = layers.UpSampling3D(size=strides)
         self.conv_after_upsample = layers.Conv3D(filters=filters,
-                                                 kernel_size=1, padding="same",
-                                                 strides=1, use_bias=USE_CONV_BIAS)
+                                                 kernel_size=3, padding="same",
+                                                 strides=1, use_bias=False)
 
-        self.norm_layer_pixel_shuffle = layers.LayerNormalization(axis=-1)
-        self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
+        # self.conv_before_transpose = layers.Conv3D(filters=filters,
+        #                                            kernel_size=1, padding="same",
+        #                                            strides=1, use_bias=USE_CONV_BIAS)
+        # self.transpose = layers.Conv3DTranspose(filters=filters,
+        #                                         kernel_size=3, padding="same",
+        #                                         strides=2, use_bias=USE_CONV_BIAS)
+        # self.conv_after_transpose = layers.Conv3D(filters=filters,
+        #                                           kernel_size=3, padding="same",
+        #                                           strides=1, use_bias=USE_CONV_BIAS)
+
+        self.norm_layer_pixel_shuffle = layers.BatchNormalization(axis=-1,
+                                                                  scale=False)
+        self.norm_layer_upsample = layers.BatchNormalization(axis=-1,
+                                                             scale=False)
+        # self.norm_layer_transpose = layers.BatchNormalization(axis=-1)
         self.act_layer = get_act_layer(activation)
 
     def call(self, input_tensor):
@@ -733,40 +788,19 @@ class Decoder3D(layers.Layer):
         pixel_shuffle = self.conv_after_pixel_shuffle(pixel_shuffle)
         pixel_shuffle = self.norm_layer_pixel_shuffle(pixel_shuffle)
 
-        upsamle = self.conv_before_upsample(input_tensor)
-        upsamle = self.upsample_layer(upsamle)
-        upsamle = self.conv_after_upsample(upsamle)
-        upsamle = self.norm_layer_upsample(upsamle)
+        upsample = self.conv_before_upsample(input_tensor)
+        upsample = self.upsample_layer(upsample)
+        upsample = self.conv_after_upsample(upsample)
+        upsample = self.norm_layer_upsample(upsample)
 
-        output = (pixel_shuffle + upsamle) / math.sqrt(2)
+        # transpose = self.conv_before_transpose(input_tensor)
+        # transpose = self.transpose(transpose)
+        # transpose = self.conv_after_transpose(transpose)
+        # transpose = self.norm_layer_transpose(transpose)
+        output = layers.Concatenate()([pixel_shuffle,
+                                       upsample])
         output = self.act_layer(output)
         return output
-
-
-# class Decoder3D(layers.Layer):
-#     def __init__(self, filters, strides, activation):
-#         super().__init__()
-
-#         self.filters = filters
-#         self.conv_before_upsample = layers.Conv3D(filters=filters,
-#                                                   kernel_size=1, padding="same",
-#                                                   strides=1, use_bias=USE_CONV_BIAS)
-#         self.upsample_layer = layers.UpSampling3D(size=strides)
-#         self.conv_after_upsample = layers.Conv3D(filters=filters,
-#                                                  kernel_size=1, padding="same",
-#                                                  strides=1, use_bias=USE_CONV_BIAS)
-
-#         self.norm_layer_upsample = layers.LayerNormalization(axis=-1)
-#         self.act_layer = get_act_layer(activation)
-
-#     def call(self, input_tensor):
-
-#         upsamle = self.conv_before_upsample(input_tensor)
-#         upsamle = self.upsample_layer(upsamle)
-#         upsamle = self.conv_after_upsample(upsamle)
-#         upsamle = self.norm_layer_upsample(upsamle)
-#         output = self.act_layer(upsamle)
-#         return output
 
 
 class OutputLayer2D(layers.Layer):
@@ -830,13 +864,13 @@ class OutputLayer3D(layers.Layer):
                                         kernel_size=1,
                                         padding="same",
                                         strides=1,
-                                        use_bias=USE_CONV_BIAS,
+                                        use_bias=False,
                                         )
         self.conv_3x3x3 = layers.Conv3D(filters=last_channel_num,
                                         kernel_size=3,
                                         padding="same",
                                         strides=1,
-                                        use_bias=USE_CONV_BIAS,
+                                        use_bias=False,
                                         )
         self.highway_layer = HighwayMulti(dim=last_channel_num, mode='3d')
         self.act = get_act_layer(act)

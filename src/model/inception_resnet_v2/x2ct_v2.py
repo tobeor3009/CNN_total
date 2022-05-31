@@ -1,6 +1,6 @@
 from .base_model import InceptionResNetV2, conv2d_bn, SKIP_CONNECTION_LAYER_NAMES
 from .base_model_as_class import InceptionResNetV2_progressive
-from .base_model_as_class_3d import InceptionResNetV2_3D_Progressive
+from .base_model_as_class_3d import InceptionResNetV2_3D_Progressive, Conv3DBN
 from .base_model_3d import InceptionResNetV2 as InceptionResNetV2_3D
 from .base_model_resnet import HighWayResnet2D, HighWayResnet2D_Progressive
 from .layers import SkipUpsample3D, OutputLayer3D, TransformerEncoder, AddPositionEmbs, Decoder3D, Decoder2D, OutputLayer2D
@@ -124,6 +124,7 @@ def get_x2ct_model_ap_lat_v8(xray_shape, ct_series_shape,
 
 def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
                              block_size=16,
+                             pooling="max",
                              num_downsample=5,
                              base_act="leakyrelu",
                              last_act="tanh"):
@@ -137,6 +138,7 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
     ap_model = InceptionResNetV2_progressive(target_shape=(target_shape[0], target_shape[0], 1),
                                              block_size=block_size,
                                              padding="same",
+                                             pooling=pooling,
                                              base_act=base_act,
                                              last_act=base_act,
                                              name_prefix="ap",
@@ -145,6 +147,7 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
     lat_model = InceptionResNetV2_progressive(target_shape=(target_shape[0], target_shape[0], 1),
                                               block_size=block_size,
                                               padding="same",
+                                              pooling=pooling,
                                               base_act=base_act,
                                               last_act=base_act,
                                               name_prefix="lat",
@@ -179,14 +182,14 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
                                   ct_start_channel,
                                   ct_start_channel,
                                   H * W * C // (ct_start_channel ** 3)))(lat_decoded)
-    ap_decoded = conv3d_bn(ap_decoded, C, 3,
-                           activation=base_act)
-    lat_decoded = conv3d_bn(lat_decoded, C, 3,
-                            activation=base_act)
+    ap_decoded = Conv3DBN(C, 3,
+                          activation=base_act)(ap_decoded)
+    lat_decoded = Conv3DBN(C, 3,
+                           activation=base_act)(lat_decoded)
     concat_decoded = layers.Concatenate()([ap_decoded,
                                            lat_decoded])
-    concat_decoded = conv3d_bn(concat_decoded, C, 3,
-                               activation=base_act)
+    concat_decoded = Conv3DBN(C, 3,
+                              activation=base_act)(concat_decoded)
 
     for idx in range(5, 5 - num_downsample, -1):
         ap_skip_connect = ap_model.get_layer(f"ap_down_block_{idx}").output
@@ -197,18 +200,20 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
                                          activation=base_act)(ap_skip_connect, H)
         lat_skip_connect = SkipUpsample3D(current_filter,
                                           activation=base_act)(lat_skip_connect, H)
-        ap_decoded = conv3d_bn(ap_decoded, current_filter, 3,
-                               activation=base_act)
-        ap_decoded = layers.Concatenate()([ap_decoded, ap_skip_connect])
-        lat_decoded = conv3d_bn(lat_decoded, current_filter, 3,
-                                activation=base_act)
-        lat_decoded = layers.Concatenate()([lat_decoded, lat_skip_connect])
+        ap_decoded = Conv3DBN(current_filter, 3,
+                              activation=base_act)(ap_decoded)
+        ap_decoded = layers.Concatenate()([ap_decoded,
+                                           ap_skip_connect])
+        lat_decoded = Conv3DBN(current_filter, 3,
+                               activation=base_act)(lat_decoded)
+        lat_decoded = layers.Concatenate()([lat_decoded,
+                                            lat_skip_connect])
 
         concat_decoded = layers.Concatenate()([concat_decoded,
                                                ap_decoded,
                                                lat_decoded])
-        concat_decoded = conv3d_bn(concat_decoded, current_filter, 3,
-                                   activation=base_act)
+        concat_decoded = Conv3DBN(current_filter, 3,
+                                  activation=base_act)(concat_decoded)
         concat_decoded = Decoder3D(current_filter,
                                    strides=(2, 2, 2),
                                    activation=base_act)(concat_decoded)
@@ -219,10 +224,10 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
             lat_decoded = Decoder3D(current_filter,
                                     strides=(2, 2, 2),
                                     activation=base_act)(lat_decoded)
-    output_tensor = conv3d_bn(
-        concat_decoded, current_filter, 3, activation=base_act)
-    output_tensor = conv3d_bn(output_tensor, current_filter // 2, 1,
-                              activation=None)
+    output_tensor = Conv3DBN(current_filter, 3,
+                             activation=base_act)(concat_decoded)
+    output_tensor = Conv3DBN(current_filter // 2, 1,
+                             activation=None)(output_tensor)
     output_tensor = OutputLayer3D(last_channel_num=1,
                                   act=last_act)(output_tensor)
     return Model([ap_model_input, lat_model_input], output_tensor)

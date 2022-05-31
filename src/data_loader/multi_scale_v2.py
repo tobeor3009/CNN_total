@@ -169,7 +169,7 @@ class MultiScaleDataloader(BaseDataLoader):
             self.batch_recon_array[batch_index] = single_data_dict["recon_array"]
             self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
             self.batch_label_array[batch_index] = single_data_dict["label_array"]
-        return self.batch_image_array, self.batch_mask_array[..., 5::6]
+        return self.batch_image_array[..., -3:], self.batch_mask_array[..., -1:]
         # return self.batch_image_array, (self.batch_recon_array, self.batch_mask_array, self.batch_label_array)
 
     def print_data_info(self):

@@ -6,7 +6,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras import backend as keras_backend
 from tensorflow.keras.losses import MeanAbsoluteError
 
-from .util.lsgan import to_real_loss, to_fake_loss
+from .util.binary_crossentropy import to_real_loss, to_fake_loss
 from .util.grad_clip import adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss

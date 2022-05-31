@@ -13,7 +13,7 @@ def get_region(image_tensor, h, w, position):
     return image_tensor
 
 
-def restore_overlapping_patches(image_tensor):
+def recon_overlapping_patches(image_tensor):
     # _, H, W, _ = image_tensor_concat.shape
     _, H, W, _ = image_tensor[0].shape
     h, w = H // 2, W // 2

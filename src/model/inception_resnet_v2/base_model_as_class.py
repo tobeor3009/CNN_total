@@ -103,9 +103,45 @@ def DecoderBlock2D_stargan(input_tensor=None,
     return x
 
 
+def DecoderBlock2D_MultiScale(input_tensor=None,
+                              skip_connect_tensor_list=None,
+                              last_channel_num=None,
+                              groups=1,
+                              base_act="relu",
+                              last_act="relu",
+                              name_prefix=""):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+
+    init_filter = input_tensor.shape[-1] // 2
+    x = Conv2DBN(init_filter, 3, groups=groups,
+                 activation=base_act)(input_tensor)
+    x = Conv2DBN(init_filter, 3, groups=groups,
+                 activation=base_act)(x)
+
+    for idx in range(len(skip_connect_tensor_list) - 1, -1, -1):
+        skip_connect = skip_connect_tensor_list[idx]
+        filter_size = skip_connect.shape[-1]
+        print(skip_connect.shape)
+        x = layers.Concatenate(axis=-1)([x, skip_connect])
+        x = Conv2DBN(filter_size, 3, groups=groups,
+                     activation=base_act)(x)
+        x = Conv2DBN(filter_size, 3, groups=groups,
+                     activation=base_act)(x)
+        x = Decoder2D(out_channel=filter_size, kernel_size=2,
+                      unsharp=True, activation=base_act)(x)
+        if idx == 0:
+            x = OutputLayer2D(last_channel_num=last_channel_num,
+                              act=last_act)(x)
+    return x
+
+
 def InceptionResNetV2(input_shape=None,
                       block_size=16,
                       padding="valid",
+                      pooling="max",
                       groups=1,
                       base_act="relu",
                       last_act="relu",
@@ -122,9 +158,9 @@ def InceptionResNetV2(input_shape=None,
     x = get_block_1(x, block_size, padding,
                     groups, base_act, name_prefix)
 
-    x = get_block_2(x, block_size, padding,
+    x = get_block_2(x, block_size, padding, pooling,
                     groups, base_act, name_prefix)
-    x = get_block_3(x, block_size, padding,
+    x = get_block_3(x, block_size, padding, pooling,
                     groups, base_act, name_prefix)
     x = get_block_4(x, block_size, padding, groups,
                     use_attention, base_act, name_prefix)
@@ -146,6 +182,7 @@ def InceptionResNetV2(input_shape=None,
 def InceptionResNetV2_SkipConnect(input_shape=None,
                                   block_size=16,
                                   padding="valid",
+                                  pooling="max",
                                   groups=1,
                                   base_act="relu",
                                   last_act="relu",
@@ -160,9 +197,9 @@ def InceptionResNetV2_SkipConnect(input_shape=None,
                       base_act, 5, name_prefix)(input_tensor)
     down_1 = get_block_1(x, block_size, padding,
                          groups, base_act, name_prefix)
-    down_2 = get_block_2(x, block_size, padding,
+    down_2 = get_block_2(x, block_size, padding, pooling,
                          groups, base_act, name_prefix)
-    down_3 = get_block_3(x, block_size, padding,
+    down_3 = get_block_3(x, block_size, padding, pooling,
                          groups, base_act, name_prefix)
     down_4 = get_block_4(x, block_size, padding, groups,
                          use_attention, base_act, name_prefix)
@@ -178,10 +215,81 @@ def InceptionResNetV2_SkipConnect(input_shape=None,
     return model
 
 
+def InceptionResNetV2_SkipConnectLevel_0(input_shape=None,
+                                         block_size=16,
+                                         padding="valid",
+                                         pooling="max",
+                                         groups=1,
+                                         base_act="relu",
+                                         last_act="relu",
+                                         name_prefix="",
+                                         use_attention=True):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+    input_tensor = layers.Input(input_shape)
+    x = get_init_conv(input_tensor, block_size, groups,
+                      base_act, 5, name_prefix)(input_tensor)
+    down_1 = get_block_1(x, block_size, padding,
+                         groups, base_act, name_prefix)
+    down_2 = get_block_2(down_1, block_size, padding, pooling,
+                         groups, base_act, name_prefix)
+    down_3 = get_block_3(down_2, block_size, padding, pooling,
+                         groups, base_act, name_prefix)
+    down_4 = get_block_4(down_3, block_size, padding, groups,
+                         use_attention, base_act, name_prefix)
+    down_5 = get_block_5(down_4, block_size, padding, groups,
+                         use_attention, base_act, name_prefix)
+    output_block = get_output_block(down_5, block_size, groups, use_attention,
+                                    base_act, last_act, name_prefix)(down_5)
+
+    model = Model(input_tensor,
+                  [down_1, down_2, down_3, down_4, down_5, output_block],
+                  name=f'{name_prefix}inception_resnet_v2')
+
+    return model
+
+
+def InceptionResNetV2_SkipConnectLevel_1(input_shape=None,
+                                         block_size=16,
+                                         padding="valid",
+                                         pooling="max",
+                                         groups=1,
+                                         base_act="relu",
+                                         last_act="relu",
+                                         name_prefix="",
+                                         use_attention=True):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+    input_tensor = layers.Input(input_shape)
+    x = get_init_conv(input_tensor, block_size, groups,
+                      base_act, 4, name_prefix)(input_tensor)
+    down_2 = get_block_2(x, block_size, padding, pooling,
+                         groups, base_act, name_prefix)
+    down_3 = get_block_3(down_2, block_size, padding, pooling,
+                         groups, base_act, name_prefix)
+    down_4 = get_block_4(down_3, block_size, padding, groups,
+                         use_attention, base_act, name_prefix)
+    down_5 = get_block_5(down_4, block_size, padding, groups,
+                         use_attention, base_act, name_prefix)
+    output_block = get_output_block(down_5, block_size, groups, use_attention,
+                                    base_act, last_act, name_prefix)(down_5)
+
+    model = Model(input_tensor,
+                  [down_2, down_3, down_4, down_5, output_block],
+                  name=f'{name_prefix}inception_resnet_v2')
+
+    return model
+
+
 def InceptionResNetV2_Stargan(input_shape=None,
                               label_len=None,
                               block_size=16,
                               padding="same",
+                              pooling="max",
                               groups=1,
                               base_act="relu",
                               last_act="relu",
@@ -201,10 +309,10 @@ def InceptionResNetV2_Stargan(input_shape=None,
     x = get_block_1(x, block_size, padding,
                     groups, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
-    x = get_block_2(x, block_size, padding,
+    x = get_block_2(x, block_size, padding, pooling,
                     groups, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
-    x = get_block_3(x, block_size, padding,
+    x = get_block_3(x, block_size, padding, pooling,
                     groups, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
     x = get_block_4(x, block_size, padding, groups,
@@ -233,6 +341,7 @@ def InceptionResNetV2_Stargan(input_shape=None,
 def InceptionResNetV2_progressive(target_shape=None,
                                   block_size=16,
                                   padding="same",
+                                  pooling="max",
                                   groups=1,
                                   base_act="relu",
                                   last_act="relu",
@@ -260,10 +369,10 @@ def InceptionResNetV2_progressive(target_shape=None,
         x = get_block_1(x, block_size, padding,
                         groups, base_act, name_prefix)
     if num_downsample >= 4:
-        x = get_block_2(x, block_size, padding,
+        x = get_block_2(x, block_size, padding, pooling,
                         groups, base_act, name_prefix)
     if num_downsample >= 3:
-        x = get_block_3(x, block_size, padding,
+        x = get_block_3(x, block_size, padding, pooling,
                         groups, base_act, name_prefix)
     if num_downsample >= 2:
         x = get_block_4(x, block_size, padding, groups,
@@ -311,26 +420,34 @@ def get_block_1(input_tensor, block_size, padding,
     return conv
 
 
-def get_block_2(input_tensor, block_size, padding,
+def get_block_2(input_tensor, block_size, padding, pooling,
                 groups, activation, name_prefix):
     conv_1 = Conv2DBN(block_size * 2, 3, padding=padding, groups=groups,
                       activation=activation)(input_tensor)
     conv_2 = Conv2DBN(block_size * 4, 3, groups=groups,
                       activation=activation)(conv_1)
-    max_pool = layers.MaxPooling2D(3, strides=2, padding=padding,
+    if pooling == "average":
+        pool = layers.AveragePooling2D(3, strides=2, padding=padding,
+                                       name=f"{name_prefix}down_block_2")(conv_2)
+    elif pooling == "max":
+        pool = layers.MaxPooling2D(3, strides=2, padding=padding,
                                    name=f"{name_prefix}down_block_2")(conv_2)
-    return max_pool
+    return pool
 
 
-def get_block_3(input_tensor, block_size, padding,
+def get_block_3(input_tensor, block_size, padding, pooling,
                 groups, activation, name_prefix):
     conv_1 = Conv2DBN(block_size * 5, 1, padding=padding, groups=groups,
                       activation=activation)(input_tensor)
     conv_2 = Conv2DBN(block_size * 12, 3, padding=padding, groups=groups,
                       activation=activation)(conv_1)
-    max_pool = layers.MaxPooling2D(3, strides=2, padding=padding,
+    if pooling == "average":
+        pool = layers.AveragePooling2D(3, strides=2, padding=padding,
+                                       name=f"{name_prefix}down_block_3")(conv_2)
+    elif pooling == "max":
+        pool = layers.MaxPooling2D(3, strides=2, padding=padding,
                                    name=f"{name_prefix}down_block_3")(conv_2)
-    return max_pool
+    return pool
 
 
 def get_block_4(input_tensor, block_size, padding, groups,
@@ -634,28 +751,27 @@ class Decoder2D(layers.Layer):
         self.unsharp = unsharp
         self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
                                                       kernel_size=1, padding="same",
-                                                      strides=1, use_bias=USE_CONV_BIAS)
+                                                      strides=1, use_bias=False)
         self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
-                                                     kernel_size=1, padding="same",
-                                                     strides=1, use_bias=USE_CONV_BIAS)
+                                                     kernel_size=3, padding="same",
+                                                     strides=1, use_bias=False)
 
         self.conv_before_upsample = layers.Conv2D(filters=out_channel,
                                                   kernel_size=1, padding="same",
-                                                  strides=1, use_bias=USE_CONV_BIAS)
-
+                                                  strides=1, use_bias=False)
         self.upsample_layer = layers.UpSampling2D(size=kernel_size,
                                                   interpolation="bilinear")
         self.conv_after_upsample = layers.Conv2D(filters=out_channel,
-                                                 kernel_size=1, padding="same",
-                                                 strides=1, use_bias=USE_CONV_BIAS)
-        self.norm_layer_pixel_shffle = GroupNormalization(groups=groups,
-                                                          axis=-1)
-        self.norm_layer_upsample = GroupNormalization(groups=groups,
-                                                      axis=-1)
+                                                 kernel_size=3, padding="same",
+                                                 strides=1, use_bias=False)
+        self.norm_layer_pixel_shffle = layers.BatchNormalization(axis=-1,
+                                                                 scale=False)
+        self.norm_layer_upsample = layers.BatchNormalization(axis=-1,
+                                                             scale=False)
         self.act_layer = get_act_layer(activation)
 
         if self.unsharp is True:
-            self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel * 2)
 
     def call(self, x):
 
@@ -670,8 +786,8 @@ class Decoder2D(layers.Layer):
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
 
-        output = (pixel_shuffle + upsample) / math.sqrt(2)
-
+        output = layers.Concatenate()([pixel_shuffle, upsample])
+        output = self.act_layer(output)
         if self.unsharp is True:
             output = self.unsharp_mask_layer(output)
 
@@ -686,13 +802,13 @@ class OutputLayer2D(layers.Layer):
                                       kernel_size=1,
                                       padding="same",
                                       strides=1,
-                                      use_bias=USE_CONV_BIAS,
+                                      use_bias=False,
                                       )
         self.conv_3x3 = layers.Conv2D(filters=last_channel_num,
                                       kernel_size=3,
                                       padding="same",
                                       strides=1,
-                                      use_bias=USE_CONV_BIAS,
+                                      use_bias=False,
                                       )
         self.act = get_act_layer(act)
 

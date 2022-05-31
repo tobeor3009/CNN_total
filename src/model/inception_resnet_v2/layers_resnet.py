@@ -69,7 +69,7 @@ def highway_conv2d(input_tensor, filters, kernel_size=(3, 3),
 
     conv_layer = EqualizedConv(out_channels=filters,
                                downsample=downsample,
-                               kernel=3, name=conv_name)
+                               kernel=kernel_size, name=conv_name)
 
     norm_layer = get_norm_layer(groups, name=norm_name)
     act_layer = get_act_layer(activation, name=act_name)

@@ -6,7 +6,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
 
-from .util.lsgan import to_real_loss, to_fake_loss
+from .util.binary_crossentropy import to_real_loss, to_fake_loss
 from .util.grad_clip import adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss
@@ -81,9 +81,9 @@ class ATTGan(Model):
             # another domain mapping
             fake_y = self.generator([real_x, label_y])
             # Discriminator output
-            disc_real_x, label_pred_real_x = self.discriminator(real_x,
+            disc_real_x, label_pred_real_x = self.discriminator([real_x, real_x],
                                                                 training=True)
-            disc_fake_y, label_pred_fake_y = self.discriminator(fake_y,
+            disc_fake_y, label_pred_fake_y = self.discriminator([real_x, fake_y],
                                                                 training=True)
             # Compute Discriminator class_loss
             disc_real_x_class_loss = self.class_loss_fn(label_x,
