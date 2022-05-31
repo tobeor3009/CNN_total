@@ -37,6 +37,7 @@ def get_multi_scale_task_model(input_shape, num_class, block_size=16,
     sampling_z = sampling_layer([z_mean, z_log_var])
     z = decode_dense_layer(sampling_z)
     z = backend.reshape(z, (-1, H // 4, W // 4, C // 4))
+
     recon_output = DecoderBlock2D(input_tensor=z, encoder=encoder,
                                   skip_connection_layer_names=skip_connect_layer_names, use_skip_connect=False,
                                   last_channel_num=input_shape[-1],
@@ -208,7 +209,6 @@ def get_seg_multi_scale_model(input_shape, block_size=16,
 
 def get_seg_multi_scale_model(input_shape, block_size=16,
                               num_class=6,
-                              num_downsample=5,
                               base_act="relu", last_act="sigmoid"):
     padding = "same"
     ################################################
@@ -265,20 +265,23 @@ def get_seg_multi_scale_model(input_shape, block_size=16,
             level_0_tensor_concat_list_temp.append(level_0_tensor_concat_temp)
         level_0_tensor_concat_list_list.append(level_0_tensor_concat_list_temp)
 
+    level_0_tensor_refer_list = level_0_tensor_concat_list_list[0]
+    decoder_level_0 = DecoderBlock2D_MultiScale(input_tensor=level_0_tensor_refer_list[-1],
+                                                skip_connect_tensor_list=level_0_tensor_refer_list[:-1],
+                                                last_channel_num=num_class,
+                                                groups=1,
+                                                base_act=base_act, last_act=last_act, name_prefix="seg_0")
+    decoder_level_1 = DecoderBlock2D_MultiScale(input_tensor=level_1_tensor_concat_list[-1],
+                                                skip_connect_tensor_list=level_1_tensor_concat_list[:-1],
+                                                last_channel_num=num_class,
+                                                groups=1,
+                                                base_act=base_act, last_act=last_act, name_prefix="seg_0")
     seg_output_0_list = []
     for level_0_tensor_concat_list in level_0_tensor_concat_list_list:
-        seg_output_0 = DecoderBlock2D_MultiScale(input_tensor=level_0_tensor_concat_list[-1],
-                                                 skip_connect_tensor_list=level_0_tensor_concat_list[:-1],
-                                                 last_channel_num=num_class,
-                                                 groups=1,
-                                                 base_act=base_act, last_act=last_act, name_prefix="seg_0")
+        seg_output_0 = decoder_level_0(level_0_tensor_concat_list)
         seg_output_0_list.append(seg_output_0)
     seg_output_0 = layers.Concatenate(axis=-1)(seg_output_0_list)
-    seg_output_1 = DecoderBlock2D_MultiScale(input_tensor=level_1_tensor_concat_list[-1],
-                                             skip_connect_tensor_list=level_1_tensor_concat_list[:-1],
-                                             last_channel_num=num_class,
-                                             groups=1,
-                                             base_act=base_act, last_act=last_act, name_prefix="seg_0")
+    seg_output_1 = decoder_level_1(level_1_tensor_concat_list)
     seg_output = layers.Concatenate(axis=-1)([seg_output_0,
                                               seg_output_1])
 

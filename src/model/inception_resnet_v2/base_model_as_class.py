@@ -115,17 +115,19 @@ def DecoderBlock2D_MultiScale(input_tensor=None,
     else:
         name_prefix = f"{name_prefix}_"
 
+    model_input = layers.Input(input_tensor.shape[1:])
     init_filter = input_tensor.shape[-1] // 2
     x = Conv2DBN(init_filter, 3, groups=groups,
-                 activation=base_act)(input_tensor)
+                 activation=base_act)(model_input)
     x = Conv2DBN(init_filter, 3, groups=groups,
                  activation=base_act)(x)
-
+    skip_connect_input_list = []
     for idx in range(len(skip_connect_tensor_list) - 1, -1, -1):
-        skip_connect = skip_connect_tensor_list[idx]
-        filter_size = skip_connect.shape[-1]
-        print(skip_connect.shape)
-        x = layers.Concatenate(axis=-1)([x, skip_connect])
+        skip_connect_refer = skip_connect_tensor_list[idx]
+        skip_connect_input = layers.Input(skip_connect_refer.shape[1:])
+        skip_connect_input_list.insert(0, skip_connect_input)
+        filter_size = skip_connect_refer.shape[-1]
+        x = layers.Concatenate(axis=-1)([x, skip_connect_input])
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
@@ -135,7 +137,8 @@ def DecoderBlock2D_MultiScale(input_tensor=None,
         if idx == 0:
             x = OutputLayer2D(last_channel_num=last_channel_num,
                               act=last_act)(x)
-    return x
+
+    return Model([*skip_connect_input_list, model_input], x)
 
 
 def InceptionResNetV2(input_shape=None,
