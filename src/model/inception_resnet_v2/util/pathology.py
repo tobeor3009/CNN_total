@@ -79,3 +79,57 @@ def recon_overlapping_patches(image_tensor):
     restored = tf.concat([row_1, row_2, row_3, row_4], axis=1)
 
     return restored
+
+
+# 1 / 4 Scale Restore
+def recon_overlapping_patches_quarter_scale(image_tensor):
+    # _, H, W, _ = image_tensor_concat.shape
+    _, H, W, _ = image_tensor[0].shape
+    h, w = H // 2, W // 2
+    col_in_row = 7
+    row_list = []
+
+    col_list = []
+    col_list.append(get_region(image_tensor[0], h, w, "left_upper") * 1)
+    for idx in range(col_in_row - 1):
+        col_element = get_region(image_tensor[idx], h, w, "right_upper") * \
+            0.5 + get_region(image_tensor[idx + 1], h, w, "left_upper") * 0.5
+        col_list.append(col_element)
+    col_list.append(get_region(
+        image_tensor[col_in_row - 1], h, w, "right_upper") * 1)
+    row_list.append(col_list)
+
+    for row_idx in range(col_in_row - 1):
+        start_num = row_idx * col_in_row
+        col_list = []
+        col_list.append(get_region(image_tensor[start_num], h, w, "left_lower") *
+                        0.5 + get_region(image_tensor[start_num + col_in_row], h, w, "left_upper") * 0.5)
+        for col_idx in range(col_in_row - 1):
+            col_element = get_region(image_tensor[start_num + col_idx], h, w, "right_lower") * 0.25 + \
+                get_region(image_tensor[start_num + col_idx + 1], h, w, "left_lower") * 0.25 + \
+                get_region(image_tensor[start_num + col_idx + col_in_row], h, w, "right_upper") * 0.25 + \
+                get_region(image_tensor[start_num + col_idx + col_in_row + 1],
+                           h, w, "left_upper") * 0.25
+            col_list.append(col_element)
+        col_list.append(get_region(image_tensor[start_num + col_in_row - 1], h, w, "right_lower") *
+                        0.5 + get_region(image_tensor[start_num + col_in_row + col_in_row - 1], h, w, "right_upper") * 0.5)
+        row_list.append(col_list)
+
+    col_list = []
+    start_num = (col_in_row - 1) * col_in_row
+    col_list.append(get_region(
+        image_tensor[start_num], h, w, "left_lower") * 1)
+    for idx in range(col_in_row - 1):
+        col_element = get_region(image_tensor[start_num + idx], h, w, "right_lower") * \
+            0.5 + \
+            get_region(image_tensor[start_num + idx + 1],
+                       h, w, "left_lower") * 0.5
+        col_list.append(col_element)
+    col_list.append(get_region(
+        image_tensor[start_num + col_in_row - 1], h, w, "right_lower") * 1)
+    row_list.append(col_list)
+
+    row_list = [tf.concat(row, axis=2) for row in row_list]
+    restored = tf.concat(row_list, axis=1)
+
+    return restored

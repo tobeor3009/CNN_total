@@ -98,9 +98,10 @@ class StarGanDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
 
             image_array = imread(image_path, channel=self.image_channel)
+            image_array, image_array_max, image_array_min = self.preprocess_method(
+                image_array)
             image_array = self.resize_method(image_array)
             image_array = self.argumentation_method(image_array)
-            image_array = self.preprocess_method(image_array)
 
             if self.is_class_cached:
                 label = self.class_dict[current_index]
@@ -110,6 +111,8 @@ class StarGanDataGetter(BaseDataGetter):
                 self.single_data_dict = deepcopy(self.single_data_dict)
 
         self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["image_max"] = image_array_max
+        self.single_data_dict["image_min"] = image_array_min
         self.single_data_dict["label"] = label
 
         return self.single_data_dict
@@ -132,60 +135,13 @@ class StarGanDataGetter(BaseDataGetter):
 
         self.on_memory = True
 
-    def get_data_on_disk(self):
-
-        single_data_dict, _ = self[0]
-        image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple([len(self)] + image_array_shape)
-        image_array_dtype = single_data_dict["image_array"].dtype
-
-        label_array_shape = list(single_data_dict["label"].shape)
-        label_array_shape = tuple([len(self)] + label_array_shape)
-        label_array_dtype = single_data_dict["label"].dtype
-
-        # get_npy_array(path, target_size, data_key, shape, dtype)
-        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="image",
-                                                            shape=image_array_shape,
-                                                            dtype=image_array_dtype)
-        label_memmap_array, label_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="label",
-                                                            shape=label_array_shape,
-                                                            dtype=label_array_dtype)
-
-        if os.path.exists(image_lock_path) and os.path.exists(label_lock_path):
-            pass
-        else:
-            image_range = range(self.data_len)
-
-            for index in tqdm(image_range):
-                image_path = self.image_path_dict[index]
-                image_array = imread(image_path, channel=self.image_channel)
-                image_array = self.resize_method(image_array)
-
-                label = self.label_policy(image_path)
-
-                image_memmap_array[index] = image_array
-                label_memmap_array[index] = label
-
-            with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
-                pass
-
-        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
-                                              array_tuple=(image_memmap_array, label_memmap_array))
-        self.data_on_ram_dict = LazyDict({
-            i: (array_dict_lazy, i) for i in range(len(self))
-        })
-        self.on_memory = True
-
 
 class StarGanDataloader(BaseDataLoader):
 
     def __init__(self,
                  image_path_list=None,
                  label_policy=None,
+                 include_min_max=False,
                  batch_size=None,
                  on_memory=False,
                  argumentation_proba=False,
@@ -210,6 +166,7 @@ class StarGanDataloader(BaseDataLoader):
                                              class_mode=class_mode,
                                              dtype=dtype
                                              )
+        self.include_min_max = include_min_max
         self.batch_size = batch_size
         temp_data = self.data_getter[0]
         self.image_data_shape = temp_data["image_array"].shape
@@ -220,6 +177,10 @@ class StarGanDataloader(BaseDataLoader):
 
         self.batch_image_array = np.zeros(
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_image_max_array = np.zeros(
+            (self.batch_size,), dtype=self.dtype)
+        self.batch_image_min_array = np.zeros(
+            (self.batch_size,), dtype=self.dtype)
         self.batch_label_array = np.zeros(
             (self.batch_size, *self.label_data_shape), dtype=self.dtype)
 
@@ -235,9 +196,14 @@ class StarGanDataloader(BaseDataLoader):
             single_data_dict = self.data_getter[total_index]
 
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_image_max_array[batch_index] = single_data_dict["image_max"]
+            self.batch_image_min_array[batch_index] = single_data_dict["image_min"]
             self.batch_label_array[batch_index] = single_data_dict["label"]
 
-        return self.batch_image_array, self.batch_label_array
+        if self.include_min_max:
+            return self.batch_image_array, self.batch_label_array, self.batch_image_max_array, self.batch_image_min_array
+        else:
+            return self.batch_image_array, self.batch_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

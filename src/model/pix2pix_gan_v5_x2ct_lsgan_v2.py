@@ -94,7 +94,7 @@ class Pix2PixGan(Model):
 
             disc_real_loss = to_real_loss(disc_real_y)
             disc_fake_loss = to_fake_loss(disc_fake_y)
-            disc_loss = (disc_real_loss + disc_fake_loss) / 2
+            disc_loss = (disc_real_loss + disc_fake_loss) * 5
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_loss,
                                         self.discriminator.trainable_variables)
@@ -126,8 +126,9 @@ class Pix2PixGan(Model):
         gen_grads = gen_tape.gradient(total_generator_loss,
                                       self.generator.trainable_variables)
         if self.apply_adaptive_gradient_clipping is True:
-            gen_grads = adaptive_gradient_clipping(
-                gen_grads, self.generator.trainable_variables, lambda_clip=self.lambda_clip)
+            gen_grads = adaptive_gradient_clipping(gen_grads,
+                                                   self.generator.trainable_variables,
+                                                   lambda_clip=self.lambda_clip)
 
         # Update the weights of the generators
         self.generator_optimizer.apply_gradients(

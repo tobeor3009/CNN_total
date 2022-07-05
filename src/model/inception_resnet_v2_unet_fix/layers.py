@@ -671,6 +671,50 @@ class HighwayDecoder2D(layers.Layer):
         return output
 
 
+class SELNorm(layers.Layer):
+
+    def call(self, x, heatmap):
+        x_mean, x_std = self.get_mean_std(x)
+        heatmap_mean, heatmap_std = self.get_mean_std(heatmap)
+        valid_normalized = (x - x_mean) / x_std
+        print(heatmap.shape)
+        print(heatmap_mean.shape)
+        print(heatmap_std.shape)
+        print(valid_normalized.shape)
+
+        train_normalized = heatmap_std * valid_normalized + heatmap_mean
+        return backend.in_test_phase(train_normalized,
+                                     valid_normalized)
+
+    def get_mean_std(self, x, epsilon=1e-5):
+        axes = [1, 2]
+        # Compute the mean and standard deviation of a tensor.
+        mean, variance = tf.nn.moments(x, axes=axes, keepdims=False)
+        standard_deviation = tf.sqrt(variance + epsilon)
+
+        return mean, standard_deviation
+
+# class SELNorm(layers.Layer):
+#     def __init__(self)
+
+#     def call(self, x, heatmap):
+#         x_mean, x_std = self.get_mean_std(x)
+#         heatmap_mean, heatmap_std = self.get_mean_std(heatmap)
+#         normalized = heatmap_std * (x - x_mean) / x_std + heatmap_mean
+#         return normalized
+
+#     def get_mean_std(self, x, epsilon=1e-5):
+#         if x is None:
+#             return 0, 1
+#         else:
+#             axes = [1, 2]
+#             # Compute the mean and standard deviation of a tensor.
+#             mean, variance = tf.nn.moments(x, axes=axes, keepdims=True)
+#             standard_deviation = tf.sqrt(variance + epsilon)
+
+#             return mean, standard_deviation
+
+
 class Decoder2D(layers.Layer):
     def __init__(self, out_channel, kernel_size=2,
                  norm="batch", activation="leakyrelu", unsharp=False):
@@ -715,6 +759,50 @@ class Decoder2D(layers.Layer):
         return output
 
 
+class Decoder2DHeatmap(layers.Layer):
+    def __init__(self, out_channel, kernel_size=2,
+                 norm="batch", activation="leakyrelu", unsharp=False):
+        super(Decoder2DHeatmap, self).__init__()
+
+        self.kernel_size = kernel_size
+        self.unsharp = unsharp
+        self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
+                                                      kernel_size=1, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
+                                                     kernel_size=3, padding="same",
+                                                     strides=1, use_bias=USE_CONV_BIAS)
+
+        self.upsample_layer = layers.UpSampling2D(size=kernel_size,
+                                                  interpolation="bilinear")
+        self.conv_after_upsample = layers.Conv2D(filters=out_channel,
+                                                 kernel_size=3, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
+        self.norm_layer = SELNorm()
+        self.act_layer = get_act_layer(activation)
+
+        if self.unsharp is True:
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel * 2)
+
+    def call(self, input_tensor, heatmap):
+
+        pixel_shuffle = self.conv_before_pixel_shffle(input_tensor)
+        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle,
+                                             block_size=self.kernel_size)
+        pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
+
+        upsample = self.upsample_layer(input_tensor)
+        upsample = self.conv_after_upsample(upsample)
+
+        output = layers.Concatenate()([pixel_shuffle, upsample])
+        output = self.norm_layer(output, heatmap)
+        output = self.act_layer(output)
+        if self.unsharp is True:
+            output = self.unsharp_mask_layer(output)
+
+        return output
+
+
 class UpsampleBlock2D(layers.Layer):
     def __init__(self, out_channel, kernel_size=2,
                  norm="batch", activation="leakyrelu", unsharp=False):
@@ -737,6 +825,35 @@ class UpsampleBlock2D(layers.Layer):
         upsample = self.upsample_layer(input_tensor)
         upsample = self.conv_after_upsample(upsample)
         upsample = self.norm_layer_upsample(upsample)
+        output = self.act_layer(upsample)
+        if self.unsharp is True:
+            output = self.unsharp_mask_layer(output)
+
+        return output
+
+
+class UpsampleBlock2DHeatmap(layers.Layer):
+    def __init__(self, out_channel, kernel_size=2,
+                 norm="batch", activation="leakyrelu", unsharp=False):
+        super().__init__()
+
+        self.kernel_size = kernel_size
+        self.unsharp = unsharp
+        self.upsample_layer = layers.UpSampling2D(
+            size=kernel_size, interpolation="bilinear")
+        self.conv_after_upsample = layers.Conv2D(filters=out_channel,
+                                                 kernel_size=3, padding="same",
+                                                 strides=1, use_bias=USE_CONV_BIAS)
+        self.norm_layer_upsample = SELNorm()
+        self.act_layer = get_act_layer(activation)
+
+        if self.unsharp is True:
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel)
+
+    def call(self, input_tensor, heatmap):
+        upsample = self.upsample_layer(input_tensor)
+        upsample = self.conv_after_upsample(upsample)
+        upsample = self.norm_layer_upsample(upsample, heatmap)
         output = self.act_layer(upsample)
         if self.unsharp is True:
             output = self.unsharp_mask_layer(output)

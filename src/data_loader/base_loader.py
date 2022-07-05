@@ -34,8 +34,10 @@ elastic_tranform = A.ElasticTransform(p=0.5)
 
 brightness_value = 0.1
 brightness_contrast_transform = A.OneOf([
-    A.RandomBrightnessContrast(
-        brightness_limit=(-brightness_value, brightness_value), contrast_limit=(-brightness_value, brightness_value), p=1),
+    A.RandomBrightnessContrast(brightness_limit=(-brightness_value, brightness_value),
+                               contrast_limit=(-brightness_value,
+                                               brightness_value),
+                               p=1),
 ], p=0.5)
 
 color_transform = A.OneOf([
@@ -44,8 +46,8 @@ color_transform = A.OneOf([
     A.ToSepia(p=1),
 ], p=0.5)
 
-to_jpeg_transform = A.ImageCompression(
-    quality_lower=99, quality_upper=100, p=0.5)
+to_jpeg_transform = A.ImageCompression(quality_lower=99,
+                                       quality_upper=100, p=0.5)
 
 
 def identity_fn(any):
@@ -209,7 +211,7 @@ class ClassifyArgumentationPolicy():
         final_transform_list = []
         if argumentation_policy_dict["randomcrop"]:
             randomcrop_transform = A.RandomCrop(
-                argumentation_policy_dict["randomcrop"], p=1)
+                *argumentation_policy_dict["randomcrop"], p=1)
             final_transform_list.append(randomcrop_transform)
         if argumentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
@@ -224,7 +226,7 @@ class ClassifyArgumentationPolicy():
         if argumentation_policy_dict["to_jpeg"] is True:
             final_transform_list.append(to_jpeg_transform)
 
-        final_transform = A.Compose(
+        self.final_transform = A.Compose(
             final_transform_list, p=argumentation_proba)
         if argumentation_proba:
             self.transform = self.image_transform
@@ -266,8 +268,8 @@ class SegArgumentationPolicy():
         if argumentation_policy_dict["to_jpeg"] is True:
             final_transform_list.append(to_jpeg_transform)
 
-        self.final_transform = A.Sequential(
-            final_transform_list, p=argumentation_proba)
+        self.final_transform = A.Sequential(final_transform_list,
+                                            p=argumentation_proba)
 
         if argumentation_proba:
             self.transform = self.image_mask_sync_transform

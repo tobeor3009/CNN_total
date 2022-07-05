@@ -9,7 +9,6 @@ from tensorflow.keras.losses import CategoricalCrossentropy, BinaryCrossentropy
 from .util.lsgan import to_real_loss, to_fake_loss
 from .util.grad_clip import adaptive_gradient_clipping
 from .inception_resnet_v2.util.pathology import recon_overlapping_patches_quarter_scale
-
 # Loss function for evaluating adversarial loss
 adv_loss_fn = MeanAbsoluteError()
 base_image_loss_fn = MeanAbsoluteError()
@@ -17,14 +16,34 @@ base_class_loss_fn = BinaryCrossentropy(label_smoothing=0.01)
 mean_layer = layers.Average()
 
 
-def get_diff_label(label_tensor):
-    label_shape = tf.shape(label_tensor)
-    batch_size, num_class = label_shape[0], label_shape[1]
-    label_tensor = backend.random_normal(
-        shape=(batch_size, num_class)) - label_tensor
-    label_tensor = tf.argmax(label_tensor, axis=1)
-    label_tensor = tf.one_hot(label_tensor, depth=num_class)
-    return label_tensor
+def split_multiclass_into_batch(real_img, label, num_class):
+    img_shape = tf.shape(real_img)
+    b, h, w, c = img_shape[0], img_shape[1], img_shape[2], img_shape[3]
+    target_label = backend.random_normal(shape=(b, num_class))
+    target_label = tf.argmax(target_label, axis=1)
+    target_label = tf.one_hot(target_label, depth=num_class)
+    target_label_idx = tf.argmax(target_label, axis=1, output_type="int32")
+    target_label = backend.expand_dims(target_label, axis=1)
+    target_label = backend.repeat_elements(target_label, rep=num_class, axis=1)
+
+    target_img = []
+    for idx in range(len(target_label_idx)):
+        real_idx = target_label_idx[idx]
+        real_img_partial = tf.gather(real_img, indices=idx,
+                                     axis=0)
+        real_img_partial = tf.gather(real_img_partial, indices=real_idx,
+                                     axis=-1)
+        target_img.append(real_img_partial)
+    target_img = backend.stack(target_img, axis=0)
+    target_img = backend.repeat_elements(target_img, rep=num_class, axis=0)
+
+    real_img = backend.permute_dimensions(real_img, (0, 4, 1, 2, 3))
+    real_img = backend.reshape(real_img, (b * num_class, h, w, c))
+
+    label = backend.reshape(label, (b * num_class, num_class))
+    target_label = backend.reshape(target_label, (b * num_class, num_class))
+
+    return real_img, target_img, label, target_label
 
 
 class ATTGan(Model):
@@ -41,6 +60,7 @@ class ATTGan(Model):
         self,
         batch_size,
         image_shape,
+        num_class,
         generator_optimizer,
         discriminator_optimizer,
         image_loss_fn=base_image_loss_fn,
@@ -55,6 +75,7 @@ class ATTGan(Model):
         super(ATTGan, self).compile()
         self.batch_size = batch_size
         self.image_shape = image_shape
+        self.num_class = num_class
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.recon_loss_fn = image_loss_fn
@@ -66,7 +87,6 @@ class ATTGan(Model):
         self.disc_class_loss_coef = disc_class_loss_coef
         self.gen_dics_loss_coef = gen_dics_loss_coef
 
-    # not in use. it just exist for keras Model's child must implement "call" method
     def call(self, x):
         return x
 
@@ -110,28 +130,27 @@ class ATTGan(Model):
         # =================================================================================== #
         #                             1. Preprocess input data                                #
         # =================================================================================== #
-        real_x, label_x = batch_data
-        label_y = get_diff_label(label_x)
+        (real_img, target_img), (label, target_label) = batch_data
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as disc_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y])
+            fake_img = self.generator([real_img, target_label])
             # Discriminator output
-            disc_real_x, label_pred_real_x = self.discriminator(real_x,
-                                                                training=True)
-            disc_fake_y, label_pred_fake_y = self.discriminator(fake_y,
-                                                                training=True)
+            disc_real, label_pred_real = self.discriminator(real_img,
+                                                            training=True)
+            disc_fake, _ = self.discriminator(fake_img,
+                                              training=True)
             # Compute Discriminator class_loss
-            disc_real_x_class_loss = self.class_loss_fn(label_x,
-                                                        label_pred_real_x)
-            disc_class_loss = disc_real_x_class_loss
+            disc_real_class_loss = self.class_loss_fn(label,
+                                                      label_pred_real)
+            disc_class_loss = disc_real_class_loss
 
-            disc_real_x_loss = to_real_loss(disc_real_x)
-            disc_fake_y_loss = to_fake_loss(disc_fake_y)
-            disc_loss = (disc_real_x_loss + disc_fake_y_loss) / 2
+            disc_real_loss = to_real_loss(disc_real)
+            disc_fake_loss = to_fake_loss(disc_fake)
+            disc_loss = (disc_real_loss + disc_fake_loss) / 2
 
             disc_total_loss = disc_class_loss * self.disc_class_loss_coef + disc_loss
 
@@ -154,24 +173,22 @@ class ATTGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y],
-                                    training=True)
-            same_x = self.generator([real_x, label_x],
-                                    training=True)
+            fake_img = self.generator([real_img, target_label],
+                                      training=True)
             # Discriminator output
-            disc_fake_y, label_pred_fake_y = self.discriminator(fake_y)
+            disc_fake, label_pred_fake = self.discriminator(fake_img)
             # Generator class loss
-            gen_fake_y_class_loss = self.class_loss_fn(label_y,
-                                                       label_pred_fake_y)
-            gen_class_loss = gen_fake_y_class_loss
+            gen_fake_class_loss = self.class_loss_fn(target_label,
+                                                     label_pred_fake)
+            gen_class_loss = gen_fake_class_loss
             # Generator adverserial loss
-            gen_fake_y_disc_loss = to_real_loss(disc_fake_y)
-            gen_disc_loss = gen_fake_y_disc_loss
+            gen_fake_disc_loss = to_real_loss(disc_fake)
+            gen_disc_loss = gen_fake_disc_loss
 
             # Generator image loss
-            same_x_image_loss = self.recon_loss_fn(real_x,
-                                                   same_x)
-            gen_image_loss = same_x_image_loss
+            fake_image_loss = self.recon_loss_fn(target_img,
+                                                 fake_img)
+            gen_image_loss = fake_image_loss
             # Total generator loss
             gen_total_loss = gen_class_loss * self.gen_class_loss_coef + \
                 gen_disc_loss * self.gen_dics_loss_coef + gen_image_loss * self.image_loss_coef
@@ -192,9 +209,9 @@ class ATTGan(Model):
         return {
             "total_gen_loss": gen_total_loss,
             "total_disc_loss": disc_total_loss,
-            "disc_real_x_loss": disc_real_x_loss,
-            "disc_fake_y_loss": disc_fake_y_loss,
-            "gen_fake_y_disc_loss": gen_fake_y_disc_loss,
-            "gen_fake_y_class_loss": gen_fake_y_class_loss,
-            "gen_same_x_image_loss": same_x_image_loss,
+            "disc_real_loss": disc_real_loss,
+            "disc_fake_loss": disc_fake_loss,
+            "gen_fake_image_loss": fake_image_loss,
+            "gen_fake_disc_loss": gen_fake_disc_loss,
+            "gen_fake_class_loss": gen_fake_class_loss
         }

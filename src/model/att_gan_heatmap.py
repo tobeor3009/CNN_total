@@ -17,6 +17,77 @@ base_class_loss_fn = BinaryCrossentropy(label_smoothing=0.01)
 mean_layer = layers.Average()
 
 
+def make_grad_model_multi(model, target_layer_name_list):
+
+    validity_model = model.get_layer("validity_inception_resnet_v2")
+    validity_grad_model = Model(validity_model.input,
+                                [validity_model.get_layer(layer_name).output for layer_name in target_layer_name_list] +
+                                [validity_model.output])
+
+    validity_layer_conv = model.layers[-4]
+    validity_layer_act = model.layers[-5]
+
+    model_input = model.input
+
+    grad_model_output = validity_grad_model(model_input)
+    target_layer_list = grad_model_output[:-1]
+    validity = grad_model_output[-1]
+    validity = validity_layer_conv(validity)
+    validity = validity_layer_act(validity)
+
+    return Model(model_input, target_layer_list + [validity])
+
+
+def make_gradcam_heatmap_multi(img_array, grad_model):
+    batch_size = tf.shape(img_array)[0]
+    with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
+        tape.watch(img_array)
+        grad_model_output = grad_model(img_array)
+    target_output_list = grad_model_output[:-1]
+    validity = grad_model_output[-1]
+
+    target_layer_heatmap_list = []
+    for target_output in target_output_list:
+        grads = tape.gradient(validity, target_output)
+        # compute gradient channel mean
+        pooled_grads = tf.reduce_mean(grads, axis=(1, 2))
+
+        heatmap_list = []
+        for idx in range(batch_size):
+            # compute matmul(last_conv_layer_output, pooled_grads)
+            heatmap = target_output[idx] @ pooled_grads[idx, ..., tf.newaxis]
+            heatmap = tf.squeeze(heatmap)
+            heatmap_list.append(heatmap)
+        heatmap = tf.stack(heatmap_list, axis=0)
+        # For visualization purpose, we will also normalize the heatmap between 0 & 1
+        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        target_layer_heatmap_list.append(heatmap)
+    return target_layer_heatmap_list
+
+
+def make_gradcam_heatmap_multi(img_array, grad_model):
+    with tf.GradientTape(persistent=True, watch_accessed_variables=False) as tape:
+        tape.watch(img_array)
+        grad_model_output = grad_model(img_array)
+    target_output_list = grad_model_output[:-1]
+    validity = grad_model_output[-1]
+
+    target_layer_heatmap_list = []
+    for target_output in target_output_list:
+        grads = tape.gradient(validity, target_output)
+        # compute gradient channel mean
+        pooled_grads = tf.reduce_mean(grads, axis=(1, 2))
+
+        pooled_grads = pooled_grads[:, tf.newaxis, tf.newaxis, :, tf.newaxis]
+        target_output = tf.expand_dims(target_output, axis=-2)
+        heatmap = target_output @ pooled_grads
+        heatmap = tf.squeeze(heatmap, axis=[-2, -1])
+        # For visualization purpose, we will also normalize the heatmap between 0 & 1
+        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        target_layer_heatmap_list.append(heatmap)
+    return target_layer_heatmap_list
+
+
 def get_diff_label(label_tensor):
     label_shape = tf.shape(label_tensor)
     batch_size, num_class = label_shape[0], label_shape[1]
@@ -32,10 +103,14 @@ class ATTGan(Model):
         self,
         generator,
         discriminator,
+        heatmap_layer_name_list,
     ):
         super(ATTGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
+        self.grad_model_multi = make_grad_model_multi(self.discriminator,
+                                                      heatmap_layer_name_list)
+        self.heatmap_num = len(heatmap_layer_name_list)
 
     def compile(
         self,
@@ -112,13 +187,17 @@ class ATTGan(Model):
         # =================================================================================== #
         real_x, label_x = batch_data
         label_y = get_diff_label(label_x)
+        batch_size = tf.shape(real_x)[0]
+        empty_heatmap = [tf.random.uniform((batch_size, 2, 2))
+                         for _ in range(self.heatmap_num)]
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as disc_tape:
+        with tf.GradientTape(persistent=False) as disc_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y])
+            fake_y = self.generator([real_x, label_y, *empty_heatmap],
+                                    training=False)
             # Discriminator output
             disc_real_x, label_pred_real_x = self.discriminator(real_x,
                                                                 training=True)
@@ -134,7 +213,8 @@ class ATTGan(Model):
             disc_loss = (disc_real_x_loss + disc_fake_y_loss) / 2
 
             disc_total_loss = disc_class_loss * self.disc_class_loss_coef + disc_loss
-
+        grad_outputs = make_gradcam_heatmap_multi(fake_y,
+                                                  self.grad_model_multi)
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_total_loss,
                                         self.discriminator.trainable_variables)
@@ -151,12 +231,12 @@ class ATTGan(Model):
         # =================================================================================== #
         #                               3. Train the generator                                #
         # =================================================================================== #
-        with tf.GradientTape(persistent=True) as gen_tape:
+        with tf.GradientTape(persistent=False) as gen_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y],
+            fake_y = self.generator([real_x, label_y, *grad_outputs],
                                     training=True)
-            same_x = self.generator([real_x, label_x],
+            same_x = self.generator([real_x, label_x, *grad_outputs],
                                     training=True)
             # Discriminator output
             disc_fake_y, label_pred_fake_y = self.discriminator(fake_y)

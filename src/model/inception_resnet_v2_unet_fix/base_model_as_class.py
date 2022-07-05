@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, Model, Sequential
 from .layers import EqualizedConv, EqualizedDense, UnsharpMasking2D, get_norm_layer, SimpleOutputLayer2D
 from .layers import OutputLayer2D as HighwayOutputLayer2D
-from .layers import UpsampleBlock2D, Decoder2D
+from .layers import UpsampleBlock2D, UpsampleBlock2DHeatmap, Decoder2D, Decoder2DHeatmap
 from .transformer_layers import AddPositionEmbs
 from .cbam_attention_module import attach_attention_module
 from tensorflow_addons.layers import GroupNormalization
@@ -55,8 +55,6 @@ def DecoderBlock2D(input_tensor=None,
         skip_connect = encoder.get_layer(
             skip_connection_layer_names[idx]).output
         filter_size = skip_connect.shape[-1]
-        if use_skip_connect:
-            x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
@@ -64,11 +62,16 @@ def DecoderBlock2D(input_tensor=None,
         if idx == 0:
             x = Decoder2D(out_channel=filter_size, unsharp=False,
                           activation=base_act)(x)
+            if use_skip_connect:
+                x = layers.Concatenate(axis=-1)([x, skip_connect])
             x = SimpleOutputLayer2D(last_channel_num=last_channel_num,
                                     act=last_act)(x)
         else:
             x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
                                 activation=base_act)(x)
+            if use_skip_connect:
+                x = layers.Concatenate(axis=-1)([x, skip_connect])
+
     return x
 
 
@@ -97,7 +100,6 @@ def DecoderBlock2D_stargan(input_tensor=None,
         skip_connect = skip_connect_tensor_list[idx]
         filter_size = int(round(skip_connect.shape[-1] * filter_scale))
 
-        x = layers.Concatenate(axis=-1)([x, skip_connect])
         x = Conv2DBN(filter_size, 3, groups=groups,
                      norm=norm, activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
@@ -106,12 +108,58 @@ def DecoderBlock2D_stargan(input_tensor=None,
         if idx == 0:
             x = Decoder2D(out_channel=filter_size, unsharp=False,
                           norm=norm, activation=base_act)(x)
+            x = layers.Concatenate(axis=-1)([x, skip_connect])
             x = SimpleOutputLayer2D(last_channel_num=last_channel_num,
                                     act=last_act)(x)
         else:
             x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
                                 norm=norm, activation=base_act)(x)
+            x = layers.Concatenate(axis=-1)([x, skip_connect])
+    return x
 
+
+def DecoderBlock2D_stargan_heatmap(input_tensor=None,
+                                   skip_connect_tensor_list=None,
+                                   heatmap_list=None,
+                                   last_channel_num=None,
+                                   filter_scale=1,
+                                   groups=1,
+                                   num_downsample=5,
+                                   norm="batch",
+                                   base_act="relu",
+                                   last_act="relu",
+                                   name_prefix=""):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+
+    init_filter = input_tensor.shape[-1] // 2
+    x = Conv2DBN(init_filter, 3, groups=groups,
+                 norm=norm, activation=base_act)(input_tensor)
+    x = Conv2DBN(init_filter, 3, groups=groups,
+                 norm=norm, activation=base_act)(x)
+
+    for idx in range(num_downsample - 1, -1, -1):
+        skip_connect = skip_connect_tensor_list[idx]
+        heatmap = heatmap_list[idx]
+        filter_size = int(round(skip_connect.shape[-1] * filter_scale))
+
+        x = Conv2DBN(filter_size, 3, groups=groups,
+                     norm=norm, activation=base_act)(x)
+        x = Conv2DBN(filter_size, 3, groups=groups,
+                     norm=norm, activation=base_act)(x)
+
+        if idx == 0:
+            x = Decoder2DHeatmap(out_channel=filter_size, unsharp=False,
+                                 norm=norm, activation=base_act)(x, heatmap)
+            x = layers.Concatenate(axis=-1)([x, skip_connect])
+            x = SimpleOutputLayer2D(last_channel_num=last_channel_num,
+                                    act=last_act)(x)
+        else:
+            x = UpsampleBlock2DHeatmap(out_channel=filter_size, unsharp=False,
+                                       norm=norm, activation=base_act)(x, heatmap)
+            x = layers.Concatenate(axis=-1)([x, skip_connect])
     return x
 
 
@@ -139,13 +187,13 @@ def DecoderBlock2D_MultiScale(input_tensor=None,
         skip_connect_input = layers.Input(skip_connect_refer.shape[1:])
         skip_connect_input_list.insert(0, skip_connect_input)
         filter_size = skip_connect_refer.shape[-1]
-        x = layers.Concatenate(axis=-1)([x, skip_connect_input])
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
         x = Decoder2D(out_channel=filter_size, kernel_size=2,
-                      unsharp=True, activation=base_act)(x)
+                      unsharp=False, activation=base_act)(x)
+        x = layers.Concatenate(axis=-1)([x, skip_connect_input])
         if idx == 0:
             x = OutputLayer2D(last_channel_num=last_channel_num,
                               act=last_act)(x)
@@ -169,26 +217,25 @@ def InceptionResNetV2(input_shape=None,
     else:
         name_prefix = f"{name_prefix}_"
     input_tensor = layers.Input(input_shape)
-    x = get_init_conv(input_tensor, block_size, groups,
-                      norm, base_act, 5, name_prefix)(input_tensor)
-    x = get_block_1(x, block_size, padding,
-                    groups, norm, base_act, name_prefix)
-    x = get_block_2(x, block_size, padding, pooling,
-                    groups, norm, base_act, name_prefix)
+    num_downsample = 5
+    x = get_block_1(input_tensor, block_size, groups,
+                    norm, base_act, num_downsample, name_prefix)
+    x = get_block_2(x, block_size, padding, groups,
+                    norm, base_act, name_prefix)
     x = get_block_3(x, block_size, padding, pooling,
                     groups, norm, base_act, name_prefix)
-    x = get_block_4(x, block_size, padding, groups,
+    x = get_block_4(x, block_size, padding, pooling, groups,
                     use_attention, norm, base_act, name_prefix)
     x = get_block_5(x, block_size, padding, groups,
                     use_attention, norm, base_act, name_prefix)
-    output_block = get_output_block(x, block_size, groups, use_attention,
-                                    norm, base_act, last_act, name_prefix)(x)
+    output_block = get_output_block(x, block_size, padding, groups,
+                                    use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor, output_block,
                   name=f'{name_prefix}inception_resnet_v2')
     if skip_connect_names:
         skip_connect_name_list = [
-            f"{name_prefix}down_block_{idx}" for idx in range(1, 6)]
+            f"{name_prefix}block_{idx}" for idx in range(1, 6)]
         return model, skip_connect_name_list
     else:
         return model
@@ -209,20 +256,19 @@ def InceptionResNetV2_SkipConnect(input_shape=None,
     else:
         name_prefix = f"{name_prefix}_"
     input_tensor = layers.Input(input_shape)
-    x = get_init_conv(input_tensor, block_size, groups,
-                      norm, base_act, 5, name_prefix)(input_tensor)
-    down_1 = get_block_1(x, block_size, padding,
+    num_downsample = 5
+    down_1 = get_block_1(input_tensor, block_size, groups,
+                         norm, base_act, num_downsample, name_prefix)
+    down_2 = get_block_2(down_1, block_size, padding, groups,
+                         norm, base_act, name_prefix)
+    down_3 = get_block_3(down_2, block_size, padding, pooling,
                          groups, norm, base_act, name_prefix)
-    down_2 = get_block_2(x, block_size, padding, pooling,
-                         groups, norm, base_act, name_prefix)
-    down_3 = get_block_3(x, block_size, padding, pooling,
-                         groups, norm, base_act, name_prefix)
-    down_4 = get_block_4(x, block_size, padding, groups,
+    down_4 = get_block_4(down_3, block_size, padding, pooling, groups,
                          use_attention, norm, base_act, name_prefix)
-    down_5 = get_block_5(x, block_size, padding, groups,
+    down_5 = get_block_5(down_4, block_size, padding, groups,
                          use_attention, norm, base_act, name_prefix)
-    output_block = get_output_block(x, block_size, groups, use_attention,
-                                    norm, base_act, last_act, name_prefix)(x)
+    output_block = get_output_block(down_5, block_size, padding, groups,
+                                    use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor,
                   [down_1, down_2, down_3, down_4, down_5, output_block],
@@ -246,20 +292,19 @@ def InceptionResNetV2_SkipConnectLevel_0(input_shape=None,
     else:
         name_prefix = f"{name_prefix}_"
     input_tensor = layers.Input(input_shape)
-    x = get_init_conv(input_tensor, block_size, groups,
-                      norm, base_act, 5, name_prefix)(input_tensor)
-    down_1 = get_block_1(x, block_size, padding,
-                         groups, norm, base_act, name_prefix)
-    down_2 = get_block_2(down_1, block_size, padding, pooling,
-                         groups, norm, base_act, name_prefix)
+    num_downsample = 5
+    down_1 = get_block_1(input_tensor, block_size, groups,
+                         norm, base_act, num_downsample, name_prefix)
+    down_2 = get_block_2(down_1, block_size, padding, groups,
+                         norm, base_act, name_prefix)
     down_3 = get_block_3(down_2, block_size, padding, pooling,
                          groups, norm, base_act, name_prefix)
-    down_4 = get_block_4(down_3, block_size, padding, groups,
+    down_4 = get_block_4(down_3, block_size, padding, pooling, groups,
                          use_attention, norm, base_act, name_prefix)
     down_5 = get_block_5(down_4, block_size, padding, groups,
                          use_attention, norm, base_act, name_prefix)
-    output_block = get_output_block(down_5, block_size, groups, use_attention,
-                                    norm, base_act, last_act, name_prefix)(down_5)
+    output_block = get_output_block(down_5, block_size, padding, groups,
+                                    use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor,
                   [down_1, down_2, down_3, down_4, down_5, output_block],
@@ -282,19 +327,18 @@ def InceptionResNetV2_SkipConnectLevel_1(input_shape=None,
         pass
     else:
         name_prefix = f"{name_prefix}_"
+    num_downsample = 4
     input_tensor = layers.Input(input_shape)
-    x = get_init_conv(input_tensor, block_size, groups,
-                      norm, base_act, 4, name_prefix)(input_tensor)
-    down_2 = get_block_2(x, block_size, padding, pooling,
-                         groups, norm, base_act, name_prefix)
+    down_2 = get_block_1(input_tensor, block_size, groups,
+                         norm, base_act, num_downsample, name_prefix)
     down_3 = get_block_3(down_2, block_size, padding, pooling,
                          groups, norm, base_act, name_prefix)
-    down_4 = get_block_4(down_3, block_size, padding, groups,
+    down_4 = get_block_4(down_3, block_size, padding, pooling, groups,
                          use_attention, norm, base_act, name_prefix)
     down_5 = get_block_5(down_4, block_size, padding, groups,
                          use_attention, norm, base_act, name_prefix)
-    output_block = get_output_block(down_5, block_size, groups, use_attention,
-                                    norm, base_act, last_act, name_prefix)(down_5)
+    output_block = get_output_block(down_5, block_size, padding, groups,
+                                    use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor,
                   [down_2, down_3, down_4, down_5, output_block],
@@ -323,26 +367,24 @@ def InceptionResNetV2_Stargan(input_shape=None,
     skip_connect_tensor_list = []
     input_tensor = layers.Input(input_shape)
     class_input = layers.Input(shape=(label_len))
-
-    x = get_init_conv(input_tensor, block_size, groups,
-                      norm, base_act, 5, name_prefix)(input_tensor)
-    x = get_block_1(x, block_size, padding,
-                    groups, norm, base_act, name_prefix)
+    num_downsample = 5
+    x = get_block_1(input_tensor, block_size, groups,
+                    norm, base_act, num_downsample, name_prefix)
     skip_connect_tensor_list.append(x)
-    x = get_block_2(x, block_size, padding, pooling,
-                    groups, norm, base_act, name_prefix)
+    x = get_block_2(x, block_size, padding, groups,
+                    norm, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
     x = get_block_3(x, block_size, padding, pooling,
                     groups, norm, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
-    x = get_block_4(x, block_size, padding, groups,
+    x = get_block_4(x, block_size, padding, pooling, groups,
                     use_attention, norm, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
     x = get_block_5(x, block_size, padding, groups,
                     use_attention, norm, base_act, name_prefix)
     skip_connect_tensor_list.append(x)
-    x = get_output_block(x, block_size, groups, use_attention,
-                         norm, base_act, last_act, name_prefix)(x)
+    x = get_output_block(x, block_size, padding, groups,
+                         use_attention, norm, base_act, last_act, name_prefix)
     _, h, w, _ = backend.int_shape(x)
     class_tensor = layers.Reshape((1, 1, label_len))(class_input)
     class_tensor = tf.tile(class_tensor, (1, h, w, 1))
@@ -358,6 +400,66 @@ def InceptionResNetV2_Stargan(input_shape=None,
                                base_act=base_act,
                                last_act=last_act)
     return Model([input_tensor, class_input], x)
+
+
+def InceptionResNetV2_StarganHeatmap(input_shape=None,
+                                     label_len=None,
+                                     block_size=16,
+                                     decoder_filter_scale=1,
+                                     padding="same",
+                                     pooling="max",
+                                     groups=1,
+                                     norm="batch",
+                                     base_act="relu",
+                                     last_act="relu",
+                                     last_channel_num=1,
+                                     name_prefix="",
+                                     use_attention=True):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+    skip_connect_tensor_list = []
+    input_tensor = layers.Input(input_shape)
+    class_input = layers.Input(shape=(label_len))
+    num_downsample = 5
+    x = get_block_1(input_tensor, block_size, groups,
+                    norm, base_act, num_downsample, name_prefix)
+    skip_connect_tensor_list.append(x)
+    x = get_block_2(x, block_size, padding, groups,
+                    norm, base_act, name_prefix)
+    skip_connect_tensor_list.append(x)
+    x = get_block_3(x, block_size, padding, pooling,
+                    groups, norm, base_act, name_prefix)
+    skip_connect_tensor_list.append(x)
+    x = get_block_4(x, block_size, padding, pooling, groups,
+                    use_attention, norm, base_act, name_prefix)
+    skip_connect_tensor_list.append(x)
+    x = get_block_5(x, block_size, padding, groups,
+                    use_attention, norm, base_act, name_prefix)
+    skip_connect_tensor_list.append(x)
+    x = get_output_block(x, block_size, padding, groups,
+                         use_attention, norm, base_act, last_act, name_prefix)
+    _, h, w, _ = backend.int_shape(x)
+    class_tensor = layers.Reshape((1, 1, label_len))(class_input)
+    class_tensor = tf.tile(class_tensor, (1, h, w, 1))
+
+    x = layers.Concatenate(axis=-1)([x, class_tensor])
+
+    heatmap_input_list = []
+    for _ in skip_connect_tensor_list:
+        heatmap_input_list.append(layers.Input((None, None)))
+    x = DecoderBlock2D_stargan_heatmap(input_tensor=x,
+                                       skip_connect_tensor_list=skip_connect_tensor_list,
+                                       heatmap_list=heatmap_input_list,
+                                       last_channel_num=last_channel_num,
+                                       filter_scale=decoder_filter_scale,
+                                       groups=1,
+                                       num_downsample=5,
+                                       norm=norm,
+                                       base_act=base_act,
+                                       last_act=last_act)
+    return Model([input_tensor, class_input, *heatmap_input_list], x)
 
 
 def InceptionResNetV2_progressive(target_shape=None,
@@ -386,25 +488,22 @@ def InceptionResNetV2_progressive(target_shape=None,
     H, W, _ = input_shape
 
     input_tensor = layers.Input(input_shape)
-    x = get_init_conv(input_tensor, block_size, groups, norm, base_act,
-                      num_downsample, name_prefix)(input_tensor)
+    x = get_block_1(input_tensor, block_size, groups,
+                    norm, base_act, num_downsample, name_prefix)
     if num_downsample >= 5:
-        x = get_block_1(x, block_size, padding,
-                        groups, norm, base_act, name_prefix)
+        x = get_block_2(x, block_size, padding, groups,
+                        norm, base_act, name_prefix)
     if num_downsample >= 4:
-        x = get_block_2(x, block_size, padding, pooling,
-                        groups, norm, base_act, name_prefix)
-    if num_downsample >= 3:
         x = get_block_3(x, block_size, padding, pooling,
                         groups, norm, base_act, name_prefix)
-    if num_downsample >= 2:
-        x = get_block_4(x, block_size, padding, groups,
+    if num_downsample >= 3:
+        x = get_block_4(x, block_size, padding, pooling, groups,
                         use_attention, norm, base_act, name_prefix)
-    if num_downsample >= 1:
+    if num_downsample >= 2:
         x = get_block_5(x, block_size, padding, groups,
                         use_attention, norm, base_act, name_prefix)
-    x = get_output_block(x, block_size, groups,
-                         use_attention, norm, base_act, last_act, name_prefix)(x)
+    x = get_output_block(x, block_size, padding, groups,
+                         use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor, x,
                   name=f'{name_prefix}inception_resnet_v2')
@@ -416,8 +515,8 @@ def InceptionResNetV2_progressive(target_shape=None,
         return model
 
 
-def get_init_conv(input_tensor, block_size, groups,
-                  norm, activation, num_downsample, name_prefix):
+def get_block_1(input_tensor, block_size, groups,
+                norm, activation, num_downsample, name_prefix):
     if num_downsample == 5:
         output_filter = block_size * 2
     elif num_downsample == 4:
@@ -428,142 +527,138 @@ def get_init_conv(input_tensor, block_size, groups,
         output_filter = block_size * 12
     elif num_downsample == 1:
         output_filter = block_size * 68
-    model_input = layers.Input(input_tensor.shape[1:])
     conv = Conv2DBN(output_filter, 1, padding="same", groups=groups,
-                    norm=norm, activation=activation)(model_input)
-    return Model(model_input, conv,
-                 name=f"{name_prefix}init_conv")
-
-
-def get_block_1(input_tensor, block_size, padding,
-                groups, norm, activation, name_prefix):
-    conv = Conv2DBN(block_size * 2, 3, strides=2, padding=padding,
-                    groups=groups, norm=norm, activation=activation,
-                    name=f"{name_prefix}down_block_1")(input_tensor)
+                    norm=norm, activation=activation,
+                    name=f"{name_prefix}block_1")(input_tensor)
     return conv
 
 
-def get_block_2(input_tensor, block_size, padding, pooling,
+def get_block_2(input_tensor, block_size, padding,
                 groups, norm, activation, name_prefix):
+    conv_down = Conv2DBN(block_size * 2, 3, strides=2, padding=padding,
+                         groups=groups, norm=norm, activation=activation)(input_tensor)
     conv_1 = Conv2DBN(block_size * 2, 3, padding=padding, groups=groups,
-                      norm=norm, activation=activation)(input_tensor)
+                      norm=norm, activation=activation)(conv_down)
     conv_2 = Conv2DBN(block_size * 4, 3, groups=groups,
-                      norm=norm, activation=activation)(conv_1)
-    if pooling == "average":
-        pool = layers.AveragePooling2D(3, strides=2, padding=padding,
-                                       name=f"{name_prefix}down_block_2")(conv_2)
-    elif pooling == "max":
-        pool = layers.MaxPooling2D(3, strides=2, padding=padding,
-                                   name=f"{name_prefix}down_block_2")(conv_2)
-    return pool
+                      norm=norm, activation=activation,
+                      name=f"{name_prefix}block_2")(conv_1)
+
+    return conv_2
 
 
 def get_block_3(input_tensor, block_size, padding, pooling,
                 groups, norm, activation, name_prefix):
-    conv_1 = Conv2DBN(block_size * 5, 1, padding=padding, groups=groups,
-                      norm=norm, activation=activation)(input_tensor)
-    conv_2 = Conv2DBN(block_size * 12, 3, padding=padding, groups=groups,
-                      norm=norm, activation=activation)(conv_1)
     if pooling == "average":
         pool = layers.AveragePooling2D(3, strides=2, padding=padding,
-                                       name=f"{name_prefix}down_block_3")(conv_2)
+                                       )(input_tensor)
     elif pooling == "max":
         pool = layers.MaxPooling2D(3, strides=2, padding=padding,
-                                   name=f"{name_prefix}down_block_3")(conv_2)
-    return pool
+                                   )(input_tensor)
+    conv_1 = Conv2DBN(block_size * 5, 1, padding=padding, groups=groups,
+                      norm=norm, activation=activation)(pool)
+    conv_2 = Conv2DBN(block_size * 12, 3, padding=padding, groups=groups,
+                      norm=norm, activation=activation,
+                      name=f"{name_prefix}block_3")(conv_1)
+    return conv_2
 
 
-def get_block_4(input_tensor, block_size, padding, groups,
-                use_attention, norm, activation, name_prefix):
+def get_block_4(input_tensor, block_size, padding, pooling,
+                groups, use_attention, norm, activation, name_prefix):
+
+    if pooling == "average":
+        pool = layers.AveragePooling2D(
+            3, strides=2, padding=padding)(input_tensor)
+    elif pooling == "max":
+        pool = layers.MaxPooling2D(3, strides=2, padding=padding)(input_tensor)
     branch_0 = Conv2DBN(block_size * 6, 1, groups=groups,
-                        norm=norm, activation=activation)(input_tensor)
+                        norm=norm, activation=activation)(pool)
     branch_1 = Conv2DBN(block_size * 3, 1, groups=groups,
-                        norm=norm, activation=activation)(input_tensor)
+                        norm=norm, activation=activation)(pool)
     branch_1 = Conv2DBN(block_size * 4, 5, groups=groups,
                         norm=norm, activation=activation)(branch_1)
     branch_2 = Conv2DBN(block_size * 4, 1, groups=groups,
-                        norm=norm, activation=activation)(input_tensor)
+                        norm=norm, activation=activation)(pool)
     branch_2 = Conv2DBN(block_size * 6, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
     branch_2 = Conv2DBN(block_size * 6, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
     branch_pool = layers.AveragePooling2D(3, strides=1,
-                                          padding='same')(input_tensor)
+                                          padding='same')(pool)
     branch_pool = Conv2DBN(block_size * 4, 1, groups=groups,
                            norm=norm, activation=activation)(branch_pool)
-    branches_1 = [branch_0, branch_1, branch_2, branch_pool]
+    branches_out = [branch_0, branch_1, branch_2, branch_pool]
 
-    branches_1 = layers.Concatenate(axis=CHANNEL_AXIS)(branches_1)
+    branches_out = layers.Concatenate(axis=CHANNEL_AXIS)(branches_out)
 
     for idx in range(1, 11):
-        branches_1 = InceptionResnetBlock(scale=0.17,
-                                          block_type='block35', block_size=block_size,
-                                          groups=groups, norm=norm, activation=activation,
-                                          use_attention=use_attention,
-                                          name=f'{name_prefix}block_35_{idx}')(branches_1)
+        if idx == 10:
+            block_name = f"{name_prefix}block_4"
+        else:
+            block_name = f'{name_prefix}block_35_{idx}'
+        branches_out = InceptionResnetBlock(scale=0.17,
+                                            block_type='block35', block_size=block_size,
+                                            groups=groups, norm=norm, activation=activation,
+                                            use_attention=use_attention,
+                                            name=block_name)(branches_out)
+    return branches_out
+
+
+def get_block_5(input_tensor, block_size, padding, groups,
+                use_attention, norm, activation, name_prefix):
     branch_0 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
-                        norm=norm, groups=groups, activation=activation)(branches_1)
+                        norm=norm, groups=groups, activation=activation)(input_tensor)
     branch_1 = Conv2DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
+                        norm=norm, activation=activation)(input_tensor)
     branch_1 = Conv2DBN(block_size * 16, 3, groups=groups,
                         norm=norm, activation=activation)(branch_1)
     branch_1 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_1)
     branch_pool = layers.AveragePooling2D(3, strides=2,
-                                          padding=padding)(branches_1)
-    branches_2 = [branch_0, branch_1, branch_pool]
-    branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
-                                    name=f"{name_prefix}down_block_4")(branches_2)
-
-    return branches_2
-
-
-def get_block_5(input_tensor, block_size, padding, groups,
-                use_attention, norm, activation, name_prefix):
-    branches_1 = input_tensor
+                                          padding=padding)(input_tensor)
+    branches_output = [branch_0, branch_1, branch_pool]
+    branches_output = layers.Concatenate(axis=CHANNEL_AXIS)(branches_output)
     for idx in range(1, 21):
-        branches_1 = InceptionResnetBlock(scale=0.11,
-                                          block_type='block17', block_size=block_size,
-                                          groups=groups, norm=norm, activation=activation,
-                                          use_attention=use_attention,
-                                          name=f'{name_prefix}block_17_{idx}')(branches_1)
+        if idx == 20:
+            block_name = f"{name_prefix}block_5"
+        else:
+            block_name = f'{name_prefix}block_17_{idx}'
+        branches_output = InceptionResnetBlock(scale=0.11,
+                                               block_type='block17', block_size=block_size,
+                                               groups=groups, norm=norm, activation=activation,
+                                               use_attention=use_attention,
+                                               name=block_name)(branches_output)
+    return branches_output
+
+
+def get_output_block(input_tensor, block_size, padding, groups, use_attention,
+                     norm, activation, last_activation, name_prefix):
     branch_0 = Conv2DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
+                        norm=norm, activation=activation)(input_tensor)
     branch_0 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
                         norm=norm, groups=groups, activation=activation)(branch_0)
     branch_1 = Conv2DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
+                        norm=norm, activation=activation)(input_tensor)
     branch_1 = Conv2DBN(block_size * 18, 3, strides=2, padding=padding,
                         norm=norm, groups=groups, activation=activation)(branch_1)
     branch_2 = Conv2DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
+                        norm=norm, activation=activation)(input_tensor)
     branch_2 = Conv2DBN(block_size * 18, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
     branch_2 = Conv2DBN(block_size * 20, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_2)
     branch_pool = layers.MaxPooling2D(3, strides=2,
-                                      padding=padding)(branches_1)
-    branches_2 = [branch_0, branch_1, branch_2, branch_pool]
-    branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
-                                    name=f"{name_prefix}down_block_5")(branches_2)
-    return branches_2
-
-
-def get_output_block(input_tensor, block_size, groups, use_attention,
-                     norm, activation, last_activation, name_prefix):
-
-    model_input = layers.Input(input_tensor.shape[1:])
-    branches = model_input
+                                      padding=padding)(input_tensor)
+    branches_output = [branch_0, branch_1, branch_2, branch_pool]
+    branches_output = layers.Concatenate(axis=CHANNEL_AXIS)(branches_output)
     for idx in range(1, 11):
-        branches = InceptionResnetBlock(scale=0.2,
-                                        block_type='block8', block_size=block_size,
-                                        groups=groups, norm=norm, activation=activation,
-                                        use_attention=use_attention,
-                                        name=f'{name_prefix}block_8_{idx}')(branches)
-    branches = Conv2DBN(block_size * 96, 1, groups=groups,
-                        norm=norm, activation=last_activation)(branches)
-    return Model(model_input, branches,
-                 name=f"{name_prefix}output_block")
+        branches_output = InceptionResnetBlock(scale=0.2,
+                                               block_type='block8', block_size=block_size,
+                                               groups=groups, norm=norm, activation=activation,
+                                               use_attention=use_attention,
+                                               name=f'{name_prefix}block_8_{idx}')(branches_output)
+    branches_output = Conv2DBN(block_size * 96, 1, groups=groups,
+                               norm=norm, activation=last_activation)(branches_output)
+    return branches_output
 
 
 class Conv2DBN(layers.Layer):

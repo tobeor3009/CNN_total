@@ -6,6 +6,7 @@ import os
 # external module
 import numpy as np
 import progressbar
+import random
 
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
@@ -47,8 +48,6 @@ class MultiScaleDataGetter(BaseDataGetter):
 
         self.folder_dict = {idx: image_folder
                             for idx, image_folder in enumerate(image_folder_list)}
-        self.data_on_ram_dict = {idx: None
-                                 for idx, _ in enumerate(image_folder_list)}
         self.on_memory = on_memory
 
         self.image_channel_dict = image_channel_dict
@@ -63,19 +62,18 @@ class MultiScaleDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None,
                                  "mask_array": None,
                                  "label_array": None}
-        self.argumentation_method = SegArgumentationPolicy(
-            0, argumentation_policy_dict)
-        self.image_name_list = [[f"512_level_0_{idx}_image.png", f"512_level_0_{idx}_mask.png"] for idx in range(9)] + \
+        self.image_name_list_1 = [[f"512_level_0_{idx}_image.png", f"512_level_0_{idx}_mask.png"] for idx in range(9)] + \
             [["512_level_1_image.png", "512_level_1_mask.png"]]
+        self.image_name_list_2 = [[f"256_level_0_{idx}_image.png", f"256_level_0_{idx}_mask.png"] for idx in range(9)] + \
+            [["256_level_1_image.png", "256_level_1_mask.png"]]
+
         if not use_multi_scale:
-            self.image_name_list = self.image_name_list[-1:]
-        if self.on_memory is True:
-            self.get_data_on_ram()
+            self.image_name_list_1 = self.image_name_list_1[-1:]
+            self.image_name_list_2 = self.image_name_list_2[-1:]
+        self.argumentation_method = SegArgumentationPolicy(argumentation_proba,
+                                                           argumentation_policy_dict)
 
-        self.argumentation_method = SegArgumentationPolicy(
-            argumentation_proba, argumentation_policy_dict)
-
-    def __getitem__(self, idx):
+    def getitem(self, idx, downscale):
 
         if idx >= len(self):
             raise IndexError
@@ -89,7 +87,8 @@ class MultiScaleDataGetter(BaseDataGetter):
             folder = self.folder_dict[current_index]
             image_array_list = []
             mask_array_list = []
-            for image_name, mask_name in self.image_name_list:
+            image_name_list = self.image_name_list_2 if downscale else self.image_name_list_1
+            for image_name, mask_name in image_name_list:
                 image_array = imread(f"{folder}/{image_name}",
                                      channel=self.image_channel_dict["image"])
                 mask_array = imread(f"{folder}/{mask_name}",
@@ -160,29 +159,45 @@ class MultiScaleDataloader(BaseDataLoader):
                                                 use_multi_scale=use_multi_scale
                                                 )
         self.batch_size = batch_size
-        sample_data = self.data_getter[0]
+        sample_data = self.data_getter.getitem(0, downscale=False)
         self.image_data_shape = sample_data["image_array"].shape
         self.mask_data_shape = sample_data["mask_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
         self.use_multi_scale = use_multi_scale
-        self.batch_image_array = np.zeros(
+        self.batch_image_array_1 = np.zeros(
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_mask_array = np.zeros(
+        self.batch_mask_array_1 = np.zeros(
             (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
+        self.batch_image_array_2 = np.zeros(
+            (self.batch_size * 4, *self.image_data_shape // 2), dtype=self.dtype)
+        self.batch_mask_array_2 = np.zeros(
+            (self.batch_size * 4, *self.mask_data_shape // 2), dtype=self.dtype)
+
         self.print_data_info()
         self.on_epoch_end()
 
     def __getitem__(self, i):
 
-        start = i * self.batch_size
-        end = start + self.batch_size
+        downscale = random.choice([True, False])
+
+        if downscale:
+            start = i * self.batch_size
+            end = start + self.batch_size
+            batch_image_array = self.batch_image_array_1
+            batch_mask_array = self.batch_mask_array_1
+        else:
+            i = i // 4
+            start = i * self.batch_size * 4
+            end = start + self.batch_size * 4
+            batch_image_array = self.batch_image_array_2
+            batch_mask_array = self.batch_mask_array_2
 
         for batch_index, total_index in enumerate(range(start, end)):
-            single_data_dict = self.data_getter[total_index]
-            self.batch_image_array[batch_index] = single_data_dict["image_array"]
-            self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
-        return self.batch_image_array, self.batch_mask_array[..., 5::6]
+            single_data_dict = self.data_getter.getitem(total_index, downscale)
+            batch_image_array[batch_index] = single_data_dict["image_array"]
+            batch_mask_array[batch_index] = single_data_dict["mask_array"]
+        return batch_image_array, batch_mask_array[..., 5::6]
 
     def print_data_info(self):
         data_num = len(self.data_getter)

@@ -98,17 +98,20 @@ class CycleGanDataGetter(BaseDataGetter):
         image_array = self.resize_method(image_array)
         target_image_array = self.resize_method(target_image_array)
 
+        image_array, image_max, image_min = \
+            self.image_preprocess_method(image_array)
+        target_image_array, target_image_max, target_image_min = \
+            self.target_image_preprocess_method(target_image_array)
+
         image_array, target_image_array = self.argumentation_method(
             image_array, target_image_array)
 
-        image_array = \
-            self.image_preprocess_method(image_array)
-        target_image_array = \
-            self.target_image_preprocess_method(target_image_array)
-
         self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["image_max"] = image_max
+        self.single_data_dict["image_min"] = image_min
         self.single_data_dict["target_image_array"] = target_image_array
-
+        self.single_data_dict["target_image_max"] = target_image_max
+        self.single_data_dict["target_image_min"] = target_image_min
         return self.single_data_dict
 
     def __len__(self):
@@ -166,6 +169,7 @@ class CycleGanDataloader(BaseDataLoader):
                  image_folder_list=None,
                  target_folder_list=None,
                  batch_size=4,
+                 include_min_max=False,
                  on_memory=False,
                  argumentation_proba=None,
                  argumentation_policy_dict=base_argumentation_policy_dict,
@@ -190,15 +194,29 @@ class CycleGanDataloader(BaseDataLoader):
                                               mode=mode
                                               )
         self.batch_size = batch_size
-        self.image_data_shape = self.data_getter[0]["image_array"].shape
-        self.target_image_data_shape = self.data_getter[0]["target_image_array"].shape
+        self.include_min_max = include_min_max
+        temp_data = self.data_getter[0]
+        self.image_data_shape = temp_data["image_array"].shape
+        self.batch_image_max_shape = temp_data["image_max"].shape
+        self.batch_image_min_shape = temp_data["image_min"].shape
+        self.target_image_data_shape = temp_data["target_image_array"].shape
+        self.target_image_max_shape = temp_data["target_image_max"].shape
+        self.target_image_min_shape = temp_data["target_image_min"].shape
         self.shuffle = shuffle
         self.dtype = dtype
 
         self.batch_image_array = np.zeros(
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
+        self.batch_image_max = np.zeros(
+            (self.batch_size, *self.batch_image_max_shape), dtype=self.dtype)
+        self.batch_image_min = np.zeros(
+            (self.batch_size, *self.batch_image_min_shape), dtype=self.dtype)
         self.batch_target_image_array = np.zeros(
             (self.batch_size, *self.target_image_data_shape), dtype=self.dtype)
+        self.batch_target_image_max = np.zeros(
+            (self.batch_size, *self.target_image_max_shape), dtype=self.dtype)
+        self.batch_target_image_min = np.zeros(
+            (self.batch_size, *self.target_image_min_shape), dtype=self.dtype)
 
         self.print_data_info()
         self.on_epoch_end()
@@ -211,9 +229,19 @@ class CycleGanDataloader(BaseDataLoader):
         for batch_index, total_index in enumerate(range(start, end)):
             single_data_dict = self.data_getter[total_index]
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
+            self.batch_image_max[batch_index] = single_data_dict["image_max"]
+            self.batch_image_min[batch_index] = single_data_dict["image_min"]
             self.batch_target_image_array[batch_index] = single_data_dict["target_image_array"]
+            self.batch_target_image_max[batch_index] = single_data_dict["target_image_max"]
+            self.batch_target_image_min[batch_index] = single_data_dict["target_image_min"]
 
-        return self.batch_image_array, self.batch_target_image_array
+        if self.include_min_max:
+            return ((self.batch_image_array, self.batch_target_image_array),
+                    (self.batch_image_min, self.batch_image_max),
+                    (self.batch_target_image_min, self.batch_target_image_max)
+                    )
+        else:
+            return self.batch_image_array, self.batch_target_image_array
 
     def print_data_info(self):
         data_num = self.data_getter.data_len
