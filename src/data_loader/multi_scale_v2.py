@@ -65,8 +65,9 @@ class MultiScaleDataGetter(BaseDataGetter):
                                  "label_array": None}
         self.argumentation_method = SegArgumentationPolicy(
             0, argumentation_policy_dict)
-        self.image_name_list = [[f"512_level_0_{idx}_image.png", f"512_level_0_{idx}_mask.png"] for idx in range(9)] + \
-            [["512_level_1_image.png", "512_level_1_mask.png"]]
+        self.image_name_list = [[f"{target_size}_level_0_{idx}_image.png", f"{target_size}_level_0_{idx}_mask.png"] for idx in range(9)] + \
+            [[f"{target_size}_level_1_image.png",
+                f"{target_size}_level_1_mask.png"]]
         if not use_multi_scale:
             self.image_name_list = self.image_name_list[-1:]
         if self.on_memory is True:

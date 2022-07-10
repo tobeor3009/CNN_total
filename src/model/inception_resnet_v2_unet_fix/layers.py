@@ -2,7 +2,7 @@ from functools import partial
 from matplotlib.pyplot import get
 import tensorflow as tf
 import numpy as np
-from tensorflow_addons.layers import GroupNormalization, InstanceNormalization
+from tensorflow_addons.layers import GroupNormalization, InstanceNormalization, SpectralNormalization
 from tensorflow.keras import backend
 from tensorflow.keras import layers, Sequential
 from tensorflow.keras.initializers import Constant
@@ -671,17 +671,47 @@ class HighwayDecoder2D(layers.Layer):
         return output
 
 
+class PixelShuffleBlock2D(layers.Layer):
+    def __init__(self, out_channel, kernel_size=2,
+                 norm="batch", activation="leakyrelu", unsharp=False):
+        super(PixelShuffleBlock2D, self).__init__()
+
+        self.kernel_size = kernel_size
+        self.unsharp = unsharp
+        self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
+                                                      kernel_size=3, padding="same",
+                                                      strides=1, use_bias=USE_CONV_BIAS)
+        self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
+                                                     kernel_size=3, padding="same",
+                                                     strides=1, use_bias=USE_CONV_BIAS)
+
+        self.norm_layer = get_norm_layer(norm)
+        self.act_layer = get_act_layer(activation)
+
+        if self.unsharp is True:
+            self.unsharp_mask_layer = UnsharpMasking2D(out_channel * 2)
+
+    def call(self, input_tensor):
+
+        pixel_shuffle = self.conv_before_pixel_shffle(input_tensor)
+        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle,
+                                             block_size=self.kernel_size)
+        pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
+
+        output = self.norm_layer(pixel_shuffle)
+        output = self.act_layer(output)
+        if self.unsharp is True:
+            output = self.unsharp_mask_layer(output)
+
+        return output
+
+
 class SELNorm(layers.Layer):
 
     def call(self, x, heatmap):
         x_mean, x_std = self.get_mean_std(x)
         heatmap_mean, heatmap_std = self.get_mean_std(heatmap)
         valid_normalized = (x - x_mean) / x_std
-        print(heatmap.shape)
-        print(heatmap_mean.shape)
-        print(heatmap_std.shape)
-        print(valid_normalized.shape)
-
         train_normalized = heatmap_std * valid_normalized + heatmap_mean
         return backend.in_test_phase(train_normalized,
                                      valid_normalized)
@@ -689,30 +719,10 @@ class SELNorm(layers.Layer):
     def get_mean_std(self, x, epsilon=1e-5):
         axes = [1, 2]
         # Compute the mean and standard deviation of a tensor.
-        mean, variance = tf.nn.moments(x, axes=axes, keepdims=False)
+        mean, variance = tf.nn.moments(x, axes=axes, keepdims=True)
         standard_deviation = tf.sqrt(variance + epsilon)
 
         return mean, standard_deviation
-
-# class SELNorm(layers.Layer):
-#     def __init__(self)
-
-#     def call(self, x, heatmap):
-#         x_mean, x_std = self.get_mean_std(x)
-#         heatmap_mean, heatmap_std = self.get_mean_std(heatmap)
-#         normalized = heatmap_std * (x - x_mean) / x_std + heatmap_mean
-#         return normalized
-
-#     def get_mean_std(self, x, epsilon=1e-5):
-#         if x is None:
-#             return 0, 1
-#         else:
-#             axes = [1, 2]
-#             # Compute the mean and standard deviation of a tensor.
-#             mean, variance = tf.nn.moments(x, axes=axes, keepdims=True)
-#             standard_deviation = tf.sqrt(variance + epsilon)
-
-#             return mean, standard_deviation
 
 
 class Decoder2D(layers.Layer):
@@ -933,6 +943,33 @@ class Decoder3D(layers.Layer):
         output = layers.Concatenate()([pixel_shuffle,
                                        upsample])
         output = self.norm_layer(output)
+        output = self.act_layer(output)
+        return output
+
+
+class PixelShuffleBlock3D(layers.Layer):
+    def __init__(self, filters, strides, norm, activation):
+        super().__init__()
+
+        self.filters = filters
+        self.conv_before_pixel_shuffle = layers.Conv3D(filters=filters * 8,
+                                                       kernel_size=3, padding="same",
+                                                       strides=1, use_bias=False)
+        self.pixel_shuffle = Pixelshuffle3D(kernel_size=2)
+        self.conv_after_pixel_shuffle = layers.Conv3D(filters=filters,
+                                                      kernel_size=3, padding="same",
+                                                      strides=1, use_bias=False)
+
+        self.norm_layer = get_norm_layer(norm)
+        self.act_layer = get_act_layer(activation)
+
+    def call(self, input_tensor):
+
+        pixel_shuffle = self.conv_before_pixel_shuffle(input_tensor)
+        pixel_shuffle = self.pixel_shuffle(pixel_shuffle)
+        pixel_shuffle = self.conv_after_pixel_shuffle(pixel_shuffle)
+
+        output = self.norm_layer(pixel_shuffle)
         output = self.act_layer(output)
         return output
 

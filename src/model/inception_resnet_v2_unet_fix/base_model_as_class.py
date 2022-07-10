@@ -4,11 +4,11 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model, Sequential
 from .layers import EqualizedConv, EqualizedDense, UnsharpMasking2D, get_norm_layer, SimpleOutputLayer2D
-from .layers import OutputLayer2D as HighwayOutputLayer2D
-from .layers import UpsampleBlock2D, UpsampleBlock2DHeatmap, Decoder2D, Decoder2DHeatmap
+from .layers import OutputLayer2D as HighwayOutputLayer2D, PixelShuffleBlock2D
+from .layers import UpsampleBlock2D, UpsampleBlock2DHeatmap, Decoder2D, Decoder2DHeatmap, TransformerEncoder
 from .transformer_layers import AddPositionEmbs
 from .cbam_attention_module import attach_attention_module
-from tensorflow_addons.layers import GroupNormalization
+from tensorflow_addons.layers import GroupNormalization, SpectralNormalization
 CHANNEL_AXIS = -1
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
@@ -37,6 +37,7 @@ def DecoderBlock2D(input_tensor=None,
                    last_channel_num=None,
                    groups=1,
                    num_downsample=5,
+                   norm="batch",
                    base_act="relu",
                    last_act="relu",
                    name_prefix=""):
@@ -59,19 +60,18 @@ def DecoderBlock2D(input_tensor=None,
                      activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
+        if idx % 2 == 0:
+            x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
+                                norm=norm, activation=base_act)(x)
+        else:
+            x = PixelShuffleBlock2D(out_channel=filter_size, unsharp=False,
+                                    norm=norm, activation=base_act)(x)
         if idx == 0:
-            x = Decoder2D(out_channel=filter_size, unsharp=False,
-                          activation=base_act)(x)
-            if use_skip_connect:
-                x = layers.Concatenate(axis=-1)([x, skip_connect])
             x = SimpleOutputLayer2D(last_channel_num=last_channel_num,
                                     act=last_act)(x)
         else:
-            x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
-                                activation=base_act)(x)
             if use_skip_connect:
                 x = layers.Concatenate(axis=-1)([x, skip_connect])
-
     return x
 
 
@@ -105,15 +105,17 @@ def DecoderBlock2D_stargan(input_tensor=None,
         x = Conv2DBN(filter_size, 3, groups=groups,
                      norm=norm, activation=base_act)(x)
 
+        if idx % 2 == 0:
+            x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
+                                norm=norm, activation=base_act)(x)
+        else:
+            x = PixelShuffleBlock2D(out_channel=filter_size, unsharp=False,
+                                    norm=norm, activation=base_act)(x)
+
         if idx == 0:
-            x = Decoder2D(out_channel=filter_size, unsharp=False,
-                          norm=norm, activation=base_act)(x)
-            x = layers.Concatenate(axis=-1)([x, skip_connect])
             x = SimpleOutputLayer2D(last_channel_num=last_channel_num,
                                     act=last_act)(x)
         else:
-            x = UpsampleBlock2D(out_channel=filter_size, unsharp=False,
-                                norm=norm, activation=base_act)(x)
             x = layers.Concatenate(axis=-1)([x, skip_connect])
     return x
 
@@ -385,9 +387,10 @@ def InceptionResNetV2_Stargan(input_shape=None,
     skip_connect_tensor_list.append(x)
     x = get_output_block(x, block_size, padding, groups,
                          use_attention, norm, base_act, last_act, name_prefix)
-    _, h, w, _ = backend.int_shape(x)
+    _, H, W, C = backend.int_shape(x)
+
     class_tensor = layers.Reshape((1, 1, label_len))(class_input)
-    class_tensor = tf.tile(class_tensor, (1, h, w, 1))
+    class_tensor = tf.tile(class_tensor, (1, H, W, 1))
 
     x = layers.Concatenate(axis=-1)([x, class_tensor])
     x = DecoderBlock2D_stargan(input_tensor=x,
@@ -396,6 +399,68 @@ def InceptionResNetV2_Stargan(input_shape=None,
                                filter_scale=decoder_filter_scale,
                                groups=1,
                                num_downsample=5,
+                               norm=norm,
+                               base_act=base_act,
+                               last_act=last_act)
+    return Model([input_tensor, class_input], x)
+
+
+def InceptionResNetV2_Stargan_Progressive(input_shape=None,
+                                          label_len=None,
+                                          block_size=16,
+                                          decoder_filter_scale=1,
+                                          num_downsample=5,
+                                          padding="same",
+                                          pooling="max",
+                                          groups=1,
+                                          norm="batch",
+                                          base_act="relu",
+                                          last_act="relu",
+                                          last_channel_num=1,
+                                          name_prefix="",
+                                          use_attention=True):
+    if name_prefix == "":
+        pass
+    else:
+        name_prefix = f"{name_prefix}_"
+    skip_connect_tensor_list = []
+    input_tensor = layers.Input(input_shape)
+    class_input = layers.Input(shape=(label_len))
+
+    x = get_block_1(input_tensor, block_size, groups,
+                    norm, base_act, num_downsample, name_prefix)
+    skip_connect_tensor_list.append(x)
+    if num_downsample >= 5:
+        x = get_block_2(x, block_size, padding, groups,
+                        norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
+    if num_downsample >= 4:
+        x = get_block_3(x, block_size, padding, pooling,
+                        groups, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
+    if num_downsample >= 3:
+        x = get_block_4(x, block_size, padding, pooling, groups,
+                        use_attention, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
+    if num_downsample >= 2:
+        x = get_block_5(x, block_size, padding, groups,
+                        use_attention, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
+    if num_downsample >= 1:
+        x = get_output_block(x, block_size, padding, groups,
+                             use_attention, norm, base_act, last_act, name_prefix)
+    _, H, W, C = backend.int_shape(x)
+
+    class_tensor = layers.Reshape((1, 1, label_len))(class_input)
+    class_tensor = tf.tile(class_tensor, (1, H, W, 1))
+
+    x = layers.Concatenate(axis=-1)([x, class_tensor])
+    x = DecoderBlock2D_stargan(input_tensor=x,
+                               skip_connect_tensor_list=skip_connect_tensor_list,
+                               last_channel_num=last_channel_num,
+                               filter_scale=decoder_filter_scale,
+                               groups=1,
+                               num_downsample=num_downsample,
                                norm=norm,
                                base_act=base_act,
                                last_act=last_act)
@@ -448,7 +513,7 @@ def InceptionResNetV2_StarganHeatmap(input_shape=None,
 
     heatmap_input_list = []
     for _ in skip_connect_tensor_list:
-        heatmap_input_list.append(layers.Input((None, None)))
+        heatmap_input_list.append(layers.Input((None, None, None)))
     x = DecoderBlock2D_stargan_heatmap(input_tensor=x,
                                        skip_connect_tensor_list=skip_connect_tensor_list,
                                        heatmap_list=heatmap_input_list,
@@ -465,7 +530,7 @@ def InceptionResNetV2_StarganHeatmap(input_shape=None,
 def InceptionResNetV2_progressive(target_shape=None,
                                   block_size=16,
                                   padding="same",
-                                  pooling="max",
+                                  pooling="average",
                                   groups=1,
                                   norm="batch",
                                   base_act="relu",
@@ -502,14 +567,17 @@ def InceptionResNetV2_progressive(target_shape=None,
     if num_downsample >= 2:
         x = get_block_5(x, block_size, padding, groups,
                         use_attention, norm, base_act, name_prefix)
-    x = get_output_block(x, block_size, padding, groups,
-                         use_attention, norm, base_act, last_act, name_prefix)
+    if num_downsample >= 1:
+        x = get_output_block(x, block_size, padding, groups,
+                             use_attention, norm, base_act, last_act, name_prefix)
 
     model = Model(input_tensor, x,
                   name=f'{name_prefix}inception_resnet_v2')
     if skip_connect_names:
-        skip_connect_name_list = [
-            f"{name_prefix}down_block_{idx}" for idx in range(1, 6)]
+        skip_connect_name_list = [f"{name_prefix}block_1"] + \
+            [f"{name_prefix}block_{idx}"
+             for idx in range(6 - num_downsample + 1, 6)]
+
         return model, skip_connect_name_list
     else:
         return model
@@ -667,35 +735,57 @@ class Conv2DBN(layers.Layer):
                  norm="batch", activation="relu", use_bias=False, name=None):
         super().__init__()
         norm_axis = CHANNEL_AXIS
-        if groups == 1:
-            self.conv_layer = EqualizedConv(out_channels=filters,
-                                            kernel=kernel_size,
-                                            downsample=strides == 2,
-                                            padding=padding,
-                                            use_bias=use_bias)
-            if use_bias:
-                self.norm_layer = get_norm_layer(None)
-            else:
-                self.norm_layer = get_norm_layer(norm, axis=norm_axis)
+        self.norm = norm
+        if norm == "spectral":
+            self.conv_layer = SpectralNormalization(layers.Conv2D(filters=filters,
+                                                                  kernel_size=kernel_size,
+                                                                  strides=strides,
+                                                                  padding=padding,
+                                                                  groups=groups,
+                                                                  use_bias=use_bias,
+                                                                  kernel_initializer='glorot_uniform',
+                                                                  bias_initializer='zeros'))
         else:
-            self.conv_layer = layers.Conv2D(filters=filters,
-                                            kernel_size=kernel_size,
-                                            strides=strides,
-                                            padding=padding,
-                                            groups=groups,
-                                            use_bias=use_bias,
-                                            kernel_initializer='glorot_uniform',
-                                            bias_initializer='zeros')
-            self.norm_layer = GroupNormalization(groups=groups,
-                                                 axis=norm_axis,
-                                                 scale=False)
+            if groups == 1:
+                # self.conv_layer = EqualizedConv(out_channels=filters,
+                #                                 kernel=kernel_size,
+                #                                 downsample=strides == 2,
+                #                                 padding=padding,
+                #                                 use_bias=use_bias)
+                self.conv_layer = layers.Conv2D(filters=filters,
+                                                kernel_size=kernel_size,
+                                                strides=strides,
+                                                padding=padding,
+                                                groups=groups,
+                                                use_bias=use_bias,
+                                                kernel_initializer='glorot_uniform',
+                                                bias_initializer='zeros')
+                if use_bias:
+                    self.norm_layer = get_norm_layer(None)
+                else:
+                    self.norm_layer = get_norm_layer(norm, axis=norm_axis)
+            else:
+                self.conv_layer = layers.Conv2D(filters=filters,
+                                                kernel_size=kernel_size,
+                                                strides=strides,
+                                                padding=padding,
+                                                groups=groups,
+                                                use_bias=use_bias,
+                                                kernel_initializer='glorot_uniform',
+                                                bias_initializer='zeros')
+                self.norm_layer = GroupNormalization(groups=groups,
+                                                     axis=norm_axis,
+                                                     scale=False)
         self.act_layer = get_act_layer(activation, name=name)
 
     def __call__(self, input_tensor):
-        conv = self.conv_layer(input_tensor)
-        norm = self.norm_layer(conv)
-        act = self.act_layer(norm)
-        return act
+        out = self.conv_layer(input_tensor)
+        if self.norm == "spectral":
+            pass
+        else:
+            out = self.norm_layer(out)
+        out = self.act_layer(out)
+        return out
 
 
 class ConcatBlock(layers.Layer):

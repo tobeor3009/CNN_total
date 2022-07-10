@@ -81,8 +81,7 @@ def make_gradcam_heatmap_multi(img_array, grad_model):
         pooled_grads = pooled_grads[:, tf.newaxis, tf.newaxis, :, tf.newaxis]
         target_output = tf.expand_dims(target_output, axis=-2)
         heatmap = target_output @ pooled_grads
-        heatmap = tf.squeeze(heatmap, axis=[-2, -1])
-        # For visualization purpose, we will also normalize the heatmap between 0 & 1
+        heatmap = tf.squeeze(heatmap, axis=[-2])
         heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
         target_layer_heatmap_list.append(heatmap)
     return target_layer_heatmap_list
@@ -188,7 +187,7 @@ class ATTGan(Model):
         real_x, label_x = batch_data
         label_y = get_diff_label(label_x)
         batch_size = tf.shape(real_x)[0]
-        empty_heatmap = [tf.random.uniform((batch_size, 2, 2))
+        empty_heatmap = [tf.random.uniform((batch_size, 2, 2, 1))
                          for _ in range(self.heatmap_num)]
         # =================================================================================== #
         #                             2. Train the discriminator                              #

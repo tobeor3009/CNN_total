@@ -6,7 +6,7 @@ from tensorflow.keras import layers, Model, Sequential
 from .layers import Pixelshuffle3D, get_norm_layer
 from .transformer_layers import AddPositionEmbs
 from .cbam_attention_module import attach_attention_module
-from tensorflow_addons.layers import GroupNormalization
+from tensorflow_addons.layers import GroupNormalization, SpectralNormalization
 CHANNEL_AXIS = -1
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
@@ -339,35 +339,57 @@ class Conv3DBN(layers.Layer):
                  norm="batch", activation="relu", use_bias=False, name=None):
         super().__init__()
         norm_axis = CHANNEL_AXIS
-        if groups == 1:
-            self.conv_layer = EqualizedConv3D(out_channels=filters,
-                                              kernel=kernel_size,
-                                              downsample=strides == 2,
-                                              padding=padding,
-                                              use_bias=use_bias)
-            if use_bias:
-                self.norm_layer = get_norm_layer(None)
-            else:
-                self.norm_layer = get_norm_layer(norm, axis=norm_axis)
+        self.norm = norm
+        if norm == "spectral":
+            self.conv_layer = SpectralNormalization(layers.Conv3D(filters=filters,
+                                                                  kernel_size=kernel_size,
+                                                                  strides=strides,
+                                                                  padding=padding,
+                                                                  groups=groups,
+                                                                  use_bias=use_bias,
+                                                                  kernel_initializer='glorot_uniform',
+                                                                  bias_initializer='zeros'))
         else:
-            self.conv_layer = layers.Conv3D(filters=filters,
-                                            kernel_size=kernel_size,
-                                            strides=strides,
-                                            padding=padding,
-                                            groups=groups,
-                                            use_bias=use_bias,
-                                            kernel_initializer='glorot_uniform',
-                                            bias_initializer='zeros')
-            self.norm_layer = GroupNormalization(groups=groups,
-                                                 axis=norm_axis,
-                                                 scale=False)
+            if groups == 1:
+                # self.conv_layer = EqualizedConv3D(out_channels=filters,
+                #                                   kernel=kernel_size,
+                #                                   downsample=strides == 2,
+                #                                   padding=padding,
+                #                                   use_bias=use_bias)
+                self.conv_layer = layers.Conv3D(filters=filters,
+                                                kernel_size=kernel_size,
+                                                strides=strides,
+                                                padding=padding,
+                                                groups=groups,
+                                                use_bias=use_bias,
+                                                kernel_initializer='glorot_uniform',
+                                                bias_initializer='zeros')
+                if use_bias:
+                    self.norm_layer = get_norm_layer(None)
+                else:
+                    self.norm_layer = get_norm_layer(norm, axis=norm_axis)
+            else:
+                self.conv_layer = layers.Conv3D(filters=filters,
+                                                kernel_size=kernel_size,
+                                                strides=strides,
+                                                padding=padding,
+                                                groups=groups,
+                                                use_bias=use_bias,
+                                                kernel_initializer='glorot_uniform',
+                                                bias_initializer='zeros')
+                self.norm_layer = GroupNormalization(groups=groups,
+                                                     axis=norm_axis,
+                                                     scale=False)
         self.act_layer = get_act_layer(activation, name=name)
 
     def __call__(self, input_tensor):
-        conv = self.conv_layer(input_tensor)
-        norm = self.norm_layer(conv)
-        act = self.act_layer(norm)
-        return act
+        output = self.conv_layer(input_tensor)
+        if self.norm == "spectral":
+            pass
+        else:
+            output = self.norm_layer(output)
+        output = self.act_layer(output)
+        return output
 
 
 class EqualizedConv3D(layers.Layer):

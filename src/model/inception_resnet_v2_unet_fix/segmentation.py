@@ -28,20 +28,28 @@ def get_segmentation_model_v2(input_shape,
                               block_size=16,
                               groups=1,
                               encode_block="conv",
+                              num_downsample=5,
+                              norm="instance",
                               base_act="leakyrelu",
                               last_act="tanh",
                               last_channel_num=1
                               ):
 
-    base_model, skip_connect_layer_names = InceptionResNetV2(input_shape=input_shape,
-                                                             block_size=block_size,
-                                                             padding="same",
-                                                             groups=groups,
-                                                             base_act=base_act,
-                                                             last_act=base_act,
-                                                             name_prefix="seg",
-                                                             use_attention=True,
-                                                             skip_connect_names=True)
+    target_shape = (input_shape[0] * (2 ** (5 - num_downsample)),
+                    input_shape[1] * (2 ** (5 - num_downsample)),
+                    input_shape[2])
+    base_model, skip_connect_layer_names = InceptionResNetV2_progressive(target_shape=target_shape,
+                                                                         block_size=block_size,
+                                                                         padding="same",
+                                                                         groups=groups,
+                                                                         norm=norm,
+                                                                         base_act=base_act,
+                                                                         last_act=base_act,
+                                                                         name_prefix="seg",
+                                                                         num_downsample=num_downsample,
+                                                                         use_attention=True,
+                                                                         skip_connect_names=True)
+
     # x.shape: [B, 16, 16, 1536]
     base_input = base_model.input
     base_output = base_model.output
@@ -69,8 +77,8 @@ def get_segmentation_model_v2(input_shape,
 
     seg_output = DecoderBlock2D(input_tensor=decoded, encoder=base_model,
                                 skip_connection_layer_names=skip_connect_layer_names, use_skip_connect=True,
-                                last_channel_num=last_channel_num,
-                                groups=groups, num_downsample=5,
+                                norm=norm, last_channel_num=last_channel_num,
+                                groups=groups, num_downsample=num_downsample,
                                 base_act=base_act, last_act=last_act, name_prefix="seg")
 
     return Model(base_input, seg_output)

@@ -49,7 +49,7 @@ class AddPositionEmbs(layers.Layer):
         self.pe = tf.Variable(
             name="pos_embedding",
             initial_value=tf.random_normal_initializer(stddev=0.06)(
-                shape=(1, *input_shape)
+                shape=(1, *input_shape[:-1], 1)
             ),
             dtype="float32",
             trainable=True,

@@ -319,76 +319,37 @@ def get_inception_resnet_v2_disc_stargan_wgan(input_shape,
     return model
 
 
-# Weights initializer for the layers.
-kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
-# Gamma initializer for instance normalization.
-gamma_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.02)
+def get_inception_resnet_v2_disc_stargan_wgan_v2(input_shape,
+                                                 label_len,
+                                                 padding="valid",
+                                                 norm="instance",
+                                                 activation="relu",
+                                                 validity_act="sigmoid",
+                                                 block_size=16
+                                                 ):
 
+    validity_model = InceptionResNetV2_progressive(target_shape=input_shape,
+                                                   block_size=block_size,
+                                                   padding=padding,
+                                                   norm=norm,
+                                                   base_act=activation,
+                                                   last_act=activation,
+                                                   name_prefix="validity",
+                                                   num_downsample=5,
+                                                   use_attention=True)
 
-def downsample(
-    x,
-    filters,
-    activation,
-    kernel_initializer=kernel_init,
-    kernel_size=(3, 3),
-    strides=(2, 2),
-    padding="same",
-    gamma_initializer=gamma_init,
-    use_bias=False,
-):
-    x = layers.Conv2D(
-        filters,
-        kernel_size,
-        strides=strides,
-        kernel_initializer=kernel_initializer,
-        padding=padding,
-        use_bias=use_bias,
-    )(x)
-    x = tfa.layers.InstanceNormalization(
-        gamma_initializer=gamma_initializer)(x)
-    if activation:
-        x = activation(x)
-    return x
+    input_tensor = layers.Input(input_shape)
 
+    encoded = validity_model(input_tensor)
+    _, H, W, C = encoded.shape
+    class_encoded = layers.GlobalAveragePooling2D()(encoded)
 
-def get_discriminator(
-    input_shape, filters=64,
-    kernel_initializer=kernel_init,
-    num_downsampling=5, name="disc"
-):
-    img_input = layers.Input(shape=input_shape, name=name + "_img_input")
-    x = layers.Conv2D(
-        filters,
-        (4, 4),
-        strides=(2, 2),
-        padding="same",
-        kernel_initializer=kernel_initializer,
-    )(img_input)
-    x = layers.LeakyReLU(0.2)(x)
-
-    num_filters = filters
-    for num_downsample_block in range(num_downsampling):
-        num_filters *= 2
-        if num_downsample_block < 2:
-            x = downsample(
-                x,
-                filters=num_filters,
-                activation=layers.LeakyReLU(0.2),
-                kernel_size=(4, 4),
-                strides=(2, 2),
-            )
-        else:
-            x = downsample(
-                x,
-                filters=num_filters,
-                activation=layers.LeakyReLU(0.2),
-                kernel_size=(4, 4),
-                strides=(1, 1),
-            )
-
-    x = layers.Conv2D(
-        1, (4, 4), strides=(1, 1), padding="same", kernel_initializer=kernel_initializer
-    )(x)
-
-    model = keras.models.Model(inputs=img_input, outputs=x, name=name)
+    validity_pred = EqualizedConv(1, kernel=3)(encoded)
+    validity_pred = get_act_layer(validity_act)(validity_pred)
+    class_pred = EqualizedDense(C // 2)(class_encoded)
+    class_pred = get_act_layer(activation)(class_pred)
+    class_pred = layers.Dropout(0.2)(class_pred)
+    class_pred = EqualizedDense(label_len)(class_pred)
+    class_pred = get_act_layer("sigmoid")(class_pred)
+    model = Model(input_tensor, [validity_pred, class_pred])
     return model

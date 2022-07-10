@@ -118,12 +118,13 @@ class ATTGan(Model):
         with tf.GradientTape(persistent=True) as disc_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y])
+            fake_y = self.generator([real_x, label_y],
+                                    training=True)
             # Discriminator output
             disc_real_x, label_pred_real_x = self.discriminator(real_x,
                                                                 training=True)
-            disc_fake_y, label_pred_fake_y = self.discriminator(fake_y,
-                                                                training=True)
+            disc_fake_y, _ = self.discriminator(fake_y,
+                                                training=True)
             # Compute Discriminator class_loss
             disc_real_x_class_loss = self.class_loss_fn(label_x,
                                                         label_pred_real_x)

@@ -102,8 +102,8 @@ class MultiScaleDataGetter(BaseDataGetter):
             image_array = self.preprocess_dict["image"](image_array)
             mask_array = self.preprocess_dict["mask"](
                 mask_array)
-            image_array = self.resize_method(image_array)
-            mask_array = self.resize_method(mask_array)
+            # image_array = self.resize_method(image_array)
+            # mask_array = self.resize_method(mask_array)
             image_array, mask_array = self.argumentation_method(image_array,
                                                                 mask_array)
             if self.is_cached is False:
@@ -170,9 +170,15 @@ class MultiScaleDataloader(BaseDataLoader):
         self.batch_mask_array_1 = np.zeros(
             (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
         self.batch_image_array_2 = np.zeros(
-            (self.batch_size * 4, *self.image_data_shape // 2), dtype=self.dtype)
+            (self.batch_size * 4,
+             *np.array(self.image_data_shape[:-1]) // 2,
+             self.image_data_shape[-1]),
+            dtype=self.dtype)
         self.batch_mask_array_2 = np.zeros(
-            (self.batch_size * 4, *self.mask_data_shape // 2), dtype=self.dtype)
+            (self.batch_size * 4,
+             *np.array(self.mask_data_shape[:-1]) // 2,
+             self.mask_data_shape[-1]),
+            dtype=self.dtype)
 
         self.print_data_info()
         self.on_epoch_end()
@@ -180,18 +186,17 @@ class MultiScaleDataloader(BaseDataLoader):
     def __getitem__(self, i):
 
         downscale = random.choice([True, False])
-
         if downscale:
-            start = i * self.batch_size
-            end = start + self.batch_size
-            batch_image_array = self.batch_image_array_1
-            batch_mask_array = self.batch_mask_array_1
-        else:
-            i = i // 4
+            i = max(0, i // 4 - self.batch_size * 4)
             start = i * self.batch_size * 4
             end = start + self.batch_size * 4
             batch_image_array = self.batch_image_array_2
             batch_mask_array = self.batch_mask_array_2
+        else:
+            start = i * self.batch_size
+            end = start + self.batch_size
+            batch_image_array = self.batch_image_array_1
+            batch_mask_array = self.batch_mask_array_1
 
         for batch_index, total_index in enumerate(range(start, end)):
             single_data_dict = self.data_getter.getitem(total_index, downscale)
