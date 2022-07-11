@@ -134,6 +134,19 @@ class BaseDataLoader(tensorflow.keras.utils.Sequence):
     def print_data_info(self):
         pass
 
+class BaseIterDataLoader():
+
+    def __len__(self):
+        return len(self.data_getter) // self.batch_size
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            self.data_getter.shuffle()
+
+    @abstractmethod
+    def print_data_info(self):
+        pass
+
 
 class PreprocessPolicy():
 

@@ -1,6 +1,7 @@
 import cv2
 import os
 import json
+import math
 import numpy as np
 from collections.abc import Mapping
 
@@ -121,7 +122,7 @@ def default_collate_fn(data_object_list):
         batch_image_array.append(image_array)
         batch_label_array.append(label_array)
     batch_image_array = np.stack(batch_image_array, axis=0)
-    batch_image_array = np.stack(batch_label_array, axis=0)
+    batch_label_array = np.stack(batch_label_array, axis=0)
 
     return batch_image_array, batch_label_array
 
@@ -187,6 +188,9 @@ class SingleProcessPool(BaseProcessPool):
         self.batch_idx += 1
         return batch_data_tuple
 
+    def __len__(self):
+        return self.batch_num
+
 
 class MultiProcessPool(BaseProcessPool):
     def __init__(self, data_getter, batch_size, num_workers,
@@ -241,3 +245,6 @@ class MultiProcessPool(BaseProcessPool):
         self.batch_idx_list = batch_idx_list
         self.batch_idx += 1
         return batch_data_tuple
+
+    def __len__(self):
+        return self.batch_num

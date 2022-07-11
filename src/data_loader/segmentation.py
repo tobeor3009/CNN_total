@@ -1,17 +1,18 @@
 # base module
 from copy import deepcopy
+from sympy import Mul
 from tqdm import tqdm
 import os
+import math
 # external module
 import numpy as np
 import progressbar
 
 # this library module
-from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
-from .base_loader import BaseDataGetter, BaseDataLoader, \
+from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array, SingleProcessPool, MultiProcessPool
+from .base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
     ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
     base_argumentation_policy_dict
-
 
 """
 Expected Data Path Structure
@@ -28,6 +29,19 @@ test  - image
 To Be Done:
     - Test DataLoader Working
 """
+
+
+def seg_collate_fn(data_object_list):
+    batch_image_array = []
+    batch_mask_array = []
+    for single_data_dict in data_object_list:
+        image_array, mask_array = single_data_dict["image_array"], single_data_dict["mask_array"]
+        batch_image_array.append(image_array)
+        batch_mask_array.append(mask_array)
+    batch_image_array = np.stack(batch_image_array, axis=0)
+    batch_mask_array = np.stack(batch_mask_array, axis=0)
+
+    return batch_image_array, batch_mask_array
 
 
 class SegDataGetter(BaseDataGetter):
@@ -158,12 +172,13 @@ class SegDataGetter(BaseDataGetter):
         self.on_memory = True
 
 
-class SegDataloader(BaseDataLoader):
+class SegDataloader(BaseIterDataLoader):
 
     def __init__(self,
                  image_path_list=None,
                  mask_path_list=None,
                  batch_size=4,
+                 num_workers=1,
                  on_memory=False,
                  argumentation_proba=None,
                  argumentation_policy_dict=base_argumentation_policy_dict,
@@ -186,41 +201,65 @@ class SegDataloader(BaseDataLoader):
                                          interpolation=interpolation
                                          )
         self.batch_size = batch_size
-        self.image_data_shape = self.data_getter[0]["image_array"].shape
-        self.mask_data_shape = self.data_getter[0]["mask_array"].shape
+        self.data_num = len(self.data_getter)
         self.shuffle = shuffle
         self.dtype = dtype
 
-        self.batch_image_array = np.zeros(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_mask_array = np.zeros(
-            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
-
+        if num_workers == 1:
+            self.data_pool = SingleProcessPool(data_getter=self.data_getter,
+                                               batch_size=self.batch_size,
+                                               collate_fn=seg_collate_fn,
+                                               shuffle=self.shuffle
+                                               )
+        else:
+            self.data_pool = MultiProcessPool(data_getter=self.data_getter,
+                                              batch_size=self.batch_size,
+                                              num_workers=num_workers,
+                                              collate_fn=seg_collate_fn,
+                                              shuffle=self.shuffle
+                                              )
         self.print_data_info()
         self.on_epoch_end()
 
-    def __getitem__(self, i):
+    def __iter__(self):
+        print("iter called!")
+        return iter((self.data_pool))
 
-        start = i * self.batch_size
-        end = start + self.batch_size
+    def __next__(self):
+        return next(self.data_pool)
 
-        for batch_index, total_index in enumerate(range(start, end)):
-            single_data_dict = self.data_getter[total_index]
-            self.batch_image_array[batch_index] = single_data_dict["image_array"]
-            self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
+    def __getitem__(self, i, training=True):
+        if training:
+            batch_image_array, batch_mask_array = next(self.data_pool)
+        else:
+            start = i * self.batch_size
+            end = min(start + self.batch_size, self.data_num)
 
-        return self.batch_image_array, self.batch_mask_array
+            batch_image_array = []
+            batch_mask_array = []
+            for total_index in range(start, end):
+                single_data_dict = self.data_getter[total_index]
+
+                batch_image_array.append(single_data_dict["image_array"])
+                batch_mask_array.append(single_data_dict["mask_array"])
+            batch_image_array = np.stack(batch_image_array, axis=0)
+            batch_mask_array = np.stack(batch_mask_array, axis=0)
+
+        return batch_image_array, batch_mask_array
+
+    def __len__(self):
+        return math.ceil(self.data_num / self.batch_size)
 
     def change_batch_size(self, batch_size):
         self.batch_size = batch_size
-        self.batch_image_array = np.zeros(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_mask_array = np.zeros(
-            (self.batch_size, *self.mask_data_shape), dtype=self.dtype)
 
     def print_data_info(self):
         data_num = len(self.data_getter)
         print(f"Total data num {data_num}")
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            self.data_getter.shuffle()
 
 
 class SelfModifyDataGetter(BaseDataGetter):
