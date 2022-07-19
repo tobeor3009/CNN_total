@@ -820,8 +820,8 @@ class UpsampleBlock2D(layers.Layer):
 
         self.kernel_size = kernel_size
         self.unsharp = unsharp
-        self.upsample_layer = layers.UpSampling2D(
-            size=kernel_size, interpolation="bilinear")
+        self.upsample_layer = layers.UpSampling2D(size=kernel_size,
+                                                  interpolation="bilinear")
         self.conv_after_upsample = layers.Conv2D(filters=out_channel,
                                                  kernel_size=3, padding="same",
                                                  strides=1, use_bias=USE_CONV_BIAS)

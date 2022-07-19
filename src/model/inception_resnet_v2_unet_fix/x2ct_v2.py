@@ -388,12 +388,10 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
     base_model_output = base_model.output
     _, H, W, C = backend.int_shape(base_model_output)
     ct_start_channel = target_shape[0] // (2 ** 5)
-    ct_dim = ct_start_channel
 
     # lat_output.shape: [B, 16, 16, 1536]
     _, H, W, C = backend.int_shape(base_model_output)
     down_channel = int(round(C // 3 * start_channel_ratio))
-    attn_num_head = 8
 
     decoded = EqualizedConv(H * W * down_channel)(base_model_output)
     decoded = layers.Flatten()(base_model_output)
@@ -419,15 +417,16 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
             decoded = UpsampleBlock3D(current_filter,
                                       strides=(2, 2, 2),
                                       norm=norm, activation=base_act)(decoded)
-            decoded = layers.Concatenate()([decoded,
-                                            skip_connect])
+
         else:
             decoded = PixelShuffleBlock3D(current_filter,
                                           strides=(2, 2, 2),
                                           norm=norm, activation=base_act)(decoded)
+        if idx == 5 - num_downsample + 1:
+            pass
+        else:
             decoded = layers.Concatenate()([decoded,
                                             skip_connect])
-
     output_tensor = Conv3DBN(current_filter, 3,
                              norm=norm, activation=None)(decoded)
     output_tensor = SimpleOutputLayer2D(last_channel_num=1,

@@ -63,7 +63,8 @@ def normalize_image(image_array):
 
 
 def normalize_mask(mask_array):
-    return mask_array / 255
+    mask_array = (mask_array // 255).astype("float32")
+    return mask_array
 
 
 def to_tuple(int_or_tuple):
@@ -133,6 +134,7 @@ class BaseDataLoader(tensorflow.keras.utils.Sequence):
     @abstractmethod
     def print_data_info(self):
         pass
+
 
 class BaseIterDataLoader():
 

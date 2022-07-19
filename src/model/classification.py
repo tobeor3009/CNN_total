@@ -149,8 +149,9 @@ def get_inceptionv3_classification_model(input_shape, num_class,
 
     # add a global spatial average pooling layer
     x = base_model.output
-    # (Batch_Size, 196, 2048)
+    # (Batch_Size, 14, 14, 2048)
     x = layers.GlobalAveragePooling2D()(x)
+    # (Batch_Size, 2048)
     # let's add a fully-connected layer
     # (Batch_Size,1)
     x = layers.Dense(1024, activation='relu')(x)

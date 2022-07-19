@@ -2,6 +2,7 @@ from tensorflow.keras import backend as K
 import numpy as np
 import tensorflow as tf
 import segmentation_models as sm
+from tensorflow_addons.losses import WeightedKappaLoss
 from tensorflow_addons.image import euclidean_dist_transform
 from segmentation_models.base import Loss
 from segmentation_models.losses import BinaryFocalLoss
@@ -12,43 +13,63 @@ mean_absolute_error = MeanAbsoluteError(
 AXIS = [1, 2]
 PIE_VALUE = np.pi
 SMOOTH = K.epsilon()
+TVERSKY_BETA = 0.7
+FOCAL_ALPHA = 0.25
+FOCAL_BETA = 2.0
+base_dice_loss = sm.losses.DiceLoss(per_image=True)
 
-dice_loss = sm.losses.DiceLoss(per_image=True)
+
+from scipy.ndimage import distance_transform_edt as distance
+#####################################################################
+# https://github.com/LIVIAETS/boundary-loss/blob/master/keras_loss.py
 
 
-def calc_dist_map(mask_tensor):
+def calc_dist_map(seg):
+    res = np.zeros_like(seg)
+    posmask = seg.astype(np.bool)
 
-    mask_tensor = K.round(mask_tensor)
-    mask_tensor_uint8 = K.cast(mask_tensor, dtype="uint8")
+    if posmask.any():
+        negmask = ~posmask
+        res = distance(negmask) * negmask - (distance(posmask) - 1) * posmask
 
-    dist_map = euclidean_dist_transform(mask_tensor_uint8)
-    dist_map = dist_map * mask_tensor
+    return res
 
-    return dist_map
+
+def calc_dist_map_batch(y_true):
+    y_true_numpy = y_true.numpy()
+    return np.array([calc_dist_map(y)
+                     for y in y_true_numpy]).astype(np.float32)
 
 
 def boundary_loss(y_true, y_pred):
-    y_true_dist_map = calc_dist_map(y_true)
-    y_pred_dist_map = calc_dist_map(y_pred)
+    y_true_dist_map = tf.py_function(func=calc_dist_map_batch,
+                                     inp=[y_true],
+                                     Tout=tf.float32)
+    multipled = y_pred * y_true_dist_map
+    multipled = tf.maximum(multipled, 0)
+    return K.mean(multipled)
+#####################################################################
 
-    y_true_inside = y_true * (1 - y_pred)
-    y_true_outside = (1 - y_true) * y_pred
-    dist_map_diff = y_true_dist_map - y_pred_dist_map
 
-    diff_inside = dist_map_diff * y_true_inside
-    diff_outside = dist_map_diff * y_true_outside
+def dice_loss(y_true, y_pred, per_image=False, smooth=SMOOTH):
 
-    total_diff = diff_inside - diff_outside
-    # total_diff = K.sum(total_diff) / K.sum(y_true)
+    tp = K.sum(y_true * y_pred, axis=AXIS)
+    fp = K.sum(y_pred, axis=AXIS) - tp
+    fn = K.sum(y_true, axis=AXIS) - tp
 
-    return K.mean(total_diff)
+    dice_score_per_image = (2 * tp + smooth) / (2 * tp + fp + fn + smooth)
+    dice_score_per_image = -1 * tf.math.log(dice_score_per_image)
+    if per_image:
+        return dice_score_per_image
+    else:
+        return K.mean(dice_score_per_image)
 
 
 def dice_score(y_true, y_pred):
     y_true = K.round(y_true)
     y_pred = K.round(y_pred)
 
-    return 1 - dice_loss(y_true, y_pred)
+    return 1 - base_dice_loss(y_true, y_pred)
 
 
 def tversky_loss(y_true, y_pred, per_image=False, beta=0.7, smooth=SMOOTH):
@@ -60,16 +81,17 @@ def tversky_loss(y_true, y_pred, per_image=False, beta=0.7, smooth=SMOOTH):
     fn = K.sum(y_true, axis=AXIS) - tp
 
     fn_and_fp = alpha * fn + beta * fp
-    tversky_loss_per_image = 1 - (tp + smooth) / (tp + fn_and_fp + smooth)
-
+    tversky_loss_per_image = (tp + smooth) / (tp + fn_and_fp + smooth)
+    tversky_loss_per_image = -1 * tf.math.log(tversky_loss_per_image)
     if per_image:
-        return K.mean(tversky_loss_per_image)
-    else:
         return tversky_loss_per_image
+    else:
+        return K.mean(tversky_loss_per_image)
 
 
 def propotional_dice_loss(y_true, y_pred,
-                          beta=0.7, positive_ratio=0.95, smooth=SMOOTH, channel_weight=None):
+                          beta=0.7, per_image=False, smooth=SMOOTH,
+                          channel_weight=None):
 
     alpha = 1 - beta
     prevalence = K.mean(y_true, axis=AXIS)
@@ -84,8 +106,6 @@ def propotional_dice_loss(y_true, y_pred,
     positive_score = (tp + smooth) \
         / (tp + alpha * fn + beta * fp + smooth) * (smooth + prevalence)
     total_score = negative_score + positive_score
-    # total_score = (negative_score * (1 - positive_ratio) +
-    #                positive_score * positive_ratio)
     total_score = -1 * tf.math.log(total_score)
     if channel_weight is not None:
         channel_weight = np.array(channel_weight)
@@ -93,8 +113,28 @@ def propotional_dice_loss(y_true, y_pred,
         channel_weight_shape = (-1, 1, 1, channel_weight.shape[0])
         channel_weight = K.reshape(channel_weight, channel_weight_shape)
         total_score = total_score * channel_weight
+    if per_image:
+        return total_score
+    else:
+        return K.mean(total_score)
 
-    return K.mean(total_score)
+
+def cohens_kappa_loss(y_true, y_pred, per_image=False, smooth=SMOOTH):
+
+    tp = K.sum(y_true * y_pred, axis=AXIS)
+    tn = K.sum((1 - y_true) * (1 - y_pred), axis=AXIS)
+    fp = K.sum(y_pred, axis=AXIS) - tp
+    fn = K.sum(y_true, axis=AXIS) - tp
+    numerator = (2 * (tp * tn - fn * fp))
+    denominator = ((tp + fp) * (fp + tn) + (tp + fn) * (fn + tn))
+
+    score_per_image = tf.maximum(numerator / denominator, smooth)
+    score_per_image = -1 * tf.math.log(score_per_image)
+
+    if per_image:
+        return score_per_image
+    else:
+        return K.mean(score_per_image)
 
 
 def x2ct_loss(y_true, y_pred):
@@ -172,11 +212,11 @@ def x2ct_loss(y_true, y_pred):
 class BoundaryLoss(Loss):
     def __init__(self):
         super().__init__(name='boundary_loss')
-        self.loss_function = \
+        self.loss_fn = \
             lambda y_true, y_pred: boundary_loss(y_true, y_pred)
 
     def __call__(self, y_true, y_pred):
-        return self.loss_function(y_true, y_pred)
+        return self.loss_fn(y_true, y_pred)
 
 
 class ChannelWiseFocalLoss(Loss):
@@ -194,73 +234,124 @@ class ChannelWiseFocalLoss(Loss):
         return loss
 
 
-class BaseTverskyLoss(Loss):
-    def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH):
+class BaseDiceLoss(Loss):
+    def __init__(self, per_image=False, smooth=SMOOTH):
+        super().__init__(name='dice_loss')
+        self.loss_fn = lambda y_true, y_pred: \
+            dice_loss(y_true, y_pred, per_image=per_image, smooth=smooth)
+
+    def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)
+
+
+class DiceLoss(Loss):
+    def __init__(self, per_image=False, smooth=SMOOTH,
+                 alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
+                 include_focal=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
-        self.loss_function = lambda y_true, y_pred: \
+        self.loss_fn = BaseDiceLoss(per_image=per_image, smooth=smooth)
+        if include_focal is True:
+            self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+        if include_boundary is True:
+            self.loss_fn += BoundaryLoss()
+
+    def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)
+
+
+class BaseTverskyLoss(Loss):
+    def __init__(self, beta=TVERSKY_BETA, per_image=False, smooth=SMOOTH):
+        super().__init__(name='tversky_loss')
+
+        self.loss_fn = lambda y_true, y_pred: \
             tversky_loss(y_true, y_pred, beta=beta,
                          per_image=per_image, smooth=smooth)
 
     def __call__(self, y_true, y_pred):
-        return self.loss_function(y_true, y_pred)
+        return self.loss_fn(y_true, y_pred)
 
 
 class TverskyLoss(Loss):
-    def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH,
-                 alpha=0.25, gamma=4.0,
+    def __init__(self, beta=TVERSKY_BETA, per_image=False, smooth=SMOOTH,
+                 alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
                  include_focal=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
-        self.loss_function = \
+        self.loss_fn = \
             BaseTverskyLoss(beta=beta, per_image=per_image, smooth=smooth)
         if include_focal is True:
-            self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+            self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
         if include_boundary is True:
-            self.loss_function += BoundaryLoss()
+            self.loss_fn += BoundaryLoss()
 
     def __call__(self, y_true, y_pred):
-        return self.loss_function(y_true, y_pred)
+        return self.loss_fn(y_true, y_pred)
 
 
 class BasePropotionalDiceLoss(Loss):
-    def __init__(self, beta=0.7, positive_ratio=0.95, smooth=SMOOTH, channel_weight=None):
+    def __init__(self, beta=0.7, per_image=False, smooth=SMOOTH, channel_weight=None):
         super().__init__(name='propotional_dice_loss')
 
-        self.loss_function = \
+        self.loss_fn = \
             lambda y_true, y_pred: propotional_dice_loss(y_true,
                                                          y_pred,
                                                          beta=beta,
-                                                         positive_ratio=positive_ratio,
+                                                         per_image=per_image,
                                                          smooth=smooth,
                                                          channel_weight=channel_weight)
 
     def __call__(self, y_true, y_pred):
-
-        return self.loss_function(y_true, y_pred)
+        return self.loss_fn(y_true, y_pred)
 
 
 class PropotionalDiceLoss(Loss):
-    def __init__(self, beta=0.7, positive_ratio=0.95, smooth=SMOOTH,
-                 alpha=0.25, gamma=4.0,
+    def __init__(self, beta=TVERSKY_BETA, per_image=False, smooth=SMOOTH,
+                 alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
                  include_focal=False, include_boundary=False,
                  channel_weight=None):
         super().__init__(name='propotional_dice_loss')
 
-        self.loss_function = BasePropotionalDiceLoss(beta=beta,
-                                                     positive_ratio=positive_ratio,
-                                                     smooth=smooth,
-                                                     channel_weight=channel_weight)
+        self.loss_fn = BasePropotionalDiceLoss(beta=beta,
+                                               per_image=per_image,
+                                               smooth=smooth,
+                                               channel_weight=channel_weight)
         if include_focal is True:
             if channel_weight is not None:
-                self.loss_function = ChannelWiseFocalLoss(
+                self.loss_fn = ChannelWiseFocalLoss(
                     alpha=alpha, gamma=gamma, channel_weight=channel_weight)
             else:
-                self.loss_function += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+                self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
 
         if include_boundary is True:
-            self.loss_function += BoundaryLoss()
+            self.loss_fn += BoundaryLoss()
 
     def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)
 
-        return self.loss_function(y_true, y_pred)
+
+class BaseCohensKappaLoss(Loss):
+    def __init__(self, per_image=False, smooth=SMOOTH):
+        super().__init__(name='propotional_dice_loss')
+        self.loss_fn = lambda y_true, y_pred: \
+            cohens_kappa_loss(y_true, y_pred,
+                              per_image=per_image, smooth=smooth)
+
+    def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)
+
+
+class CohensKappaLoss(Loss):
+    def __init__(self, per_image=False, smooth=SMOOTH,
+                 alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
+                 include_focal=False, include_boundary=False):
+        super().__init__(name='cohens_kappa_loss')
+        self.loss_fn = BaseCohensKappaLoss(per_image=per_image, smooth=smooth)
+        if include_focal is True:
+            self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+
+        if include_boundary is True:
+            self.loss_fn += BoundaryLoss()
+
+    def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)

@@ -111,16 +111,25 @@ class ATTGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, label_x = batch_data
+        upper_real_x = real_x[..., :3]
+        middle_real_x = real_x[..., 1:4]
+        lower_real_x = real_x[..., 2:5]
         label_y = get_diff_label(label_x)
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as disc_tape:
 
-            # another domain mapping
-            fake_y = self.generator([real_x, label_y])
+            upper_fake_y = self.generator([upper_real_x, label_y])
+            middle_fake_y = self.generator([middle_real_x, label_y])
+            lower_fake_y = self.generator([lower_real_x, label_y])
+
+            fake_y = tf.concat([upper_fake_y,
+                                middle_fake_y,
+                                lower_fake_y], axis=-1)
+
             # Discriminator output
-            disc_real_x, label_pred_real_x = self.discriminator(real_x,
+            disc_real_x, label_pred_real_x = self.discriminator(middle_real_x,
                                                                 training=True)
             disc_fake_y, _ = self.discriminator(fake_y,
                                                 training=True)
@@ -153,11 +162,24 @@ class ATTGan(Model):
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as gen_tape:
 
-            # another domain mapping
-            fake_y = self.generator([real_x, label_y],
-                                    training=True)
-            same_x = self.generator([real_x, label_x],
-                                    training=True)
+            upper_fake_y = self.generator([upper_real_x, label_y],
+                                          training=True)
+            middle_fake_y = self.generator([middle_real_x, label_y],
+                                           training=True)
+            lower_fake_y = self.generator([lower_real_x, label_y],
+                                          training=True)
+            upper_same_x = self.generator([upper_real_x, label_x],
+                                          training=True)
+            middle_same_x = self.generator([middle_real_x, label_x],
+                                           training=True)
+            lower_same_x = self.generator([lower_real_x, label_x],
+                                          training=True)
+            fake_y = tf.concat([upper_fake_y,
+                                middle_fake_y,
+                                lower_fake_y], axis=-1)
+            same_x = tf.concat([upper_same_x,
+                                middle_same_x,
+                                lower_same_x], axis=-1)
             # Discriminator output
             disc_fake_y, label_pred_fake_y = self.discriminator(fake_y)
             # Generator class loss
@@ -169,7 +191,7 @@ class ATTGan(Model):
             gen_disc_loss = gen_fake_y_disc_loss
 
             # Generator image loss
-            same_x_image_loss = self.recon_loss_fn(real_x,
+            same_x_image_loss = self.recon_loss_fn(middle_real_x,
                                                    same_x)
             gen_image_loss = same_x_image_loss
             # Total generator loss

@@ -114,6 +114,13 @@ import numpy as np
 WAIT_TIME = 0.05
 
 
+def lazy_cycle(iterable):
+    while True:
+        iter_init = iter(iterable)
+        for element in iter_init:
+            yield element
+
+
 def default_collate_fn(data_object_list):
 
     batch_image_array = []
@@ -128,33 +135,35 @@ def default_collate_fn(data_object_list):
 
 
 def consumer_fn(data_getter, idx_queue, output_queue):
-    with open("temp.txt", 'w') as f:
-        inter_idx = 0
-        while True:
-            inter_idx += 1
-            try:
-                idx = idx_queue.get(timeout=0)
-            except Empty:
-                sleep(WAIT_TIME)
-                continue
-            if idx is None:
-                break
-            data = (idx, data_getter[idx])
-            output_queue.put(data)
+    inter_idx = 0
+    while True:
+        inter_idx += 1
+        try:
+            idx = idx_queue.get(timeout=0)
+        except Empty:
+            sleep(WAIT_TIME)
+            continue
+        if idx is None:
+            break
+        data = (idx, data_getter[idx])
+        output_queue.put(data)
 
 
 class BaseProcessPool():
 
     def __iter__(self):
+        # print("iter called!")
         self.reset_states()
         return self
 
     def reset_states(self):
         self.batch_idx = 0
         self.batch_idx_list = None
+        self.shuffle_idx()
 
     def shuffle_idx(self):
-        random.shuffle(self.idx_list)
+        if self.shuffle:
+            random.shuffle(self.idx_list)
 
 
 class SingleProcessPool(BaseProcessPool):
@@ -162,12 +171,14 @@ class SingleProcessPool(BaseProcessPool):
                  collate_fn=default_collate_fn, shuffle=False):
         self.data_getter = data_getter
         self.collate_fn = collate_fn
+        self.shuffle = shuffle
         self.data_num = len(data_getter)
         self.idx_list = list(range(self.data_num))
-        if shuffle:
-            self.shuffle_idx()
+        self.shuffle_idx()
         self.batch_num = math.ceil(self.data_num / batch_size)
         self.batch_size = batch_size
+        self.batch_idx = 0
+        self.batch_idx_list = None
 
     def __next__(self):
         if self.batch_idx == self.batch_num:
@@ -175,7 +186,6 @@ class SingleProcessPool(BaseProcessPool):
             raise StopIteration
         start_idx = self.batch_size * self.batch_idx
         end_idx = min(start_idx + self.batch_size, self.data_num)
-        current_batch_size = end_idx - start_idx
         batch_idx_list = self.idx_list[start_idx: end_idx]
 
         data_object_list = []
@@ -197,10 +207,10 @@ class MultiProcessPool(BaseProcessPool):
                  collate_fn=default_collate_fn, shuffle=False):
         self.data_getter = data_getter
         self.collate_fn = collate_fn
+        self.shuffle = shuffle
         self.data_num = len(data_getter)
         self.idx_list = list(range(self.data_num))
-        if shuffle:
-            self.shuffle_idx()
+        self.shuffle_idx()
         self.batch_num = math.ceil(self.data_num / batch_size)
         self.batch_size = batch_size
 

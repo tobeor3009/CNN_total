@@ -1,6 +1,5 @@
 # base module
 from copy import deepcopy
-from sympy import Mul
 from tqdm import tqdm
 import os
 import math
@@ -9,7 +8,7 @@ import numpy as np
 import progressbar
 
 # this library module
-from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array, SingleProcessPool, MultiProcessPool
+from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
     ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -222,8 +221,7 @@ class SegDataloader(BaseIterDataLoader):
         self.on_epoch_end()
 
     def __iter__(self):
-        print("iter called!")
-        return iter((self.data_pool))
+        return lazy_cycle(self.data_pool)
 
     def __next__(self):
         return next(self.data_pool)
