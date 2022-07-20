@@ -25,6 +25,7 @@ class AttnConfig():
 
 
 def get_segmentation_model_v2(input_shape,
+                              input_class_num=None,
                               block_size=16,
                               filter_scale=1,
                               groups=1,
@@ -59,6 +60,11 @@ def get_segmentation_model_v2(input_shape,
     _, H, W, C = base_output.shape
 
     decoded = base_output
+    if input_class_num is not None:
+        class_input = layers.Input((input_class_num,))
+        class_tensor = layers.Reshape((1, 1, input_class_num))(class_input)
+        class_tensor = tf.tile(class_tensor, (1, H, W, 1))
+        decoded = layers.Concatenate(axis=-1)([decoded, class_tensor])
 
     if encode_block == "conv":
         pass
@@ -84,7 +90,10 @@ def get_segmentation_model_v2(input_shape,
                                 base_act=base_act, last_skip_connect=last_skip_connect,
                                 last_act=last_act, name_prefix="seg")
 
-    return Model(base_input, seg_output)
+    if input_class_num is None:
+        return Model(base_input, seg_output)
+    else:
+        return Model([base_input, class_input], seg_output)
 
 
 def get_segmentation_model_v3(input_shape,
