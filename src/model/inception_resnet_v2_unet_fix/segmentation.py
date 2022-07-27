@@ -60,17 +60,22 @@ def get_segmentation_model_v2(input_shape,
     _, H, W, C = base_output.shape
 
     decoded = base_output
+
     if input_class_num is not None:
         class_input = layers.Input((input_class_num,))
         class_tensor = layers.Reshape((1, 1, input_class_num))(class_input)
         class_tensor = tf.tile(class_tensor, (1, H, W, 1))
+        class_tensor = layers.Conv2D(filters=block_size * 8,
+                                     kernel_size=1,
+                                     padding="same")(class_tensor)
+        C += block_size * 8
         decoded = layers.Concatenate(axis=-1)([decoded, class_tensor])
 
     if encode_block == "conv":
         pass
     elif encode_block == "transformer":
-        attn_dropout_proba = 0
-        attn_dim_list = [block_size * 12 for _ in range(6)]
+        attn_dropout_proba = 0.1
+        attn_dim_list = [C // 8 for _ in range(6)]
         num_head_list = [8 for _ in range(6)]
         attn_layer_list = []
         for attn_dim, num_head in zip(attn_dim_list, num_head_list):
@@ -78,10 +83,11 @@ def get_segmentation_model_v2(input_shape,
                                             dropout=attn_dropout_proba)
             attn_layer_list.append(attn_layer)
         attn_sequence = Sequential(attn_layer_list)
-        decoded = layers.Reshape((H * W, C))(decoded)
-        decoded = AddPositionEmbs(input_shape=(H * W, C))(decoded)
-        decoded = attn_sequence(decoded)
-        decoded = layers.Reshape((H, W, C))(decoded)
+        attn_decoded = layers.Reshape((H * W, C))(decoded)
+        attn_decoded = AddPositionEmbs(input_shape=(H * W, C))(attn_decoded)
+        attn_decoded = attn_sequence(attn_decoded)
+        attn_decoded = layers.Reshape((H, W, C))(attn_decoded)
+        decoded = layers.Concatenate(axis=-1)([decoded, attn_decoded])
 
     seg_output = DecoderBlock2D(input_tensor=decoded, encoder=base_model,
                                 skip_connection_layer_names=skip_connect_layer_names, use_skip_connect=True,

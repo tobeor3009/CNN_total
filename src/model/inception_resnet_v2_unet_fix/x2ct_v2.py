@@ -485,7 +485,14 @@ def get_inception_resnet_v2_disc(input_shape,
     base_input = base_model.input
     base_output = base_model.output
 
-    validity_pred = EqualizedConv3D(1, kernel=3)(base_output)
+    validity_pred = layers.Conv3D(filters=1,
+                                  kernel_size=3,
+                                  strides=1,
+                                  padding="same",
+                                  groups=1,
+                                  use_bias=True,
+                                  kernel_initializer='glorot_uniform',
+                                  bias_initializer='zeros')(base_output)
     validity_pred = get_act_layer(validity_act)(validity_pred)
     model = Model(base_input, validity_pred)
 

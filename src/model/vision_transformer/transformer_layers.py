@@ -1,3 +1,4 @@
+
 from __future__ import absolute_import
 
 import tensorflow as tf
@@ -39,7 +40,6 @@ class patch_extract(Layer):
     def call(self, images):
 
         batch_size = tf.shape(images)[0]
-
         patches = extract_patches(images=images,
                                   sizes=(1, self.patch_size_x,
                                          self.patch_size_y, 1),
@@ -47,11 +47,11 @@ class patch_extract(Layer):
                                            self.patch_size_y, 1),
                                   rates=(1, 1, 1, 1), padding='VALID',)
         # patches.shape = (num_sample, patch_num, patch_num, patch_size*channel)
-
         patch_dim = patches.shape[-1]
         patch_num = patches.shape[1]
-        patches = tf.reshape(
-            patches, (batch_size, patch_num * patch_num, patch_dim))
+        patches = tf.reshape(patches, (batch_size,
+                                       patch_num * patch_num,
+                                       patch_dim))
         # patches.shape = (num_sample, patch_num*patch_num, patch_size*channel)
 
         return patches
@@ -160,11 +160,11 @@ class patch_expanding(tf.keras.layers.Layer):
         self.return_vector = return_vector
 
         # Linear transformations that doubles the channels
-        self.linear_trans1 = Conv2D(
-            upsample_rate * embed_dim, kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
-        #
-        self.linear_trans2 = Conv2D(
-            upsample_rate * embed_dim, kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.linear_trans1 = Conv2D(upsample_rate * embed_dim,
+                                    kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+
+        # self.linear_trans2 = Conv2D(upsample_rate * embed_dim,
+        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -179,12 +179,13 @@ class patch_expanding(tf.keras.layers.Layer):
         x = self.linear_trans1(x)
 
         # rearange depth to number of patches
-        x = tf.nn.depth_to_space(
-            x, self.upsample_rate, data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
+        x = tf.nn.depth_to_space(x, self.upsample_rate,
+                                 data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
 
         if self.return_vector:
             # Convert aligned patches to a patch sequence
-            x = tf.reshape(x, (-1, L * self.upsample_rate *
-                           self.upsample_rate, C // 2))
+            x = tf.reshape(x, (-1,
+                               L * self.upsample_rate * self.upsample_rate,
+                               C // 2))
 
         return x
