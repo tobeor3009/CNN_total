@@ -59,7 +59,7 @@ class Mlp(tf.keras.layers.Layer):
         
         # MLP --> GELU --> Drop --> MLP --> Drop
         x = self.fc1(x)
-        self.activation(x)
+        x = self.activation(x)
         x = self.drop(x)
         x = self.fc2(x)
         x = self.drop(x)
