@@ -5,7 +5,7 @@ from . import transformer_layers
 from . import utils
 
 
-def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, shift_window=True, name=''):
+def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name=''):
     '''
     Stacked Swin Transformers that share the same token size.
 
@@ -40,6 +40,7 @@ def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window
                                              window_size=window_size,
                                              shift_size=shift_size_temp,
                                              num_mlp=num_mlp,
+                                             act=act,
                                              qkv_bias=qkv_bias,
                                              qk_scale=qk_scale,
                                              mlp_drop=mlp_drop_rate,
@@ -51,7 +52,7 @@ def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window
 
 
 def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
-                      patch_size, num_heads, window_size, num_mlp, shift_window=True, name='swin_unet'):
+                      patch_size, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='swin_unet'):
     '''
     The base of Swin-UNET.
 
@@ -89,6 +90,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                num_heads=num_heads[0],
                                window_size=window_size[0],
                                num_mlp=num_mlp,
+                               act=act,
                                shift_window=shift_window,
                                name='{}_swin_down0'.format(name))
     X_skip.append(X)
@@ -97,8 +99,9 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     for i in range(depth_ - 1):
 
         # Patch merging
-        X = transformer_layers.patch_merging(
-            (num_patch_x, num_patch_y), embed_dim=embed_dim, name='down{}'.format(i))(X)
+        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
+                                             embed_dim=embed_dim,
+                                             name='down{}'.format(i))(X)
 
         # update token shape info
         embed_dim = embed_dim * 2
@@ -113,6 +116,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                    num_heads=num_heads[i + 1],
                                    window_size=window_size[i + 1],
                                    num_mlp=num_mlp,
+                                   act=act,
                                    shift_window=shift_window,
                                    name='{}_swin_down{}'.format(name, i + 1))
 
@@ -159,6 +163,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                    num_heads=num_heads[i],
                                    window_size=window_size[i],
                                    num_mlp=num_mlp,
+                                   act=act,
                                    shift_window=shift_window,
                                    name='{}_swin_up{}'.format(name, i))
 
@@ -176,12 +181,13 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
 def get_swin_unet_2d(input_shape, last_channel_num,
                      filter_num_begin, depth,
                      stack_num_down, stack_num_up,
-                     patch_size, num_heads, window_size, num_mlp, shift_window=True):
+                     patch_size, num_heads, window_size, num_mlp,
+                     act="gelu", shift_window=True):
     IN = Input(input_shape)
 
     # Base architecture
     X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
-                          patch_size, num_heads, window_size, num_mlp,
+                          patch_size, num_heads, window_size, num_mlp, act=act,
                           shift_window=shift_window, name='swin_unet')
     OUT = Conv2D(last_channel_num, kernel_size=1,
                  use_bias=False, activation='sigmoid')(X)

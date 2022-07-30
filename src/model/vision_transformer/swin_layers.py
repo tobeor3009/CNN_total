@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import Dense, Dropout, Conv2D, LayerNormalization
 from tensorflow.keras.activations import softmax
 
-from .util_layers import drop_path
+from .util_layers import drop_path, get_act_layer
 
 def window_partition(x, window_size):
     
@@ -41,7 +41,7 @@ def window_reverse(windows, window_size, H, W, C):
 
 
 class Mlp(tf.keras.layers.Layer):
-    def __init__(self, filter_num, drop=0., name=''):
+    def __init__(self, filter_num, act="gelu", drop=0., name=''):
         
         super().__init__()
         
@@ -52,8 +52,8 @@ class Mlp(tf.keras.layers.Layer):
         # Dropout layer
         self.drop = Dropout(drop)
         
-        # GELU activation
-        self.activation = tf.keras.activations.gelu
+        # default: GELU activation
+        self.activation = get_act_layer(act)
         
     def call(self, x):
         
@@ -164,7 +164,7 @@ class WindowAttention(tf.keras.layers.Layer):
         return x_qkv
 
 class SwinTransformerBlock(tf.keras.layers.Layer):
-    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024,
+    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu",
                  qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, name=''):
         super().__init__()
         
@@ -182,7 +182,7 @@ class SwinTransformerBlock(tf.keras.layers.Layer):
                                     qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = LayerNormalization(epsilon=1e-5, name='{}_norm2'.format(self.prefix))
-        self.mlp = Mlp([num_mlp, dim], drop=mlp_drop, name=self.prefix)
+        self.mlp = Mlp([num_mlp, dim], act=act, drop=mlp_drop, name=self.prefix)
         
         # Assertions
         assert 0 <= self.shift_size, 'shift_size >= 0 is required'
