@@ -5,7 +5,7 @@ from . import transformer_layers
 from . import utils
 
 
-def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name=''):
+def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, act="gelu", shift_window=True):
     '''
     Stacked Swin Transformers that share the same token size.
 
@@ -80,8 +80,8 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     # Patch extraction
     X = transformer_layers.patch_extract(patch_size)(X)
     # Embed patches to tokens
-    X = transformer_layers.patch_embedding(
-        num_patch_x * num_patch_y, embed_dim)(X)
+    X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
+                                           embed_dim)(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack(X,
                                stack_num=stack_num_down,
