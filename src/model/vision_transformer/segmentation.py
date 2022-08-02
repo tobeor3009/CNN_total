@@ -1,3 +1,4 @@
+import numpy as np
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Conv2D, concatenate
 from . import swin_layers
@@ -5,7 +6,8 @@ from . import transformer_layers
 from . import utils
 
 
-def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, act="gelu", shift_window=True):
+def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, 
+act="gelu", shift_window=True, name='swin_unet'):
     '''
     Stacked Swin Transformers that share the same token size.
 
@@ -47,12 +49,12 @@ def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window
                                              attn_drop=attn_drop_rate,
                                              proj_drop=proj_drop_rate,
                                              drop_path_prob=drop_path_rate,
-                                             name='name{}'.format(i))(X)
+                                             name=f'{name}{i}')(X)
     return X
 
 
 def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
-                      patch_size, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='swin_unet'):
+                      patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='swin_unet'):
     '''
     The base of Swin-UNET.
 
@@ -65,10 +67,16 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
 
     '''
     # Compute number be patches to be embeded
-    input_size = input_tensor.shape.as_list()[1:]
-    num_patch_x = input_size[0] // patch_size[0]
-    num_patch_y = input_size[1] // patch_size[1]
+    if stride_mode == "same":
+        stride_size = patch_size
+    elif stride_mode == "half":
+        stride_size = np.array(patch_size) // 2
+        
 
+    input_size = input_tensor.shape.as_list()[1:]
+    num_patch_x, num_patch_y = utils.get_image_patch_num(input_size[0:2],
+    patch_size,
+    stride_size)
     # Number of Embedded dimensions
     embed_dim = filter_num_begin
 
@@ -78,10 +86,13 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
 
     X = input_tensor
     # Patch extraction
-    X = transformer_layers.patch_extract(patch_size)(X)
+    X = transformer_layers.patch_extract(patch_size,
+    stride_size)(X)
+    print(f"patch_extract shape: {X.shape}")
     # Embed patches to tokens
     X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
                                            embed_dim)(X)
+    print(f"patch_embedding shape: {X.shape}")
     # The first Swin Transformer stack
     X = swin_transformer_stack(X,
                                stack_num=stack_num_down,
@@ -92,17 +103,19 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                num_mlp=num_mlp,
                                act=act,
                                shift_window=shift_window,
-                               name='{}_swin_down0'.format(name))
+                               name='{}_swin_down'.format(name))
+    print(f"depth {depth} X shape: {X.shape}")
     X_skip.append(X)
 
     # Downsampling blocks
     for i in range(depth_ - 1):
-
+        print(f"depth {i} X shape: {X.shape}")
         # Patch merging
         X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
                                              embed_dim=embed_dim,
                                              name='down{}'.format(i))(X)
-
+        print(f"depth {i} X merging shape: {X.shape}")
+        
         # update token shape info
         embed_dim = embed_dim * 2
         num_patch_x = num_patch_x // 2
@@ -120,6 +133,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                    shift_window=shift_window,
                                    name='{}_swin_down{}'.format(name, i + 1))
 
+        print(f"depth {i} X Skip shape: {X.shape}")
         # Store tensors for concat
         X_skip.append(X)
 
@@ -135,15 +149,15 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     X_decode = X_skip[1:]
 
     depth_decode = len(X_decode)
-
+    print(X.shape)
     for i in range(depth_decode):
-
+        print(f"depth decode {i} X shape: {X.shape}")
         # Patch expanding
         X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                                embed_dim=embed_dim,
                                                upsample_rate=2,
                                                return_vector=True)(X)
-
+        print(f"depth expanding {i} X shape: {X.shape}")
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
@@ -166,31 +180,52 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                    act=act,
                                    shift_window=shift_window,
                                    name='{}_swin_up{}'.format(name, i))
-
+        print(f"depth decode output {i} X shape: {X.shape}")
+    print(X.shape)
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
+    print(X.shape)
 
+    if stride_mode == "half":
+        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
+                                             embed_dim=embed_dim,
+                                             name='down_last')(X)
+        num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
+        embed_dim *= 2
+        X = swin_transformer_stack(X,
+                                   stack_num=stack_num_up,
+                                   embed_dim=embed_dim,
+                                   num_patch=(num_patch_x, num_patch_y),
+                                   num_heads=num_heads[i],
+                                   window_size=window_size[i],
+                                   num_mlp=num_mlp,
+                                   act=act,
+                                   shift_window=shift_window,
+                                   name='{}_swin_down_last'.format(name))
+    print(X.shape, num_patch_x, num_patch_y)
     X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                            embed_dim=embed_dim,
                                            upsample_rate=patch_size[0],
                                            return_vector=False)(X)
+    
 
+    print(X.shape)
     return X
 
 
 def get_swin_unet_2d(input_shape, last_channel_num,
                      filter_num_begin, depth,
                      stack_num_down, stack_num_up,
-                     patch_size, num_heads, window_size, num_mlp,
-                     act="gelu", shift_window=True):
+                     patch_size, stride_mode, num_heads, window_size, num_mlp,
+                     act="gelu", last_act="sigmoid", shift_window=True):
     IN = Input(input_shape)
 
     # Base architecture
     X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
-                          patch_size, num_heads, window_size, num_mlp, act=act,
+                          patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
                           shift_window=shift_window, name='swin_unet')
     OUT = Conv2D(last_channel_num, kernel_size=1,
-                 use_bias=False, activation='sigmoid')(X)
+                 use_bias=False, activation=last_act)(X)
 
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])

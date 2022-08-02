@@ -149,7 +149,8 @@ class MultiScaleDataloader(BaseDataLoader):
                  interpolation="bilinear",
                  shuffle=True,
                  dtype="float32",
-                 use_multi_scale=True):
+                 use_multi_scale=True,
+                 use_last_mask_only=True):
         self.data_getter = MultiScaleDataGetter(image_folder_list=image_folder_list,
                                                 on_memory=on_memory,
                                                 argumentation_proba=argumentation_proba,
@@ -167,6 +168,7 @@ class MultiScaleDataloader(BaseDataLoader):
         self.shuffle = shuffle
         self.dtype = dtype
         self.use_multi_scale = use_multi_scale
+        self.use_last_mask_only = use_last_mask_only
         self.batch_image_array = np.zeros(
             (self.batch_size, *self.image_data_shape), dtype=self.dtype)
         self.batch_mask_array = np.zeros(
@@ -183,7 +185,10 @@ class MultiScaleDataloader(BaseDataLoader):
             single_data_dict = self.data_getter[total_index]
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
             self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
-        return self.batch_image_array, self.batch_mask_array[..., 5::6]
+        if self.use_last_mask_only:
+            return self.batch_image_array, self.batch_mask_array[..., 5::6]
+        else:
+            return self.batch_image_array, self.batch_mask_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

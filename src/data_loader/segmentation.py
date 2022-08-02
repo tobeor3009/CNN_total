@@ -129,45 +129,6 @@ class SegDataGetter(BaseDataGetter):
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
         return self.single_data_dict
-
-    def get_data_on_disk(self):
-
-        single_data_dict = self[0]
-        image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple([len(self)] + image_array_shape)
-        image_array_dtype = single_data_dict["image_array"].dtype
-
-        mask_array_shape = list(single_data_dict["mask_array"].shape)
-        mask_array_shape = tuple([len(self)] + mask_array_shape)
-        mask_array_dtype = single_data_dict["mask_array"].dtype
-
-        # get_npy_array(path, target_size, data_key, shape, dtype)
-        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="image",
-                                                            shape=image_array_shape,
-                                                            dtype=image_array_dtype)
-        mask_memmap_array, mask_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                          target_size=self.target_size,
-                                                          data_key="mask",
-                                                          shape=mask_array_shape,
-                                                          dtype=mask_array_dtype)
-
-        if os.path.exists(image_lock_path) and os.path.exists(mask_lock_path):
-            pass
-        else:
-            for index, single_data_dict in tqdm(enumerate(self)):
-                image_array, mask_array = single_data_dict.values()
-                image_memmap_array[index] = image_array
-                mask_memmap_array[index] = mask_array
-
-            with open(image_lock_path, "w") as _, open(mask_lock_path, "w") as _:
-                pass
-        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "mask_array"),
-                                              array_tuple=(image_memmap_array, mask_memmap_array))
-        self.data_on_ram_dict = LazyDict({
-            i: (array_dict_lazy, i) for i in range(len(self))
-        })
         self.on_memory = True
 
 

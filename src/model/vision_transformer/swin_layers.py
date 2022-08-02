@@ -13,7 +13,6 @@ def window_partition(x, window_size):
     # Get the static shape of the input tensor
     # (Sample, Height, Width, Channel)
     _, H, W, C = x.get_shape().as_list()
-    
     # Subset tensors to patches
     patch_num_H = H//window_size
     patch_num_W = W//window_size

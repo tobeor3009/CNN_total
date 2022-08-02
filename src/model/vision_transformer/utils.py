@@ -1,6 +1,18 @@
-
+import math
 import numpy as np
 from PIL import Image
+
+def get_image_patch_num(image_shape, patch_size, stride):
+    image_row, image_col = image_shape[0:2]
+    patch_row, patch_col = patch_size
+    stride_row, stride_col = stride
+    
+    patch_row_num = math.ceil((image_row - patch_row) / stride_row)
+    patch_row_num += 2 if patch_row_num % 2 == 0 else 1
+    patch_col_num = math.ceil((image_col - patch_col) / stride_col)
+    patch_col_num += 2 if patch_col_num % 2 == 0 else 1
+    
+    return patch_row_num, patch_col_num 
 
 def dummy_loader(model_path):
     '''

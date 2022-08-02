@@ -3,7 +3,7 @@ from __future__ import absolute_import
 
 import tensorflow as tf
 from tensorflow.image import extract_patches
-from tensorflow.keras.layers import Conv2D, Layer, Dense, Embedding
+from tensorflow.keras.layers import Conv2D, Layer, Dense, Embedding, AveragePooling2D
 
 
 class patch_extract(Layer):
@@ -32,20 +32,23 @@ class patch_extract(Layer):
 
     '''
 
-    def __init__(self, patch_size):
+    def __init__(self, patch_size, stride_size=None):
         super(patch_extract, self).__init__()
-        self.patch_size_x = patch_size[0]
-        self.patch_size_y = patch_size[0]
-
+        if stride_size is None:
+            stride_size = patch_size
+        self.patch_size_row = patch_size[0]
+        self.patch_size_col = patch_size[1]
+        self.stride_size_row = stride_size[0]
+        self.stride_size_col = stride_size[1]
     def call(self, images):
 
         batch_size = tf.shape(images)[0]
         patches = extract_patches(images=images,
-                                  sizes=(1, self.patch_size_x,
-                                         self.patch_size_y, 1),
-                                  strides=(1, self.patch_size_x,
-                                           self.patch_size_y, 1),
-                                  rates=(1, 1, 1, 1), padding='VALID',)
+                                  sizes=(1, self.patch_size_row,
+                                         self.patch_size_col, 1),
+                                  strides=(1, self.stride_size_row,
+                                           self.stride_size_col, 1),
+                                  rates=(1, 1, 1, 1), padding='SAME')
         # patches.shape = (num_sample, patch_num, patch_num, patch_size*channel)
         patch_dim = patches.shape[-1]
         patch_num = patches.shape[1]
@@ -90,7 +93,9 @@ class patch_embedding(Layer):
         self.pos_embed = Embedding(input_dim=num_patch, output_dim=embed_dim)
 
     def call(self, patch):
+        # patch.shape = [B num_patch C]
         pos = tf.range(start=0, limit=self.num_patch, delta=1)
+        # embed.shape = [B num_patch embed_dim] + [num_patch] 
         embed = self.proj(patch) + self.pos_embed(pos)
         return embed
 
@@ -118,8 +123,9 @@ class patch_merging(tf.keras.layers.Layer):
         self.embed_dim = embed_dim
 
         # A linear transform that doubles the channels
-        self.linear_trans = Dense(
-            2 * embed_dim, use_bias=False, name='{}_linear_trans'.format(name))
+        self.linear_trans = Dense(2 * embed_dim, 
+        use_bias=False, 
+        name='{}_linear_trans'.format(name))
 
     def call(self, x):
 
@@ -158,8 +164,6 @@ class patch_expanding(tf.keras.layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-
-        # Linear transformations that doubles the channels
         self.linear_trans1 = Conv2D(upsample_rate * embed_dim,
                                     kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
 
@@ -187,5 +191,4 @@ class patch_expanding(tf.keras.layers.Layer):
             x = tf.reshape(x, (-1,
                                L * self.upsample_rate * self.upsample_rate,
                                C // 2))
-
         return x
