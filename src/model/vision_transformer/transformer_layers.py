@@ -40,6 +40,7 @@ class patch_extract(Layer):
         self.patch_size_col = patch_size[1]
         self.stride_size_row = stride_size[0]
         self.stride_size_col = stride_size[1]
+
     def call(self, images):
 
         batch_size = tf.shape(images)[0]
@@ -95,7 +96,7 @@ class patch_embedding(Layer):
     def call(self, patch):
         # patch.shape = [B num_patch C]
         pos = tf.range(start=0, limit=self.num_patch, delta=1)
-        # embed.shape = [B num_patch embed_dim] + [num_patch] 
+        # embed.shape = [B num_patch embed_dim] + [num_patch]
         embed = self.proj(patch) + self.pos_embed(pos)
         return embed
 
@@ -123,9 +124,9 @@ class patch_merging(tf.keras.layers.Layer):
         self.embed_dim = embed_dim
 
         # A linear transform that doubles the channels
-        self.linear_trans = Dense(2 * embed_dim, 
-        use_bias=False, 
-        name='{}_linear_trans'.format(name))
+        self.linear_trans = Dense(2 * embed_dim,
+                                  use_bias=False,
+                                  name='{}_linear_trans'.format(name))
 
     def call(self, x):
 
