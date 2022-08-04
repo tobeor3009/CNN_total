@@ -186,7 +186,7 @@ class MultiScaleDataloader(BaseDataLoader):
             self.batch_image_array[batch_index] = single_data_dict["image_array"]
             self.batch_mask_array[batch_index] = single_data_dict["mask_array"]
         if self.use_last_mask_only:
-            return self.batch_image_array, self.batch_mask_array[..., 5::6]
+            return self.batch_image_array, self.batch_mask_array[..., -1:]
         else:
             return self.batch_image_array, self.batch_mask_array
 

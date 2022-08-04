@@ -1,13 +1,12 @@
 import numpy as np
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Conv2D, concatenate
+from tensorflow.keras import Model, layers
 from . import swin_layers
 from . import transformer_layers
 from . import utils
 
 
-def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp, 
-act="gelu", shift_window=True, name='swin_unet'):
+def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
+                           act="gelu", shift_window=True, name='swin_unet'):
     '''
     Stacked Swin Transformers that share the same token size.
 
@@ -71,12 +70,11 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         stride_size = patch_size
     elif stride_mode == "half":
         stride_size = np.array(patch_size) // 2
-        
 
     input_size = input_tensor.shape.as_list()[1:]
     num_patch_x, num_patch_y = utils.get_image_patch_num(input_size[0:2],
-    patch_size,
-    stride_size)
+                                                         patch_size,
+                                                         stride_size)
     # Number of Embedded dimensions
     embed_dim = filter_num_begin
 
@@ -87,7 +85,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     X = input_tensor
     # Patch extraction
     X = transformer_layers.patch_extract(patch_size,
-    stride_size)(X)
+                                         stride_size)(X)
     print(f"patch_extract shape: {X.shape}")
     # Embed patches to tokens
     X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
@@ -115,7 +113,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                              embed_dim=embed_dim,
                                              name='down{}'.format(i))(X)
         print(f"depth {i} X merging shape: {X.shape}")
-        
+
         # update token shape info
         embed_dim = embed_dim * 2
         num_patch_x = num_patch_x // 2
@@ -164,10 +162,10 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         num_patch_y = num_patch_y * 2
 
         # Concatenation and linear projection
-        X = concatenate([X, X_decode[i]], axis=-1,
-                        name='{}_concat_{}'.format(name, i))
-        X = Dense(embed_dim, use_bias=False,
-                  name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = layers.concatenate([X, X_decode[i]], axis=-1,
+                               name='{}_concat_{}'.format(name, i))
+        X = layers.Dense(embed_dim, use_bias=False,
+                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack(X,
@@ -207,7 +205,6 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                            embed_dim=embed_dim,
                                            upsample_rate=patch_size[0],
                                            return_vector=False)(X)
-    
 
     print(X.shape)
     return X
@@ -218,15 +215,61 @@ def get_swin_unet_2d(input_shape, last_channel_num,
                      stack_num_down, stack_num_up,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
                      act="gelu", last_act="sigmoid", shift_window=True):
-    IN = Input(input_shape)
+    IN = layers.Input(input_shape)
 
     # Base architecture
     X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                           patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
                           shift_window=shift_window, name='swin_unet')
-    OUT = Conv2D(last_channel_num, kernel_size=1,
-                 use_bias=False, activation=last_act)(X)
+    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
+                        use_bias=False, activation=last_act)(X)
 
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
+
+
+def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
+                              act="gelu", shift_window=True, name='swin_unet'):
+    '''
+    Stacked Swin Transformers that share the same token size.
+
+    Alternated Window-MSA and Swin-MSA will be configured if `shift_window=True`, Window-MSA only otherwise.
+    *Dropout is turned off.
+    '''
+    # Turn-off dropouts
+    mlp_drop_rate = 0  # Droupout after each MLP layer
+    attn_drop_rate = 0  # Dropout after Swin-Attention
+    # Dropout at the end of each Swin-Attention block, i.e., after linear projections
+    proj_drop_rate = 0
+    drop_path_rate = 0  # Drop-path within skip-connections
+
+    qkv_bias = True  # Convert embedded patches to query, key, and values with a learnable additive value
+    qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
+
+    if shift_window:
+        shift_size = window_size // 2
+    else:
+        shift_size = 0
+
+    for i in range(stack_num):
+
+        if i % 2 == 0:
+            shift_size_temp = 0
+        else:
+            shift_size_temp = shift_size
+        X = swin_layers.SwinTransformerBlock3D(dim=embed_dim,
+                                               num_patch=num_patch,
+                                               num_heads=num_heads,
+                                               window_size=window_size,
+                                               shift_size=shift_size_temp,
+                                               num_mlp=num_mlp,
+                                               act=act,
+                                               qkv_bias=qkv_bias,
+                                               qk_scale=qk_scale,
+                                               mlp_drop=mlp_drop_rate,
+                                               attn_drop=attn_drop_rate,
+                                               proj_drop=proj_drop_rate,
+                                               drop_path_prob=drop_path_rate,
+                                               name=f'{name}{i}')(X)
+    return X

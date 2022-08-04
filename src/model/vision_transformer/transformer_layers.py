@@ -1,12 +1,14 @@
 
 from __future__ import absolute_import
+from sklearn.preprocessing import KernelCenterer
 
 import tensorflow as tf
+from .swin_layers import SwinTransformerBlock3D
+from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
-from tensorflow.keras.layers import Conv2D, Layer, Dense, Embedding, AveragePooling2D
 
 
-class patch_extract(Layer):
+class patch_extract(layers.Layer):
     '''
     Extract patches from the input feature map.
 
@@ -61,7 +63,7 @@ class patch_extract(Layer):
         return patches
 
 
-class patch_embedding(Layer):
+class patch_embedding(layers.Layer):
     '''
 
     Embed patches to tokens.
@@ -90,8 +92,9 @@ class patch_embedding(Layer):
     def __init__(self, num_patch, embed_dim):
         super(patch_embedding, self).__init__()
         self.num_patch = num_patch
-        self.proj = Dense(embed_dim)
-        self.pos_embed = Embedding(input_dim=num_patch, output_dim=embed_dim)
+        self.proj = layers.Dense(embed_dim)
+        self.pos_embed = layers.Embedding(
+            input_dim=num_patch, output_dim=embed_dim)
 
     def call(self, patch):
         # patch.shape = [B num_patch C]
@@ -101,7 +104,7 @@ class patch_embedding(Layer):
         return embed
 
 
-class patch_merging(tf.keras.layers.Layer):
+class patch_merging(layers.Layer):
     '''
     Downsample embedded patches; it halfs the number of patches
     and double the embedded dimensions (c.f. pooling layers).
@@ -124,9 +127,9 @@ class patch_merging(tf.keras.layers.Layer):
         self.embed_dim = embed_dim
 
         # A linear transform that doubles the channels
-        self.linear_trans = Dense(2 * embed_dim,
-                                  use_bias=False,
-                                  name='{}_linear_trans'.format(name))
+        self.linear_trans = layers.Dense(2 * embed_dim,
+                                         use_bias=False,
+                                         name='{}_linear_trans'.format(name))
 
     def call(self, x):
 
@@ -156,7 +159,7 @@ class patch_merging(tf.keras.layers.Layer):
         return x
 
 
-class patch_expanding(tf.keras.layers.Layer):
+class patch_expanding(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, name=''):
         super().__init__()
@@ -165,10 +168,10 @@ class patch_expanding(tf.keras.layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.linear_trans1 = Conv2D(upsample_rate * embed_dim,
-                                    kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.linear_trans1 = layers.Conv2D(upsample_rate * embed_dim,
+                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
 
-        # self.linear_trans2 = Conv2D(upsample_rate * embed_dim,
+        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
         #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
         self.prefix = name
 
@@ -192,4 +195,110 @@ class patch_expanding(tf.keras.layers.Layer):
             x = tf.reshape(x, (-1,
                                L * self.upsample_rate * self.upsample_rate,
                                C // 2))
+        return x
+
+
+class Pixelshuffle3D(layers.Layer):
+    def __init__(self, kernel_size=2):
+        super().__init__()
+        self.kernel_size = self.to_tuple(kernel_size)
+
+    # k: kernel, r: resized, o: original
+    def call(self, x):
+        _, o_h, o_w, o_z, o_c = backend.int_shape(x)
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (k_h * k_w * k_z)
+
+        r_x = layers.Reshape((o_h, o_w, o_z, r_c, k_h, k_w, k_z))(x)
+        r_x = layers.Permute((1, 5, 2, 6, 3, 7, 4))(r_x)
+        r_x = layers.Reshape((r_h, r_w, r_z, r_c))(r_x)
+
+        return r_x
+
+    def compute_output_shape(self, input_shape):
+        _, o_h, o_w, o_z, o_c = input_shape
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (r_h * r_w * r_z)
+
+        return (r_h, r_w, r_z, r_c)
+
+    def to_tuple(self, int_or_tuple):
+        if isinstance(int_or_tuple, int):
+            convert_tuple = (int_or_tuple, int_or_tuple, int_or_tuple)
+        else:
+            convert_tuple = int_or_tuple
+        return convert_tuple
+
+
+class patch_expanding_3d(layers.Layer):
+
+    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, name=''):
+        super().__init__()
+
+        self.num_patch = num_patch
+        self.embed_dim = embed_dim
+        self.upsample_rate = upsample_rate
+        self.return_vector = return_vector
+        self.linear_trans1 = layers.Conv3D((upsample_rate ** 2) * embed_dim,
+                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.pixel_shuffle_3d = Pixelshuffle3D(kernel_size=upsample_rate)
+        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
+        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
+        self.prefix = name
+
+    def call(self, x):
+
+        Z, H, W = self.num_patch
+        B, L, C = x.get_shape().as_list()
+
+        assert (L == H * W * Z), 'input feature has wrong size'
+
+        x = tf.reshape(x, (-1, Z, H, W, C))
+
+        x = self.linear_trans1(x)
+
+        # rearange depth to number of patches
+        x = self.pixel_shuffle_3d(x)
+
+        if self.return_vector:
+            # Convert aligned patches to a patch sequence
+            x = tf.reshape(x, (-1,
+                               L * (self.upsample_rate ** 3),
+                               C // 2))
+        return x
+
+
+class patch_expanding_2d_3d(layers.Layer):
+
+    def __init__(self, num_patch, embed_dim, return_vector=True, name=''):
+        super().__init__()
+
+        self.num_patch = num_patch
+        self.embed_dim = embed_dim
+        self.return_vector = return_vector
+        self.embed_dim = embed_dim
+        self.linear_trans1 = layers.Conv3D(embed_dim,
+                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
+        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
+        self.prefix = name
+
+    def call(self, x):
+
+        H, W = self.num_patch
+        Z = H
+        B, L, C = x.get_shape().as_list()
+
+        assert (L == H * W), 'input feature has wrong size'
+
+        x = tf.reshape(x, (-1, Z, H, W, C // Z))
+        x = self.linear_trans1(x)
+
+        if self.return_vector:
+            # Convert aligned patches to a patch sequence
+            x = tf.reshape(x, (-1,
+                               L * Z,
+                               self.embed_dim))
         return x

@@ -51,8 +51,7 @@ class SegDataGetter(BaseDataGetter):
                  argumentation_proba,
                  argumentation_policy_dict,
                  image_channel_dict,
-                 preprocess_input,
-                 mask_preprocess_input,
+                 preprocess_dict,
                  target_size,
                  interpolation
                  ):
@@ -86,8 +85,9 @@ class SegDataGetter(BaseDataGetter):
 
         self.argumentation_method = SegArgumentationPolicy(
             argumentation_proba, argumentation_policy_dict)
-        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
+        self.image_preprocess_method = PreprocessPolicy(
+            preprocess_dict["image"])
+        self.mask_preprocess_method = PreprocessPolicy(preprocess_dict["mask"])
 
         assert len(image_path_list) == len(mask_path_list), \
             f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
@@ -129,7 +129,6 @@ class SegDataGetter(BaseDataGetter):
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
         return self.single_data_dict
-        self.on_memory = True
 
 
 class SegDataloader(BaseIterDataLoader):
@@ -143,8 +142,7 @@ class SegDataloader(BaseIterDataLoader):
                  argumentation_proba=None,
                  argumentation_policy_dict=base_argumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
-                 preprocess_input="-1~1",
-                 mask_preprocess_input="mask",
+                 preprocess_dict={"image": "-1~1", "mask": "mask"},
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -155,8 +153,7 @@ class SegDataloader(BaseIterDataLoader):
                                          argumentation_proba=argumentation_proba,
                                          argumentation_policy_dict=argumentation_policy_dict,
                                          image_channel_dict=image_channel_dict,
-                                         preprocess_input=preprocess_input,
-                                         mask_preprocess_input=mask_preprocess_input,
+                                         preprocess_dict=preprocess_dict,
                                          target_size=target_size,
                                          interpolation=interpolation
                                          )

@@ -143,70 +143,28 @@ def x2ct_loss(y_true, y_pred):
     mae_error = K.mean(mae_error, axis=[1, 2, 3])
 
     gt_lat_projection = K.mean(y_true, axis=1)
-    max_gt_lat_projection = K.max(y_true, axis=1)
-    min_gt_lat_projection = K.min(y_true, axis=1)
-
     pred_lat_projection = K.mean(y_pred, axis=1)
-    max_pred_lat_projection = K.max(y_pred, axis=1)
-    min_pred_lat_projection = K.min(y_pred, axis=1)
 
     gt_ap_projection = K.mean(y_true, axis=2)
-    max_gt_ap_projection = K.max(y_true, axis=2)
-    min_gt_ap_projection = K.min(y_true, axis=2)
-
     pred_ap_projection = K.mean(y_pred, axis=2)
-    max_pred_ap_projection = K.max(y_pred, axis=2)
-    min_pred_ap_projection = K.min(y_pred, axis=2)
 
     gt_axial_projection = K.mean(y_true, axis=3)
-    max_gt_axial_projection = K.max(y_true, axis=3)
-    min_gt_axial_projection = K.min(y_true, axis=3)
-
     pred_axial_projection = K.mean(y_pred, axis=3)
-    max_pred_axial_projection = K.max(y_pred, axis=3)
-    min_pred_axial_projection = K.min(y_pred, axis=3)
 
     lat_projection_loss = K.abs(gt_lat_projection - pred_lat_projection)
     lat_projection_loss = K.mean(lat_projection_loss, axis=[1, 2])
 
-    max_lat_projection_loss = K.abs(
-        max_gt_lat_projection - max_pred_lat_projection)
-    max_lat_projection_loss = K.mean(max_lat_projection_loss, axis=[1, 2])
-
-    min_lat_projection_loss = K.abs(
-        min_gt_lat_projection - min_pred_lat_projection)
-    min_lat_projection_loss = K.mean(min_lat_projection_loss, axis=[1, 2])
-
     ap_projection_loss = K.abs(gt_ap_projection - pred_ap_projection)
     ap_projection_loss = K.mean(ap_projection_loss, axis=[1, 2])
-
-    max_ap_projection_loss = K.abs(
-        max_gt_ap_projection - max_pred_ap_projection)
-    max_ap_projection_loss = K.mean(max_ap_projection_loss, axis=[1, 2])
-
-    min_ap_projection_loss = K.abs(
-        min_gt_ap_projection - min_pred_ap_projection)
-    min_ap_projection_loss = K.mean(min_ap_projection_loss, axis=[1, 2])
 
     axial_projection_loss = K.abs(gt_axial_projection - pred_axial_projection)
     axial_projection_loss = K.mean(axial_projection_loss, axis=[1, 2])
 
-    max_axial_projection_loss = K.abs(
-        max_gt_axial_projection - max_pred_axial_projection)
-    max_axial_projection_loss = K.mean(max_axial_projection_loss, axis=[1, 2])
+    projection_loss = (ap_projection_loss * 1.2 +
+                       lat_projection_loss * 0.6 +
+                       axial_projection_loss * 0.2)
 
-    min_axial_projection_loss = K.abs(
-        min_gt_axial_projection - min_pred_axial_projection)
-    min_axial_projection_loss = K.mean(min_axial_projection_loss, axis=[1, 2])
-
-    projection_loss = (ap_projection_loss +
-                       lat_projection_loss + axial_projection_loss) / 3
-    max_projection_loss = (max_ap_projection_loss +
-                           max_lat_projection_loss + max_axial_projection_loss) / 3
-    min_projection_loss = (min_ap_projection_loss +
-                           min_lat_projection_loss + min_axial_projection_loss) / 3
-
-    return K.mean(mae_error + projection_loss + max_projection_loss + min_projection_loss)
+    return K.mean(mae_error + projection_loss)
 
 
 class BoundaryLoss(Loss):
