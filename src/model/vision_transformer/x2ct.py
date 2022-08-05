@@ -175,8 +175,9 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
         X = swin_transformer_stack_3d(X,
                                       stack_num=stack_num_up,
                                       embed_dim=embed_dim,
-                                      num_patch=(
-                                          num_patch_z, num_patch_x, num_patch_y),
+                                      num_patch=(num_patch_z,
+                                                 num_patch_x,
+                                                 num_patch_y),
                                       num_heads=num_heads[i],
                                       window_size=window_size[i],
                                       num_mlp=num_mlp,

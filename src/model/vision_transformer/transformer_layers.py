@@ -6,6 +6,7 @@ import tensorflow as tf
 from .swin_layers import SwinTransformerBlock3D
 from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
+from tensorflow import extract_volume_patches
 
 
 class patch_extract(layers.Layer):
@@ -57,6 +58,67 @@ class patch_extract(layers.Layer):
         patch_num = patches.shape[1]
         patches = tf.reshape(patches, (batch_size,
                                        patch_num * patch_num,
+                                       patch_dim))
+        # patches.shape = (num_sample, patch_num*patch_num, patch_size*channel)
+
+        return patches
+
+
+class patch_extract_3d(layers.Layer):
+    '''
+    Extract patches from the input feature map.
+
+    patches = patch_extract(patch_size)(feature_map)
+
+    ----------
+    Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, 
+    T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S. and Uszkoreit, J., 2020. 
+    An image is worth 16x16 words: Transformers for image recognition at scale. 
+    arXiv preprint arXiv:2010.11929.
+
+    Input
+    ----------
+        feature_map: a four-dimensional tensor of (num_sample, width, height, channel)
+        patch_size: size of split patches (width=height)
+
+    Output
+    ----------
+        patches: a two-dimensional tensor of (num_sample*num_patch, patch_size*patch_size)
+                 where `num_patch = (width // patch_size) * (height // patch_size)`
+
+    For further information see: https://www.tensorflow.org/api_docs/python/tf/image/extract_patches
+
+    '''
+
+    def __init__(self, patch_size, stride_size=None):
+        super(patch_extract_3d, self).__init__()
+        if stride_size is None:
+            stride_size = patch_size
+
+        self.patch_size_z = patch_size[0]
+        self.patch_size_row = patch_size[1]
+        self.patch_size_col = patch_size[2]
+        self.stride_size_z = patch_size[0]
+        self.stride_size_row = stride_size[1]
+        self.stride_size_col = stride_size[2]
+
+    def call(self, images):
+
+        batch_size = tf.shape(images)[0]
+        patches = extract_volume_patches(images,
+                                         ksizes=(1, self.patch_size_z,
+                                                 self.patch_size_row,
+                                                 self.patch_size_col, 1),
+                                         strides=(1, self.stride_size_z,
+                                                  self.stride_size_row,
+                                                  self.stride_size_col, 1),
+                                         padding='SAME')
+        # patches.shape = (num_sample, patch_num, patch_num, patch_size*channel)
+        patch_dim = patches.shape[-1]
+        z_patch_num, row_patch_num, col_patch_num = patches.shape[
+            1], patches.shape[2], patches.shape[3]
+        patches = tf.reshape(patches, (batch_size,
+                                       z_patch_num * row_patch_num * col_patch_num,
                                        patch_dim))
         # patches.shape = (num_sample, patch_num*patch_num, patch_size*channel)
 

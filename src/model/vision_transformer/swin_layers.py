@@ -165,8 +165,8 @@ class WindowAttention(layers.Layer):
         coords_matrix = np.meshgrid(coords_h, coords_w, indexing='ij')
         coords = np.stack(coords_matrix)
         coords_flatten = coords.reshape(2, -1)
-        relative_coords = coords_flatten[:, :,
-                                         None] - coords_flatten[:, None, :]
+        relative_coords = (coords_flatten[:, :, None] -
+                           coords_flatten[:, None, :])
         relative_coords = relative_coords.transpose([1, 2, 0])
         relative_coords[:, :, 0] += self.window_size[0] - 1
         relative_coords[:, :, 1] += self.window_size[1] - 1
@@ -192,14 +192,12 @@ class WindowAttention(layers.Layer):
         x_qkv = tf.reshape(x_qkv, shape=(-1, N, 3, self.num_heads, head_dim))
         x_qkv = tf.transpose(x_qkv, perm=(2, 0, 3, 1, 4))
         q, k, v = x_qkv[0], x_qkv[1], x_qkv[2]
-
         # Query rescaling
         q = q * self.scale
 
         # multi-headed self-attention
         k = tf.transpose(k, perm=(0, 1, 3, 2))
         attn = (q @ k)
-
         # Shift window
         num_window_elements = np.prod(self.window_size)
         relative_position_index_flat = tf.reshape(self.relative_position_index,
@@ -279,17 +277,21 @@ class WindowAttention3D(layers.Layer):
         coords_w = np.arange(self.window_size[2])
         coords_matrix = meshgrid_3d(coords_z, coords_h, coords_w)
         coords = np.stack(coords_matrix)
+        # coords_flatten.shape = [3 window_size window_size window_size]
         coords_flatten = coords.reshape(3, -1)
-        # relative_coords.shape = 3, 8
-        relative_coords = coords_flatten[:, :,
-                                         None] - coords_flatten[:, None, :]
+        # relative_coords.shape = [3 window_size ** 3 window_size ** 3]
+        relative_coords = (coords_flatten[:, :, None] -
+                           coords_flatten[:, None, :])
+        # relative_coords.shape = [window_size ** 3 window_size ** 3 3]
         relative_coords = relative_coords.transpose([1, 2, 0])
         relative_coords[:, :, 0] += self.window_size[0] - 1
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 2] += self.window_size[2] - 1
 
-        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
+        relative_coords[:, :, 0] *= ((2 * self.window_size[1] - 1) *
+                                     (2 * self.window_size[2] - 1))
+        relative_coords[:, :, 1] *= (2 * self.window_size[2] - 1)
+        # relative_position_index.shape = [8 8]
         relative_position_index = relative_coords.sum(-1)
         # convert to the tf variable
         self.relative_position_index = tf.Variable(
@@ -306,18 +308,24 @@ class WindowAttention3D(layers.Layer):
         _, N, C = x.get_shape().as_list()
         head_dim = C // self.num_heads
 
+        # x_qkv.shape = [B, embed_dim * 3, C]
         x_qkv = self.qkv(x)
+        # x_qkv.shape = [B, N, 3, num_heads, head_dim]
         x_qkv = tf.reshape(x_qkv, shape=(-1, N, 3, self.num_heads, head_dim))
+        # x_qkv.shape = [3, B, num_heads, N, head_dim]
         x_qkv = tf.transpose(x_qkv, perm=(2, 0, 3, 1, 4))
+        # q.shape = k.shape = v.shape = [B, num_heads, N, head_dim]
         q, k, v = x_qkv[0], x_qkv[1], x_qkv[2]
-
         # Query rescaling
         q = q * self.scale
 
         # multi-headed self-attention
+        # k.shape = [B, num_heads, head_dim, N]
         k = tf.transpose(k, perm=(0, 1, 3, 2))
 
+        # attn.shape = [B, num_heads, N, N]
         attn = (q @ k)
+
         # Shift window
         num_window_elements = np.prod(self.window_size)
         relative_position_index_flat = tf.reshape(self.relative_position_index,
@@ -325,10 +333,10 @@ class WindowAttention3D(layers.Layer):
         relative_position_bias = tf.gather(self.relative_position_bias_table,
                                            relative_position_index_flat)
         relative_position_bias = tf.reshape(relative_position_bias,
-                                            shape=(num_window_elements, num_window_elements, num_window_elements, -1))
+                                            shape=(num_window_elements, num_window_elements, -1))
         relative_position_bias = tf.transpose(relative_position_bias,
-                                              perm=(3, 0, 1, 2))
-        attn = attn + relative_position_bias
+                                              perm=(2, 0, 1))
+        attn = attn + tf.expand_dims(relative_position_bias, axis=0)
 
         if mask is not None:
             nW = mask.get_shape()[0]
@@ -397,9 +405,9 @@ class SwinTransformerBlock(layers.Layer):
         if self.shift_size > 0:
             H, W = self.num_patch
             h_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                        self.shift_size), slice(-self.shift_size, None))
+                                                           self.shift_size), slice(-self.shift_size, None))
             w_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                        self.shift_size), slice(-self.shift_size, None))
+                                                           self.shift_size), slice(-self.shift_size, None))
 
             # attention mask
             mask_array = np.zeros((1, H, W, 1))
@@ -466,7 +474,7 @@ class SwinTransformerBlock(layers.Layer):
         # Reverse cyclic shift
         if self.shift_size > 0:
             x = tf.roll(shifted_x, shift=[
-                        self.shift_size, self.shift_size], axis=[1, 2])
+                self.shift_size, self.shift_size], axis=[1, 2])
         else:
             x = shifted_x
 
@@ -532,11 +540,11 @@ class SwinTransformerBlock3D(layers.Layer):
         if self.shift_size > 0:
             Z, H, W = self.num_patch
             z_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                        self.shift_size), slice(-self.shift_size, None))
+                                                           self.shift_size), slice(-self.shift_size, None))
             h_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                        self.shift_size), slice(-self.shift_size, None))
+                                                           self.shift_size), slice(-self.shift_size, None))
             w_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                        self.shift_size), slice(-self.shift_size, None))
+                                                           self.shift_size), slice(-self.shift_size, None))
 
             # attention mask
             mask_array = np.zeros((1, Z, H, W, 1))

@@ -35,22 +35,22 @@ def swin_classification_2d_base(input_tensor, embed_dim, depth, patch_size, num_
     # -------------------- Swin transformers -------------------- #
     # Stage 1: window-attention + Swin-attention + patch-merging
 
-    for i in range(depth):
+    for idx in range(depth):
 
-        if i % 2 == 0:
+        if idx % 2 == 0:
             shift_size_temp = 0
         else:
             shift_size_temp = shift_size
 
-        X = swin_layers.SwinTransformerBlock(dim=embed_dim, num_patch=(num_patch_x, num_patch_y), num_heads=num_heads,
-                                             window_size=window_size, shift_size=shift_size_temp, num_mlp=num_mlp, act=act,
+        X = swin_layers.SwinTransformerBlock(dim=embed_dim, num_patch=(num_patch_x, num_patch_y), num_heads=num_heads[idx],
+                                             window_size=window_size[idx], shift_size=shift_size_temp, num_mlp=num_mlp, act=act,
                                              qkv_bias=qkv_bias, qk_scale=qk_scale,
                                              mlp_drop=mlp_drop_rate, attn_drop=attn_drop_rate, proj_drop=proj_drop_rate, drop_path_prob=drop_path_rate,
-                                             name='swin_block{}'.format(i))(X)
+                                             name='swin_block{}'.format(idx))(X)
     # Patch-merging
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
     X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                         embed_dim=embed_dim, name='down{}'.format(i))(X)
+                                         embed_dim=embed_dim, name='down{}'.format(idx))(X)
     return X
 
 
