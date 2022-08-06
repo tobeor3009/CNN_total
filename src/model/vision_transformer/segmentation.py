@@ -3,57 +3,13 @@ from tensorflow.keras import Model, layers
 from . import swin_layers
 from . import transformer_layers
 from . import utils
+from .base_layer import swin_transformer_stack_2d
 
-
-def swin_transformer_stack(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
-                           act="gelu", shift_window=True, name='swin_unet'):
-    '''
-    Stacked Swin Transformers that share the same token size.
-
-    Alternated Window-MSA and Swin-MSA will be configured if `shift_window=True`, Window-MSA only otherwise.
-    *Dropout is turned off.
-    '''
-    # Turn-off dropouts
-    mlp_drop_rate = 0  # Droupout after each MLP layer
-    attn_drop_rate = 0  # Dropout after Swin-Attention
-    # Dropout at the end of each Swin-Attention block, i.e., after linear projections
-    proj_drop_rate = 0
-    drop_path_rate = 0  # Drop-path within skip-connections
-
-    qkv_bias = True  # Convert embedded patches to query, key, and values with a learnable additive value
-    qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
-
-    if shift_window:
-        shift_size = window_size // 2
-    else:
-        shift_size = 0
-
-    for i in range(stack_num):
-
-        if i % 2 == 0:
-            shift_size_temp = 0
-        else:
-            shift_size_temp = shift_size
-
-        X = swin_layers.SwinTransformerBlock(dim=embed_dim,
-                                             num_patch=num_patch,
-                                             num_heads=num_heads,
-                                             window_size=window_size,
-                                             shift_size=shift_size_temp,
-                                             num_mlp=num_mlp,
-                                             act=act,
-                                             qkv_bias=qkv_bias,
-                                             qk_scale=qk_scale,
-                                             mlp_drop=mlp_drop_rate,
-                                             attn_drop=attn_drop_rate,
-                                             proj_drop=proj_drop_rate,
-                                             drop_path_prob=drop_path_rate,
-                                             name=f'{name}{i}')(X)
-    return X
+BLOCK_MODE_NAME = "seg"
 
 
 def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
-                      patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='swin_unet'):
+                      patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -72,9 +28,9 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         stride_size = np.array(patch_size) // 2
 
     input_size = input_tensor.shape.as_list()[1:]
-    num_patch_x, num_patch_y = utils.get_image_patch_num(input_size[0:2],
-                                                         patch_size,
-                                                         stride_size)
+    num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_size[0:2],
+                                                            patch_size,
+                                                            stride_size)
     # Number of Embedded dimensions
     embed_dim = filter_num_begin
 
@@ -92,16 +48,18 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                            embed_dim)(X)
     print(f"patch_embedding shape: {X.shape}")
     # The first Swin Transformer stack
-    X = swin_transformer_stack(X,
-                               stack_num=stack_num_down,
-                               embed_dim=embed_dim,
-                               num_patch=(num_patch_x, num_patch_y),
-                               num_heads=num_heads[0],
-                               window_size=window_size[0],
-                               num_mlp=num_mlp,
-                               act=act,
-                               shift_window=shift_window,
-                               name='{}_swin_down'.format(name))
+    X = swin_transformer_stack_2d(X,
+                                  stack_num=stack_num_down,
+                                  embed_dim=embed_dim,
+                                  num_patch=(num_patch_x, num_patch_y),
+                                  num_heads=num_heads[0],
+                                  window_size=window_size[0],
+                                  num_mlp=num_mlp,
+                                  act=act,
+                                  mode=BLOCK_MODE_NAME,
+                                  shift_window=shift_window,
+
+                                  name='{}_swin_down'.format(name))
     print(f"depth {depth} X shape: {X.shape}")
     X_skip.append(X)
 
@@ -120,16 +78,17 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         num_patch_y = num_patch_y // 2
 
         # Swin Transformer stacks
-        X = swin_transformer_stack(X,
-                                   stack_num=stack_num_down,
-                                   embed_dim=embed_dim,
-                                   num_patch=(num_patch_x, num_patch_y),
-                                   num_heads=num_heads[i + 1],
-                                   window_size=window_size[i + 1],
-                                   num_mlp=num_mlp,
-                                   act=act,
-                                   shift_window=shift_window,
-                                   name='{}_swin_down{}'.format(name, i + 1))
+        X = swin_transformer_stack_2d(X,
+                                      stack_num=stack_num_down,
+                                      embed_dim=embed_dim,
+                                      num_patch=(num_patch_x, num_patch_y),
+                                      num_heads=num_heads[i + 1],
+                                      window_size=window_size[i + 1],
+                                      num_mlp=num_mlp,
+                                      act=act,
+                                      shift_window=shift_window,
+                                      mode=BLOCK_MODE_NAME,
+                                      name='{}_swin_down{}'.format(name, i + 1))
 
         print(f"depth {i} X Skip shape: {X.shape}")
         # Store tensors for concat
@@ -168,16 +127,17 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                          name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
-        X = swin_transformer_stack(X,
-                                   stack_num=stack_num_up,
-                                   embed_dim=embed_dim,
-                                   num_patch=(num_patch_x, num_patch_y),
-                                   num_heads=num_heads[i],
-                                   window_size=window_size[i],
-                                   num_mlp=num_mlp,
-                                   act=act,
-                                   shift_window=shift_window,
-                                   name='{}_swin_up{}'.format(name, i))
+        X = swin_transformer_stack_2d(X,
+                                      stack_num=stack_num_up,
+                                      embed_dim=embed_dim,
+                                      num_patch=(num_patch_x, num_patch_y),
+                                      num_heads=num_heads[i],
+                                      window_size=window_size[i],
+                                      num_mlp=num_mlp,
+                                      act=act,
+                                      shift_window=shift_window,
+                                      mode=BLOCK_MODE_NAME,
+                                      name='{}_swin_up{}'.format(name, i))
         print(f"depth decode output {i} X shape: {X.shape}")
     print(X.shape)
     # The last expanding layer; it produces full-size feature maps based on the patch size
@@ -190,16 +150,17 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                              name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
-        X = swin_transformer_stack(X,
-                                   stack_num=stack_num_up,
-                                   embed_dim=embed_dim,
-                                   num_patch=(num_patch_x, num_patch_y),
-                                   num_heads=num_heads[i],
-                                   window_size=window_size[i],
-                                   num_mlp=num_mlp,
-                                   act=act,
-                                   shift_window=shift_window,
-                                   name='{}_swin_down_last'.format(name))
+        X = swin_transformer_stack_2d(X,
+                                      stack_num=stack_num_up,
+                                      embed_dim=embed_dim,
+                                      num_patch=(num_patch_x, num_patch_y),
+                                      num_heads=num_heads[i],
+                                      window_size=window_size[i],
+                                      num_mlp=num_mlp,
+                                      act=act,
+                                      shift_window=shift_window,
+                                      mode=BLOCK_MODE_NAME,
+                                      name='{}_swin_down_last'.format(name))
     print(X.shape, num_patch_x, num_patch_y)
     X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                            embed_dim=embed_dim,
@@ -220,56 +181,10 @@ def get_swin_unet_2d(input_shape, last_channel_num,
     # Base architecture
     X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                           patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                          shift_window=shift_window, name='swin_unet')
+                          shift_window=shift_window, name='unet')
     OUT = layers.Conv2D(last_channel_num, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
 
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
-
-
-def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
-                              act="gelu", shift_window=True, name='swin_unet'):
-    '''
-    Stacked Swin Transformers that share the same token size.
-
-    Alternated Window-MSA and Swin-MSA will be configured if `shift_window=True`, Window-MSA only otherwise.
-    *Dropout is turned off.
-    '''
-    # Turn-off dropouts
-    mlp_drop_rate = 0  # Droupout after each MLP layer
-    attn_drop_rate = 0  # Dropout after Swin-Attention
-    # Dropout at the end of each Swin-Attention block, i.e., after linear projections
-    proj_drop_rate = 0
-    drop_path_rate = 0  # Drop-path within skip-connections
-
-    qkv_bias = True  # Convert embedded patches to query, key, and values with a learnable additive value
-    qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
-
-    if shift_window:
-        shift_size = window_size // 2
-    else:
-        shift_size = 0
-
-    for i in range(stack_num):
-
-        if i % 2 == 0:
-            shift_size_temp = 0
-        else:
-            shift_size_temp = shift_size
-        X = swin_layers.SwinTransformerBlock3D(dim=embed_dim,
-                                               num_patch=num_patch,
-                                               num_heads=num_heads,
-                                               window_size=window_size,
-                                               shift_size=shift_size_temp,
-                                               num_mlp=num_mlp,
-                                               act=act,
-                                               qkv_bias=qkv_bias,
-                                               qk_scale=qk_scale,
-                                               mlp_drop=mlp_drop_rate,
-                                               attn_drop=attn_drop_rate,
-                                               proj_drop=proj_drop_rate,
-                                               drop_path_prob=drop_path_rate,
-                                               name=f'{name}{i}')(X)
-    return X
