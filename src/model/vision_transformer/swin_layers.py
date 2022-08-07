@@ -38,15 +38,17 @@ def window_partition(x, window_size):
     # (Sample, Height, Width, Channel)
     _, H, W, C = x.get_shape().as_list()
     # Subset tensors to patches
-    patch_num_H = H // window_size
-    patch_num_W = W // window_size
-    x = tf.reshape(x, shape=(-1, patch_num_H, window_size,
-                   patch_num_W, window_size, C))
+    window_size_h = window_size[0]
+    window_size_w = window_size[1]
+    patch_num_h = H // window_size_h
+    patch_num_w = W // window_size_w
+    x = tf.reshape(x, shape=(-1, patch_num_h, window_size_h,
+                   patch_num_w, window_size_w, C))
     # (-1, patch_num_H, patch_num_W, window_size, window_size, C)
     x = tf.transpose(x, (0, 1, 3, 2, 4, 5))
 
     # Reshape patches to a patch sequence
-    windows = tf.reshape(x, shape=(-1, window_size, window_size, C))
+    windows = tf.reshape(x, shape=(-1, window_size_h, window_size_w, C))
 
     return windows
 
@@ -57,16 +59,20 @@ def window_partition_3d(x, window_size):
     # (Sample, Height, Width, Channel)
     _, Z, H, W, C = x.get_shape().as_list()
     # Subset tensors to patches
-    patch_num_Z = Z // window_size
-    patch_num_H = H // window_size
-    patch_num_W = W // window_size
-    x = tf.reshape(x, shape=(-1, patch_num_Z, window_size,
-                   patch_num_H, window_size, patch_num_W, window_size, C))
+    window_size_z = window_size[0]
+    window_size_h = window_size[1]
+    window_size_w = window_size[2]
+    patch_num_z = Z // window_size_z
+    patch_num_h = H // window_size_h
+    patch_num_w = W // window_size_w
+    x = tf.reshape(x, shape=(-1, patch_num_z, window_size_z,
+                   patch_num_h, window_size_h,
+                   patch_num_w, window_size_w, C))
     x = tf.transpose(x, (0, 1, 3, 5, 2, 4, 6, 7))
 
     # Reshape patches to a patch sequence
     windows = tf.reshape(x,
-                         shape=(-1, window_size, window_size, window_size, C))
+                         shape=(-1, window_size_z, window_size_h, window_size_w, C))
 
     return windows
 
@@ -74,10 +80,12 @@ def window_partition_3d(x, window_size):
 def window_reverse(windows, window_size, H, W, C):
 
     # Reshape a patch sequence to aligned patched
-    patch_num_H = H // window_size
-    patch_num_W = W // window_size
-    x = tf.reshape(windows, shape=(-1, patch_num_H, patch_num_W,
-                                   window_size, window_size, C))
+    window_size_h = window_size[0]
+    window_size_w = window_size[1]
+    patch_num_h = H // window_size_h
+    patch_num_w = W // window_size_w
+    x = tf.reshape(windows, shape=(-1, patch_num_h, patch_num_w,
+                                   window_size_h, window_size_w, C))
     x = tf.transpose(x, perm=(0, 1, 3, 2, 4, 5))
 
     # Merge patches to spatial frames
@@ -89,11 +97,14 @@ def window_reverse(windows, window_size, H, W, C):
 def window_reverse_3d(windows, window_size, Z, H, W, C):
 
     # Reshape a patch sequence to aligned patched
-    patch_num_Z = Z // window_size
-    patch_num_H = H // window_size
-    patch_num_W = W // window_size
-    x = tf.reshape(windows, shape=(-1, patch_num_Z, patch_num_H, patch_num_W,
-                                   window_size, window_size, window_size, C))
+    window_size_z = window_size[0]
+    window_size_h = window_size[1]
+    window_size_w = window_size[2]
+    patch_num_z = Z // window_size_z
+    patch_num_h = H // window_size_h
+    patch_num_w = W // window_size_w
+    x = tf.reshape(windows, shape=(-1, patch_num_z, patch_num_h, patch_num_w,
+                                   window_size_z, window_size_h, window_size_w, C))
     x = tf.transpose(x, perm=(0, 1, 4, 2, 5, 3, 6, 7))
 
     # Merge patches to spatial frames
@@ -152,8 +163,8 @@ class WindowAttention(layers.Layer):
     def build(self, input_shape):
 
         # zero initialization
-        num_window_elements = (
-            2 * self.window_size[0] - 1) * (2 * self.window_size[1] - 1)
+        num_window_elements = ((2 * self.window_size[0] - 1) *
+                               (2 * self.window_size[1] - 1))
         self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
                                                             shape=(
                                                                 num_window_elements, self.num_heads),
@@ -284,6 +295,7 @@ class WindowAttention3D(layers.Layer):
                            coords_flatten[:, None, :])
         # relative_coords.shape = [window_size ** 3 window_size ** 3 3]
         relative_coords = relative_coords.transpose([1, 2, 0])
+
         relative_coords[:, :, 0] += self.window_size[0] - 1
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 2] += self.window_size[2] - 1
@@ -306,6 +318,7 @@ class WindowAttention3D(layers.Layer):
 
         # Get input tensor static shape
         _, N, C = x.get_shape().as_list()
+        print(x.shape)
         head_dim = C // self.num_heads
 
         # x_qkv.shape = [B, embed_dim * 3, C]
@@ -336,6 +349,9 @@ class WindowAttention3D(layers.Layer):
                                             shape=(num_window_elements, num_window_elements, -1))
         relative_position_bias = tf.transpose(relative_position_bias,
                                               perm=(2, 0, 1))
+        print(attn.shape)
+        print(relative_position_bias.shape)
+
         attn = attn + tf.expand_dims(relative_position_bias, axis=0)
 
         if mask is not None:
@@ -375,7 +391,10 @@ class SwinTransformerBlock(layers.Layer):
         # number of embedded patches; a tuple of  (heigh, width)
         self.num_patch = num_patch
         self.num_heads = num_heads  # number of attention heads
-        self.window_size = window_size  # size of window
+        if isinstance(window_size, int):
+            self.window_size = (window_size, window_size)  # size of window
+        else:
+            self.window_size = window_size
         self.shift_size = shift_size  # size of window shift
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
@@ -383,7 +402,7 @@ class SwinTransformerBlock(layers.Layer):
         # Layers
         self.norm1 = layers.LayerNormalization(
             epsilon=1e-5, name='{}_norm1'.format(self.prefix))
-        self.attn = WindowAttention(dim, window_size=(self.window_size, self.window_size), num_heads=num_heads,
+        self.attn = WindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
                                     qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = layers.LayerNormalization(
@@ -393,21 +412,25 @@ class SwinTransformerBlock(layers.Layer):
 
         # Assertions
         assert 0 <= self.shift_size, 'shift_size >= 0 is required'
-        assert self.shift_size < self.window_size, 'shift_size < window_size is required'
+        for window_size in self.window_size:
+            assert self.shift_size < window_size, 'shift_size < window_size is required'
 
         # <---!!!
         # Handling too-small patch numbers
-        if min(self.num_patch) < self.window_size:
+        if min(self.num_patch) < min(self.window_size):
             self.shift_size = 0
             self.window_size = min(self.num_patch)
 
     def build(self, input_shape):
         if self.shift_size > 0:
             H, W = self.num_patch
-            h_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                                                           self.shift_size), slice(-self.shift_size, None))
-            w_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                                                           self.shift_size), slice(-self.shift_size, None))
+            num_window_elements = np.prod(self.window_size)
+            h_slices = (slice(0, -self.window_size[0]),
+                        slice(-self.window_size[1], - self.shift_size),
+                        slice(-self.shift_size, None))
+            w_slices = (slice(0, -self.window_size[0]),
+                        slice(-self.window_size[1], - self.shift_size),
+                        slice(-self.shift_size, None))
 
             # attention mask
             mask_array = np.zeros((1, H, W, 1))
@@ -422,14 +445,15 @@ class SwinTransformerBlock(layers.Layer):
 
             # mask array to windows
             mask_windows = window_partition(mask_array, self.window_size)
-            mask_windows = tf.reshape(
-                mask_windows, shape=[-1, self.window_size * self.window_size])
+            mask_windows = tf.reshape(mask_windows,
+                                      shape=[-1, num_window_elements])
             attn_mask = tf.expand_dims(
                 mask_windows, axis=1) - tf.expand_dims(mask_windows, axis=2)
             attn_mask = tf.where(attn_mask != 0, -100.0, attn_mask)
             attn_mask = tf.where(attn_mask == 0, 0.0, attn_mask)
-            self.attn_mask = tf.Variable(
-                initial_value=attn_mask, trainable=False, name='{}_attn_mask'.format(self.prefix))
+            self.attn_mask = tf.Variable(initial_value=attn_mask,
+                                         trainable=False,
+                                         name='{}_attn_mask'.format(self.prefix))
         else:
             self.attn_mask = None
 
@@ -438,7 +462,7 @@ class SwinTransformerBlock(layers.Layer):
     def call(self, x):
         H, W = self.num_patch
         B, L, C = x.get_shape().as_list()
-
+        num_window_elements = np.prod(self.window_size)
         # Checking num_path and tensor sizes
         assert L == H * W, 'Number of patches before and after Swin-MSA are mismatched.'
 
@@ -453,28 +477,30 @@ class SwinTransformerBlock(layers.Layer):
 
         # Cyclic shift
         if self.shift_size > 0:
-            shifted_x = tf.roll(
-                x, shift=[-self.shift_size, -self.shift_size], axis=[1, 2])
+            shifted_x = tf.roll(x,
+                                shift=[-self.shift_size, -self.shift_size],
+                                axis=[1, 2])
         else:
             shifted_x = x
 
         # Window partition
         x_windows = window_partition(shifted_x, self.window_size)
-        x_windows = tf.reshape(
-            x_windows, shape=(-1, self.window_size * self.window_size, C))
+        x_windows = tf.reshape(x_windows,
+                               shape=(-1, num_window_elements, C))
 
         # Window-based multi-headed self-attention
         attn_windows = self.attn(x_windows, mask=self.attn_mask)
 
         # Merge windows
         attn_windows = tf.reshape(attn_windows,
-                                  shape=(-1, self.window_size, self.window_size, C))
+                                  shape=(-1, *self.window_size, C))
         shifted_x = window_reverse(attn_windows, self.window_size, H, W, C)
 
         # Reverse cyclic shift
         if self.shift_size > 0:
-            x = tf.roll(shifted_x, shift=[
-                self.shift_size, self.shift_size], axis=[1, 2])
+            x = tf.roll(shifted_x,
+                        shift=[self.shift_size, self.shift_size],
+                        axis=[1, 2])
         else:
             x = shifted_x
 
@@ -510,7 +536,11 @@ class SwinTransformerBlock3D(layers.Layer):
         # number of embedded patches; a tuple of  (heigh, width)
         self.num_patch = num_patch
         self.num_heads = num_heads  # number of attention heads
-        self.window_size = window_size  # size of window
+        if isinstance(window_size, int):
+            self.window_size = (window_size, window_size,
+                                window_size)  # size of window
+        else:
+            self.window_size = window_size
         self.shift_size = shift_size  # size of window shift
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
@@ -518,7 +548,7 @@ class SwinTransformerBlock3D(layers.Layer):
         # Layers
         self.norm1 = LayerNormalization(
             epsilon=1e-5, name='{}_norm1'.format(self.prefix))
-        self.attn = WindowAttention3D(dim, window_size=(self.window_size, self.window_size, self.window_size), num_heads=num_heads,
+        self.attn = WindowAttention3D(dim, window_size=self.window_size, num_heads=num_heads,
                                       qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = LayerNormalization(
@@ -528,23 +558,28 @@ class SwinTransformerBlock3D(layers.Layer):
 
         # Assertions
         assert 0 <= self.shift_size, 'shift_size >= 0 is required'
-        assert self.shift_size < self.window_size, 'shift_size < window_size is required'
+        for window_size in self.window_size:
+            assert self.shift_size < window_size, 'shift_size < window_size is required'
 
         # <---!!!
         # Handling too-small patch numbers
-        if min(self.num_patch) < self.window_size:
+        if min(self.num_patch) < min(self.window_size):
             self.shift_size = 0
             self.window_size = min(self.num_patch)
 
     def build(self, input_shape):
         if self.shift_size > 0:
             Z, H, W = self.num_patch
-            z_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                                                           self.shift_size), slice(-self.shift_size, None))
-            h_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                                                           self.shift_size), slice(-self.shift_size, None))
-            w_slices = (slice(0, -self.window_size), slice(-self.window_size, -
-                                                           self.shift_size), slice(-self.shift_size, None))
+            num_window_elements = np.prod(self.window_size)
+            z_slices = (slice(0, -self.window_size[0]),
+                        slice(-self.window_size[0], - self.shift_size),
+                        slice(-self.shift_size, None))
+            h_slices = (slice(0, -self.window_size[1]),
+                        slice(-self.window_size[1], - self.shift_size),
+                        slice(-self.shift_size, None))
+            w_slices = (slice(0, -self.window_size[2]),
+                        slice(-self.window_size[2], - self.shift_size),
+                        slice(-self.shift_size, None))
 
             # attention mask
             mask_array = np.zeros((1, Z, H, W, 1))
@@ -561,7 +596,7 @@ class SwinTransformerBlock3D(layers.Layer):
             # mask array to windows
             mask_windows = window_partition_3d(mask_array, self.window_size)
             mask_windows = tf.reshape(mask_windows,
-                                      shape=[-1, self.window_size ** 3])
+                                      shape=[-1, num_window_elements])
             attn_mask = tf.expand_dims(
                 mask_windows, axis=1) - tf.expand_dims(mask_windows, axis=2)
             attn_mask = tf.where(attn_mask != 0, -100.0, attn_mask)
@@ -576,7 +611,7 @@ class SwinTransformerBlock3D(layers.Layer):
     def call(self, x):
         Z, H, W = self.num_patch
         B, L, C = x.get_shape().as_list()
-
+        num_window_elements = np.prod(self.window_size)
         # Checking num_path and tensor sizes
         assert L == H * W * Z, 'Number of patches before and after Swin-MSA are mismatched.'
 
@@ -602,14 +637,13 @@ class SwinTransformerBlock3D(layers.Layer):
         # Window partition
         x_windows = window_partition_3d(shifted_x, self.window_size)
         x_windows = tf.reshape(x_windows,
-                               shape=(-1, self.window_size ** 3, C))
-
+                               shape=(-1, num_window_elements, C))
         # Window-based multi-headed self-attention
         attn_windows = self.attn(x_windows, mask=self.attn_mask)
 
         # Merge windows
         attn_windows = tf.reshape(attn_windows,
-                                  shape=(-1, self.window_size, self.window_size, self.window_size, C))
+                                  shape=(-1, *self.window_size, C))
         shifted_x = window_reverse_3d(attn_windows, self.window_size,
                                       Z, H, W, C)
 

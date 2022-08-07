@@ -221,6 +221,61 @@ class patch_merging(layers.Layer):
         return x
 
 
+class patch_merging_3d(layers.Layer):
+    '''
+    Downsample embedded patches; it halfs the number of patches
+    and double the embedded dimensions (c.f. pooling layers).
+
+    Input
+    ----------
+        num_patch: number of patches to be embedded.
+        embed_dim: number of embedded dimensions. 
+
+    Output
+    ----------
+        x: downsampled patches.
+
+    '''
+
+    def __init__(self, num_patch, embed_dim, name=''):
+        super().__init__()
+
+        self.num_patch = num_patch
+        self.embed_dim = embed_dim
+
+        # A linear transform that doubles the channels
+        self.linear_trans = layers.Dense(2 * embed_dim,
+                                         use_bias=False,
+                                         name='{}_linear_trans'.format(name))
+
+    def call(self, x):
+
+        Z, H, W = self.num_patch
+        B, L, C = x.get_shape().as_list()
+
+        assert (L == H * W * Z), 'input feature has wrong size'
+        assert (H % 2 == 0 and W % 2 ==
+                0), '{}-by-{} patches received, they are not even.'.format(H, W)
+
+        # Convert the patch sequence to aligned patches
+        x = tf.reshape(x, shape=(-1, Z, H, W, C))
+
+        # Downsample
+        x0 = x[:, :, 0::2, 0::2, :]  # B Z H/2 W/2 C
+        x1 = x[:, :, 1::2, 0::2, :]  # B Z H/2 W/2 C
+        x2 = x[:, :, 0::2, 1::2, :]  # B Z H/2 W/2 C
+        x3 = x[:, :, 1::2, 1::2, :]  # B Z H/2 W/2 C
+        x = tf.concat((x0, x1, x2, x3), axis=-1)
+
+        # Convert to the patch squence
+        x = tf.reshape(x, shape=(-1, (H // 2) * (W // 2), 4 * C))
+
+        # Linear transform
+        x = self.linear_trans(x)
+
+        return x
+
+
 class patch_expanding(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, name=''):

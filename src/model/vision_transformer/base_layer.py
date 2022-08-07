@@ -1,8 +1,6 @@
 import numpy as np
 from tensorflow.keras import Model, layers
-from . import swin_layers
-from . import transformer_layers
-from . import utils
+from . import swin_layers, transformer_layers, utils
 
 
 def swin_transformer_stack_2d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,

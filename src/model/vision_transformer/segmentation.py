@@ -1,8 +1,6 @@
 import numpy as np
 from tensorflow.keras import Model, layers
-from . import swin_layers
-from . import transformer_layers
-from . import utils
+from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_2d
 
 BLOCK_MODE_NAME = "seg"
