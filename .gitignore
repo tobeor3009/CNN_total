@@ -11,6 +11,7 @@ temp/
 
 *.pyc
 *.ipynb
+*.hdf5
 
 temp.py
 config.json
