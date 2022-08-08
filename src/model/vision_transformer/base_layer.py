@@ -89,7 +89,7 @@ def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, win
     qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
 
     if shift_window:
-        shift_size = window_size // 2
+        shift_size = np.array(window_size) // 2
     else:
         shift_size = 0
 

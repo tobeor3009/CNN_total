@@ -268,7 +268,7 @@ class patch_merging_3d(layers.Layer):
         x = tf.concat((x0, x1, x2, x3), axis=-1)
 
         # Convert to the patch squence
-        x = tf.reshape(x, shape=(-1, (H // 2) * (W // 2), 4 * C))
+        x = tf.reshape(x, shape=(-1, Z * (H // 2) * (W // 2), 4 * C))
 
         # Linear transform
         x = self.linear_trans(x)
@@ -295,14 +295,13 @@ class patch_expanding(layers.Layer):
     def call(self, x):
 
         H, W = self.num_patch
-        B, L, C = x.get_shape().as_list()
+        _, L, C = x.get_shape().as_list()
 
         assert (L == H * W), 'input feature has wrong size'
 
         x = tf.reshape(x, (-1, H, W, C))
 
         x = self.linear_trans1(x)
-
         # rearange depth to number of patches
         x = tf.nn.depth_to_space(x, self.upsample_rate,
                                  data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
@@ -311,7 +310,7 @@ class patch_expanding(layers.Layer):
             # Convert aligned patches to a patch sequence
             x = tf.reshape(x, (-1,
                                L * self.upsample_rate * self.upsample_rate,
-                               C // 2))
+                               self.embed_dim // 2))
         return x
 
 

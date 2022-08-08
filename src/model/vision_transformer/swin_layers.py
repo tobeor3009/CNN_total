@@ -395,7 +395,8 @@ class SwinTransformerBlock(layers.Layer):
             self.window_size = (window_size, window_size)  # size of window
         else:
             self.window_size = window_size
-        self.shift_size = shift_size  # size of window shift
+        if isinstance(shift_size, int):
+            self.shift_size = (shift_size, shift_size)  # size of window shift
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
 
@@ -411,9 +412,10 @@ class SwinTransformerBlock(layers.Layer):
                        drop=mlp_drop, name=self.prefix)
 
         # Assertions
-        assert 0 <= self.shift_size, 'shift_size >= 0 is required'
-        for window_size in self.window_size:
-            assert self.shift_size < window_size, 'shift_size < window_size is required'
+        for shift_size in self.shift_size:
+            assert 0 <= shift_size, 'shift_size >= 0 is required'
+        for shift_size, window_size in zip(self.shift_size, self.window_size):
+            assert shift_size < window_size, 'shift_size < window_size is required'
 
         # <---!!!
         # Handling too-small patch numbers
@@ -422,15 +424,15 @@ class SwinTransformerBlock(layers.Layer):
             self.window_size = min(self.num_patch)
 
     def build(self, input_shape):
-        if self.shift_size > 0:
+        if np.prod(self.shift_size) > 0:
             H, W = self.num_patch
             num_window_elements = np.prod(self.window_size)
             h_slices = (slice(0, -self.window_size[0]),
-                        slice(-self.window_size[1], - self.shift_size),
-                        slice(-self.shift_size, None))
-            w_slices = (slice(0, -self.window_size[0]),
-                        slice(-self.window_size[1], - self.shift_size),
-                        slice(-self.shift_size, None))
+                        slice(-self.window_size[0], -self.shift_size[0]),
+                        slice(-self.shift_size[0], None))
+            w_slices = (slice(0, -self.window_size[1]),
+                        slice(-self.window_size[1], -self.shift_size[1]),
+                        slice(-self.shift_size[1], None))
 
             # attention mask
             mask_array = np.zeros((1, H, W, 1))
@@ -476,9 +478,10 @@ class SwinTransformerBlock(layers.Layer):
         x = tf.reshape(x, shape=(-1, H, W, C))
 
         # Cyclic shift
-        if self.shift_size > 0:
+        if np.max(self.shift_size) > 0:
             shifted_x = tf.roll(x,
-                                shift=[-self.shift_size, -self.shift_size],
+                                shift=[-self.shift_size[0],
+                                       -self.shift_size[1]],
                                 axis=[1, 2])
         else:
             shifted_x = x
@@ -497,9 +500,10 @@ class SwinTransformerBlock(layers.Layer):
         shifted_x = window_reverse(attn_windows, self.window_size, H, W, C)
 
         # Reverse cyclic shift
-        if self.shift_size > 0:
+        if np.max(self.shift_size) > 0:
             x = tf.roll(shifted_x,
-                        shift=[self.shift_size, self.shift_size],
+                        shift=[self.shift_size[0],
+                               self.shift_size[1]],
                         axis=[1, 2])
         else:
             x = shifted_x
@@ -537,11 +541,17 @@ class SwinTransformerBlock3D(layers.Layer):
         self.num_patch = num_patch
         self.num_heads = num_heads  # number of attention heads
         if isinstance(window_size, int):
-            self.window_size = (window_size, window_size,
+            self.window_size = (window_size,
+                                window_size,
                                 window_size)  # size of window
         else:
             self.window_size = window_size
-        self.shift_size = shift_size  # size of window shift
+        if isinstance(shift_size, int):
+            self.shift_size = (shift_size,
+                               shift_size,
+                               shift_size)  # size of window shift
+        else:
+            self.shift_size = shift_size
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
 
@@ -557,29 +567,30 @@ class SwinTransformerBlock3D(layers.Layer):
                        drop=mlp_drop, name=self.prefix)
 
         # Assertions
-        assert 0 <= self.shift_size, 'shift_size >= 0 is required'
-        for window_size in self.window_size:
-            assert self.shift_size < window_size, 'shift_size < window_size is required'
+        for shift_size in self.shift_size:
+            assert 0 <= shift_size, 'shift_size >= 0 is required'
+        for shift_size, window_size in zip(self.shift_size, self.window_size):
+            assert shift_size < window_size, 'shift_size < window_size is required'
 
         # <---!!!
         # Handling too-small patch numbers
         if min(self.num_patch) < min(self.window_size):
-            self.shift_size = 0
+            self.shift_size = (0, 0, 0)
             self.window_size = min(self.num_patch)
 
     def build(self, input_shape):
-        if self.shift_size > 0:
+        if np.prod(self.shift_size) > 0:
             Z, H, W = self.num_patch
             num_window_elements = np.prod(self.window_size)
             z_slices = (slice(0, -self.window_size[0]),
-                        slice(-self.window_size[0], - self.shift_size),
-                        slice(-self.shift_size, None))
+                        slice(-self.window_size[0], - self.shift_size[0]),
+                        slice(-self.shift_size[0], None))
             h_slices = (slice(0, -self.window_size[1]),
-                        slice(-self.window_size[1], - self.shift_size),
-                        slice(-self.shift_size, None))
+                        slice(-self.window_size[1], - self.shift_size[1]),
+                        slice(-self.shift_size[1], None))
             w_slices = (slice(0, -self.window_size[2]),
-                        slice(-self.window_size[2], - self.shift_size),
-                        slice(-self.shift_size, None))
+                        slice(-self.window_size[2], - self.shift_size[2]),
+                        slice(-self.shift_size[2], None))
 
             # attention mask
             mask_array = np.zeros((1, Z, H, W, 1))
@@ -625,11 +636,11 @@ class SwinTransformerBlock3D(layers.Layer):
         x = tf.reshape(x, shape=(-1, Z, H, W, C))
 
         # Cyclic shift
-        if self.shift_size > 0:
+        if np.max(self.shift_size) > 0:
             shifted_x = tf.roll(x,
-                                shift=[-self.shift_size,
-                                       -self.shift_size,
-                                       -self.shift_size],
+                                shift=[-self.shift_size[0],
+                                       -self.shift_size[1],
+                                       -self.shift_size[2]],
                                 axis=[1, 2, 3])
         else:
             shifted_x = x
@@ -648,11 +659,11 @@ class SwinTransformerBlock3D(layers.Layer):
                                       Z, H, W, C)
 
         # Reverse cyclic shift
-        if self.shift_size > 0:
+        if np.max(self.shift_size) > 0:
             x = tf.roll(shifted_x,
-                        shift=[self.shift_size,
-                               self.shift_size,
-                               self.shift_size],
+                        shift=[self.shift_size[0],
+                               self.shift_size[1],
+                               self.shift_size[2]],
                         axis=[1, 2, 3])
         else:
             x = shifted_x

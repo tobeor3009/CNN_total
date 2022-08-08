@@ -134,7 +134,9 @@ def get_swin_classification_3d(input_shape, last_channel_num,
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, name="classification")
+    print(f"transformer output shape: {X.shape}")
     X = layers.GlobalAveragePooling1D()(X)
+    print(f"GAP shape: {X.shape}")
     # The output section
     OUT = layers.Dense(last_channel_num, activation='softmax')(X)
     # Model configuration
