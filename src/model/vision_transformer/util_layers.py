@@ -3,7 +3,26 @@ from __future__ import absolute_import
 
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow_addons.layers import InstanceNormalization, SpectralNormalization
 from tensorflow.keras.activations import gelu
+
+
+def get_norm_layer(norm, axis=-1, name=None):
+    if norm == "layer":
+        norm_layer = layers.LayerNormalization(epsilon=1e-5, 
+                                                axis=axis, 
+                                                name=name)
+    elif norm == "batch":
+        norm_layer = layers.BatchNormalization(axis=axis,
+                                               scale=False,
+                                               name=name)
+    elif norm == "instance":
+        norm_layer = InstanceNormalization(axis=axis,
+                                           name=name)
+    elif norm is None:
+        def norm_layer(x): return x
+    return norm_layer
+
 
 def get_act_layer(activation, name=None):
     if activation is None:

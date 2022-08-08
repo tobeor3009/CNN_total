@@ -4,10 +4,11 @@ from __future__ import absolute_import
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers
+from tensorflow_addons.layers import SpectralNormalization
 from tensorflow.keras.layers import Dense, Dropout, LayerNormalization
 from tensorflow.keras.activations import softmax
 
-from .util_layers import drop_path, get_act_layer
+from .util_layers import drop_path, get_norm_layer, get_act_layer
 
 
 def meshgrid_3d(*arrs):
@@ -383,7 +384,7 @@ class WindowAttention3D(layers.Layer):
 
 
 class SwinTransformerBlock(layers.Layer):
-    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu",
+    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
                  qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, name=''):
         super().__init__()
 
@@ -401,13 +402,11 @@ class SwinTransformerBlock(layers.Layer):
         self.prefix = name
 
         # Layers
-        self.norm1 = layers.LayerNormalization(
-            epsilon=1e-5, name='{}_norm1'.format(self.prefix))
+        self.norm1 = get_norm_layer(norm, name='{}_norm1'.format(self.prefix))
         self.attn = WindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
                                     qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
-        self.norm2 = layers.LayerNormalization(
-            epsilon=1e-5, name='{}_norm2'.format(self.prefix))
+        self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
         self.mlp = Mlp([num_mlp, dim], act=act,
                        drop=mlp_drop, name=self.prefix)
 
@@ -532,7 +531,7 @@ class SwinTransformerBlock(layers.Layer):
 
 
 class SwinTransformerBlock3D(layers.Layer):
-    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu",
+    def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
                  qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, name=''):
         super().__init__()
 
@@ -556,13 +555,11 @@ class SwinTransformerBlock3D(layers.Layer):
         self.prefix = name
 
         # Layers
-        self.norm1 = LayerNormalization(
-            epsilon=1e-5, name='{}_norm1'.format(self.prefix))
+        self.norm1 = get_norm_layer(norm, name='{}_norm1'.format(self.prefix))
         self.attn = WindowAttention3D(dim, window_size=self.window_size, num_heads=num_heads,
                                       qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
-        self.norm2 = LayerNormalization(
-            epsilon=1e-5, name='{}_norm2'.format(self.prefix))
+        self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
         self.mlp = Mlp([num_mlp, dim], act=act,
                        drop=mlp_drop, name=self.prefix)
 
