@@ -285,11 +285,16 @@ class patch_expanding(layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.linear_trans1 = layers.Conv2D(upsample_rate * embed_dim,
-                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
-
-        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
-        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
+        self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
+                                                  interpolation="bicubic")
+        self.upsample_linear_trans = layers.Conv2D(embed_dim // 2,
+                                                   kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.pixel_shuffle_linear_trans = layers.Conv2D(upsample_rate * embed_dim,
+                                                        kernel_size=1,
+                                                        use_bias=False,
+                                                        name='{}_linear_trans1'.format(name))
+        self.concat_linear_trans = layers.Conv2D(embed_dim // 2,
+                                                 kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -301,11 +306,15 @@ class patch_expanding(layers.Layer):
 
         x = tf.reshape(x, (-1, H, W, C))
 
-        x = self.linear_trans1(x)
-        # rearange depth to number of patches
-        x = tf.nn.depth_to_space(x, self.upsample_rate,
-                                 data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
+        upsample = self.upsample_layer(x)
+        upsample = self.upsample_linear_trans(upsample)
 
+        pixel_shuffle = self.pixel_shuffle_linear_trans(x)
+        # rearange depth to number of patches
+        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, self.upsample_rate,
+                                             data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
+        x = tf.concat([upsample, pixel_shuffle], axis=-1)
+        x = self.concat_linear_trans(x)
         if self.return_vector:
             # Convert aligned patches to a patch sequence
             x = tf.reshape(x, (-1,
