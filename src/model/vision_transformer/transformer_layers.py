@@ -382,7 +382,7 @@ class patch_expanding_3d(layers.Layer):
             # Convert aligned patches to a patch sequence
             x = tf.reshape(x, (-1,
                                L * (self.upsample_rate ** 3),
-                               C // 2))
+                               self.embed_dim // 2))
         return x
 
 
