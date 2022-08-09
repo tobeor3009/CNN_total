@@ -161,7 +161,7 @@ class WindowAttention(layers.Layer):
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
-
+        C = input_shape[-1]
         if self.swin_v2:
             self.scale = self.add_weight(
                 'logit_scale',
@@ -169,31 +169,26 @@ class WindowAttention(layers.Layer):
                 initializer=initializers.Constant(np.log(10.)),
                 trainable=True,
                 dtype=self.dtype)
-            # noinspection PyAttributeOutsideInit
             self.cpb0 = layers.Dense(512,
                                      activation='relu',
                                      name='cpb_mlp.0')
             self.cpb1 = layers.Dense(self.num_heads,
                                      activation='sigmoid', use_bias=False,
-                                     name=f'cpb_mlp.2')
+                                     name='cpb_mlp.2')
 
-            # noinspection PyAttributeOutsideInit
             self.q_bias = None
-            # noinspection PyAttributeOutsideInit
             self.v_bias = None
             if self.qkv_bias:
-                self.q_bias = self.add_weight(
-                    'q_bias',
-                    shape=[self.channels],
-                    initializer='zeros',
-                    trainable=True,
-                    dtype=self.dtype)
-                self.v_bias = self.add_weight(
-                    'v_bias',
-                    shape=[self.channels],
-                    initializer='zeros',
-                    trainable=True,
-                    dtype=self.dtype)
+                self.q_bias = self.add_weight('q_bias',
+                                              shape=[C],
+                                              initializer='zeros',
+                                              trainable=True,
+                                              dtype=self.dtype)
+                self.v_bias = self.add_weight('v_bias',
+                                              shape=[C],
+                                              initializer='zeros',
+                                              trainable=True,
+                                              dtype=self.dtype)
         else:
             head_dim = self.dim // self.num_heads
             self.scale = self.qk_scale or head_dim ** -0.5  # query scaling factor
@@ -240,7 +235,7 @@ class WindowAttention(layers.Layer):
         if self.swin_v2 and self.qkv_bias:
             k_bias = tf.zeros_like(self.v_bias, self.compute_dtype)
             qkv_bias = tf.concat([self.q_bias, k_bias, self.v_bias], axis=0)
-            qkv = tf.nn.bias_add(qkv, qkv_bias)
+            x_qkv = tf.nn.bias_add(x_qkv, qkv_bias)
 
         x_qkv = tf.reshape(x_qkv, shape=(-1, N, 3, self.num_heads, head_dim))
         x_qkv = tf.transpose(x_qkv, perm=(2, 0, 3, 1, 4))
@@ -262,7 +257,6 @@ class WindowAttention(layers.Layer):
         attn = (q @ k)
         # Shift window
         num_window_elements = np.prod(self.window_size)
-
         relative_position_index_flat = tf.reshape(self.relative_position_index,
                                                   shape=(-1,))
         if self.swin_v2:
@@ -308,13 +302,14 @@ class WindowAttention(layers.Layer):
         return x_qkv
 
     def relative_table(self, window_size):
-        offset1 = tf.range(1 - window_size[0], window_size[0])
+        offset0 = tf.range(1 - window_size[0], window_size[0])
+        offset0 = tf.cast(offset0, self.compute_dtype)
+        offset1 = tf.range(1 - window_size[1], window_size[1])
         offset1 = tf.cast(offset1, self.compute_dtype)
-        offset2 = tf.range(1 - window_size[1], window_size[1])
-        offset2 = tf.cast(offset2, self.compute_dtype)
-        # offset.shape = [2 window_size[0], window_size[1])]
-        offset = tf.stack(tf.meshgrid(offset1, offset2, indexing='ij'))
-        # offset.shape = [1 window_size[0], window_size[1] 2]
+        # offset.shape = [2 np.prod(window_size) np.prod(window_size))]
+        offset = tf.stack(tf.meshgrid(offset0, offset1, indexing='ij'),
+                          axis=0)
+        # offset.shape = [1 np.prod(window_size), np.prod(window_size) 2]
         offset = tf.transpose(offset, [1, 2, 0])[None]
 
         window = window_size
@@ -325,16 +320,15 @@ class WindowAttention(layers.Layer):
 
 
 class WindowAttention3D(layers.Layer):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., name=''):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., swin_v2=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
         self.window_size = window_size  # size of the attention window
         self.num_heads = num_heads  # number of self-attention heads
-
-        head_dim = dim // num_heads
-        self.scale = qk_scale or head_dim ** -0.5  # query scaling factor
-
+        self.qkv_bias = not swin_v2 and qkv_bias
+        self.qk_scale = qk_scale
+        self.swin_v2 = swin_v2
         self.prefix = name
 
         # Layers
@@ -345,6 +339,7 @@ class WindowAttention3D(layers.Layer):
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
+        C = input_shape[-1]
 
         # zero initialization
         num_window_elements = np.prod((
@@ -352,10 +347,39 @@ class WindowAttention3D(layers.Layer):
             2 * self.window_size[1] - 1,
             2 * self.window_size[2] - 1
         ))
-        self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
-                                                            shape=(
-                                                                num_window_elements, self.num_heads),
-                                                            initializer=tf.initializers.Zeros(), trainable=True)
+        if self.swin_v2:
+            self.scale = self.add_weight(
+                'logit_scale',
+                shape=[self.num_heads, 1, 1],
+                initializer=initializers.Constant(np.log(10.)),
+                trainable=True,
+                dtype=self.dtype)
+            self.cpb0 = layers.Dense(512,
+                                     activation='relu',
+                                     name='cpb_mlp.0')
+            self.cpb1 = layers.Dense(self.num_heads,
+                                     activation='sigmoid', use_bias=False,
+                                     name='cpb_mlp.2')
+            self.q_bias = None
+            self.v_bias = None
+            if self.qkv_bias:
+                self.q_bias = self.add_weight('q_bias',
+                                              shape=[C],
+                                              initializer='zeros',
+                                              trainable=True,
+                                              dtype=self.dtype)
+                self.v_bias = self.add_weight('v_bias',
+                                              shape=[C],
+                                              initializer='zeros',
+                                              trainable=True,
+                                              dtype=self.dtype)
+        else:
+            head_dim = self.dim // self.num_heads
+            self.scale = self.qk_scale or head_dim ** -0.5
+            self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
+                                                                shape=(
+                                                                    num_window_elements, self.num_heads),
+                                                                initializer=tf.initializers.Zeros(), trainable=True)
 
         # Indices of relative positions
         coords_z = np.arange(self.window_size[0])
@@ -393,24 +417,36 @@ class WindowAttention3D(layers.Layer):
 
         # Get input tensor static shape
         _, N, C = x.get_shape().as_list()
-        print(x.shape)
         head_dim = C // self.num_heads
 
         # x_qkv.shape = [B, embed_dim * 3, C]
         x_qkv = self.qkv(x)
+
+        if self.dwin_v2 and self.qkv_bias:
+            k_bias = tf.zeros_like(self.v_bias, self.compute_dtype)
+            qkv_bias = tf.concat([self.q_bias, k_bias, self.v_bias], axis=0)
+            x_qkv = tf.nn.bias_add(x_qkv, qkv_bias)
+
         # x_qkv.shape = [B, N, 3, num_heads, head_dim]
         x_qkv = tf.reshape(x_qkv, shape=(-1, N, 3, self.num_heads, head_dim))
         # x_qkv.shape = [3, B, num_heads, N, head_dim]
         x_qkv = tf.transpose(x_qkv, perm=(2, 0, 3, 1, 4))
         # q.shape = k.shape = v.shape = [B, num_heads, N, head_dim]
         q, k, v = x_qkv[0], x_qkv[1], x_qkv[2]
+
+        if self.swin_v2:
+            scale = tf.minimum(self.scale, np.log(1. / .01))
+            scale = tf.exp(scale)
+            q, _ = tf.linalg.normalize(q, axis=-1)
+            k, _ = tf.linalg.normalize(k, axis=-1)
+        else:
+            scale = self.scale
         # Query rescaling
         q = q * self.scale
 
         # multi-headed self-attention
         # k.shape = [B, num_heads, head_dim, N]
         k = tf.transpose(k, perm=(0, 1, 3, 2))
-
         # attn.shape = [B, num_heads, N, N]
         attn = (q @ k)
 
@@ -418,16 +454,21 @@ class WindowAttention3D(layers.Layer):
         num_window_elements = np.prod(self.window_size)
         relative_position_index_flat = tf.reshape(self.relative_position_index,
                                                   shape=(-1,))
-        relative_position_bias = tf.gather(self.relative_position_bias_table,
-                                           relative_position_index_flat)
-        relative_position_bias = tf.reshape(relative_position_bias,
-                                            shape=(num_window_elements, num_window_elements, -1))
-        relative_position_bias = tf.transpose(relative_position_bias,
-                                              perm=(2, 0, 1))
-        print(attn.shape)
-        print(relative_position_bias.shape)
+        if self.swin_v2:
+            relative_bias = self.cpb0(self.relative_table(self.window_size))
+            relative_bias = self.cpb1(relative_bias)
+            relative_bias = tf.reshape(relative_bias, [-1, self.num_heads])
+            bias = tf.gather(relative_bias, relative_position_index_flat) * 16
+        else:
+            bias = tf.gahter(self.relative_position_bias_table,
+                             relative_position_index_flat)
 
-        attn = attn + tf.expand_dims(relative_position_bias, axis=0)
+        bias = tf.reshape(bias,
+                          shape=(num_window_elements, num_window_elements, -1))
+        bias = tf.transpose(bias,
+                            perm=(2, 0, 1))
+
+        attn = attn + bias[None]
 
         if mask is not None:
             nW = mask.get_shape()[0]
@@ -455,6 +496,25 @@ class WindowAttention3D(layers.Layer):
         x_qkv = self.proj_drop(x_qkv)
 
         return x_qkv
+
+    def relative_table(self, window_size):
+        offset0 = tf.range(1 - window_size[0], window_size[0])
+        offset0 = tf.cast(offset0, self.compute_dtype)
+        offset1 = tf.range(1 - window_size[1], window_size[1])
+        offset1 = tf.cast(offset1, self.compute_dtype)
+        offset2 = tf.range(1 - window_size[2], window_size[2])
+        offset2 = tf.cast(offset2, self.compute_dtype)
+        # offset.shape = [3 np.prod(window_size), np.prod(window_size))]
+        offset = tf.stack(meshgrid_3d(offset0, offset1, offset2),
+                          axis=0)
+        # offset.shape = [1 np.prod(window_size), np.prod(window_size) 3]
+        offset = tf.transpose(offset, [1, 2, 0])[None]
+
+        window = window_size
+        offset *= 8. / (tf.cast(window, self.compute_dtype)[None] - 1.)
+        offset = tf.sign(offset) * tf.math.log1p(tf.abs(offset)) / np.log(8)
+
+        return offset
 
 
 class SwinTransformerBlock(layers.Layer):

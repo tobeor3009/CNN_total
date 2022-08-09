@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
 from tensorflow import extract_volume_patches
-from .util_layers import get_act_layer, get_norm_layer
+from .util_layers import get_norm_layer
 
 
 class patch_extract(layers.Layer):
@@ -279,17 +279,20 @@ class patch_merging_3d(layers.Layer):
             x5 = x[:, 1::2, 0::2, 1::2, :]  # B Z H/2 W/2 C
             x6 = x[:, 0::2, 1::2, 1::2, :]  # B Z H/2 W/2 C
             x7 = x[:, 1::2, 1::2, 1::2, :]  # B Z H/2 W/2 C
-            x = tf.concat((x0, x1, x2, x3, x4, x5, x6, x7), axis=-1)
-            x = tf.reshape(
-                x, shape=(-1, (Z // 2) * (H // 2) * (W // 2), 8 * C))
+            x = tf.concat((x0, x1, x2, x3, x4, x5, x6, x7),
+                          axis=-1)
+            x = tf.reshape(x,
+                           shape=(-1, (Z // 2) * (H // 2) * (W // 2), 8 * C))
         else:
             x0 = x[:, :, 0::2, 0::2, :]  # B Z H/2 W/2 C
             x1 = x[:, :, 1::2, 0::2, :]  # B Z H/2 W/2 C
             x2 = x[:, :, 0::2, 1::2, :]  # B Z H/2 W/2 C
             x3 = x[:, :, 1::2, 1::2, :]  # B Z H/2 W/2 C
-            x = tf.concat((x0, x1, x2, x3), axis=-1)
+            x = tf.concat((x0, x1, x2, x3),
+                          axis=-1)
             # Convert to the patch squence
-            x = tf.reshape(x, shape=(-1, Z * (H // 2) * (W // 2), 4 * C))
+            x = tf.reshape(x,
+                           shape=(-1, Z * (H // 2) * (W // 2), 4 * C))
 
         # Linear transform
         if self.swin_v2:
@@ -311,7 +314,7 @@ class patch_expanding(layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
@@ -403,7 +406,7 @@ class patch_expanding_3d(layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling3D(size=upsample_rate,
@@ -462,7 +465,7 @@ class patch_expanding_2d_3d(layers.Layer):
         self.embed_dim = embed_dim
         self.return_vector = return_vector
         self.embed_dim = embed_dim
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.linear_trans1 = layers.Conv3D(embed_dim,

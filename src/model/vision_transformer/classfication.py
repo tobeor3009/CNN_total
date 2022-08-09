@@ -64,11 +64,11 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
 def get_swin_classification_2d(input_shape, last_channel_num,
                                filter_num_begin, depth, stack_num_per_depth,
                                patch_size, stride_mode, num_heads, window_size, num_mlp,
-                               act="gelu", shift_window=True):
+                               act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
     OUT = layers.Dense(last_channel_num, activation='softmax')(X)
@@ -79,7 +79,7 @@ def get_swin_classification_2d(input_shape, last_channel_num,
 
 def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num_per_depth,
                                 patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                act="gelu", shift_window=True, name="classification"):
+                                act="gelu", shift_window=True, swin_v2=False, name="classification"):
 
     # Compute number be patches to be embeded
     if stride_mode == "same":
@@ -121,22 +121,26 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
                                       act=act,
                                       shift_window=shift_window_temp,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_block{}'.format(name, idx))
     # Patch-merging
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
     X = transformer_layers.patch_merging_3d((num_patch_z, num_patch_x, num_patch_y),
-                                            embed_dim=embed_dim, name='down{}'.format(idx))(X)
+                                            embed_dim=embed_dim,
+                                            swin_v2=swin_v2,
+                                            name='down{}'.format(idx))(X)
     return X
 
 
 def get_swin_classification_3d(input_shape, last_channel_num,
                                filter_num_begin, depth, stack_num_per_depth,
                                patch_size, stride_mode, num_heads, window_size, num_mlp,
-                               act="gelu", shift_window=True):
+                               act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, name="classification")
+                                    act=act, shift_window=shift_window, 
+                                    swin_v2=swin_v2, name="classification")
     print(f"transformer output shape: {X.shape}")
     X = layers.GlobalAveragePooling1D()(X)
     print(f"GAP shape: {X.shape}")

@@ -31,7 +31,7 @@ def skip_connect_expanding(decoded, skip_connect):
 
 def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
                    patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu",
-                   shift_window=True, name="swin_x2ct"):
+                   shift_window=True, swin_v2=False, name="swin_x2ct"):
 
     # Compute number be patches to be embeded
     if stride_mode == "same":
@@ -70,6 +70,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                   act=act,
                                   shift_window=shift_window,
                                   mode=BLOCK_MODE_NAME,
+                                  swin_v2=swin_v2,
                                   name='{}_swin_down'.format(name))
     print(f"depth {depth} X shape: {X.shape}")
     X_skip.append(X)
@@ -80,6 +81,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
         # Patch merging
         X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
                                              embed_dim=embed_dim,
+                                             swin_v2=swin_v2,
                                              name='down{}'.format(idx))(X)
         print(f"depth {idx} X merging shape: {X.shape}")
 
@@ -99,6 +101,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_down{}'.format(name, idx + 1))
 
         print(f"depth {idx} X Skip shape: {X.shape}")
@@ -127,14 +130,13 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
         X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                                embed_dim=embed_dim,
                                                upsample_rate=2,
+                                               swin_v2=swin_v2,
                                                return_vector=True)(X)
         print(f"depth middle expanding {idx} X shape: {X.shape}")
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
         num_patch_y = num_patch_y * 2
-
-        X = layers.Dense(embed_dim, use_bias=False)(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -147,6 +149,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='')
 
     num_patch_x = num_patch_x // (2 ** need_ct_upsacle)
@@ -160,6 +163,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
         X = transformer_layers.patch_expanding_3d(num_patch=(num_patch_z, num_patch_x, num_patch_y),
                                                   embed_dim=embed_dim,
                                                   upsample_rate=2,
+                                                  swin_v2=swin_v2,
                                                   return_vector=True)(X)
         skip_connect = skip_connect_expanding(X, X_decode[i])
 
@@ -189,12 +193,16 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_up{}'.format(name, i))
         print(f"depth {i} decode output X shape: {X.shape}")
 
-    X = transformer_layers.patch_expanding_3d(num_patch=(num_patch_z, num_patch_x, num_patch_y),
+    X = transformer_layers.patch_expanding_3d(num_patch=(num_patch_z, 
+                                                         num_patch_x, 
+                                                         num_patch_y),
                                               embed_dim=embed_dim,
                                               upsample_rate=patch_size[0],
+                                              swin_v2=swin_v2,
                                               return_vector=False)(X)
     return X
 
@@ -203,12 +211,12 @@ def get_swin_x2ct(input_shape, last_channel_num,
                   filter_num_begin, depth,
                   stack_num_down, stack_num_up,
                   patch_size, stride_mode, num_heads, window_size, num_mlp,
-                  act="gelu", last_act="sigmoid", shift_window=True):
+                  act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
 
     X = swin_x2ct_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                        patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                       shift_window=shift_window, name="swin_x2ct")
+                       shift_window=shift_window, swin_v2=swin_v2, name="swin_x2ct")
     OUT = layers.Conv2D(last_channel_num, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
     model = Model(inputs=[IN, ], outputs=[OUT, ])
