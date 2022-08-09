@@ -318,7 +318,7 @@ class patch_expanding(layers.Layer):
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
-                                                  interpolation="bicubic")
+                                                  interpolation="bilinear")
         self.upsample_linear_trans = layers.Conv2D(embed_dim // 2,
                                                    kernel_size=1,
                                                    use_bias=False,
