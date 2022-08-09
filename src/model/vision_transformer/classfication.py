@@ -79,7 +79,7 @@ def get_swin_classification_2d(input_shape, last_channel_num,
 
 def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num_per_depth,
                                 patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                act="gelu", shift_window=True, swin_v2=False, name="classification"):
+                                act="gelu", shift_window=True, include_3d=False, swin_v2=False, name="classification"):
 
     # Compute number be patches to be embeded
     if stride_mode == "same":
@@ -127,6 +127,7 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
     X = transformer_layers.patch_merging_3d((num_patch_z, num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
+                                            include_3d=include_3d,
                                             swin_v2=swin_v2,
                                             name='down{}'.format(idx))(X)
     return X
@@ -139,7 +140,7 @@ def get_swin_classification_3d(input_shape, last_channel_num,
     IN = layers.Input(input_shape)
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, 
+                                    act=act, shift_window=shift_window,
                                     swin_v2=swin_v2, name="classification")
     print(f"transformer output shape: {X.shape}")
     X = layers.GlobalAveragePooling1D()(X)

@@ -31,6 +31,8 @@ def swin_transformer_stack_2d(X, stack_num, embed_dim, num_patch, num_heads, win
     qkv_bias = True  # Convert embedded patches to query, key, and values with a learnable additive value
     qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
 
+    if isinstance(window_size, int):
+        window_size = np.array((window_size, window_size))
     if shift_window:
         shift_size = window_size // 2
     else:
@@ -89,8 +91,10 @@ def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, win
     qkv_bias = True  # Convert embedded patches to query, key, and values with a learnable additive value
     qk_scale = None  # None: Re-scale query based on embed dimensions per attention head # Float for user specified scaling factor
 
+    if isinstance(window_size, int):
+        window_size = np.array((window_size, window_size, window_size))
     if shift_window:
-        shift_size = np.array(window_size) // 2
+        shift_size = window_size // 2
     else:
         shift_size = 0
 

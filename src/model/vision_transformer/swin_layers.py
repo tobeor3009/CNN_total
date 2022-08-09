@@ -11,9 +11,17 @@ from tensorflow.keras.activations import softmax
 from .util_layers import drop_path, get_norm_layer, get_act_layer
 
 
+def get_len(x):
+    if hasattr(x, "shape"):
+        x_len = x.shape[0]
+    else:
+        x_len = len(x)
+    return x_len
+
+
 def meshgrid_3d(*arrs):
     arrs = tuple(reversed(arrs))  # edit
-    lens = list(map(len, arrs))
+    lens = list(map(get_len, arrs))
     dim = len(arrs)
 
     sz = 1
@@ -421,7 +429,7 @@ class WindowAttention3D(layers.Layer):
         # x_qkv.shape = [B, embed_dim * 3, C]
         x_qkv = self.qkv(x)
 
-        if self.dwin_v2 and self.qkv_bias:
+        if self.swin_v2 and self.qkv_bias:
             k_bias = tf.zeros_like(self.v_bias, self.compute_dtype)
             qkv_bias = tf.concat([self.q_bias, k_bias, self.v_bias], axis=0)
             x_qkv = tf.nn.bias_add(x_qkv, qkv_bias)
@@ -459,7 +467,7 @@ class WindowAttention3D(layers.Layer):
             relative_bias = tf.reshape(relative_bias, [-1, self.num_heads])
             bias = tf.gather(relative_bias, relative_position_index_flat) * 16
         else:
-            bias = tf.gahter(self.relative_position_bias_table,
+            bias = tf.gather(self.relative_position_bias_table,
                              relative_position_index_flat)
 
         bias = tf.reshape(bias,
@@ -497,17 +505,15 @@ class WindowAttention3D(layers.Layer):
         return x_qkv
 
     def relative_table(self, window_size):
-        offset0 = tf.range(1 - window_size[0], window_size[0])
-        offset0 = tf.cast(offset0, self.compute_dtype)
-        offset1 = tf.range(1 - window_size[1], window_size[1])
-        offset1 = tf.cast(offset1, self.compute_dtype)
-        offset2 = tf.range(1 - window_size[2], window_size[2])
-        offset2 = tf.cast(offset2, self.compute_dtype)
+        offset0 = tuple(range(1 - window_size[0], window_size[0]))
+        offset1 = tuple(range(1 - window_size[1], window_size[1]))
+        offset2 = tuple(range(1 - window_size[2], window_size[2]))
         # offset.shape = [3 np.prod(window_size), np.prod(window_size))]
         offset = tf.stack(meshgrid_3d(offset0, offset1, offset2),
                           axis=0)
+        offset = tf.cast(offset, self.compute_dtype)
         # offset.shape = [1 np.prod(window_size), np.prod(window_size) 3]
-        offset = tf.transpose(offset, [1, 2, 0])[None]
+        offset = tf.transpose(offset, [1, 2, 3, 0])[None]
 
         window = window_size
         offset *= 8. / (tf.cast(window, self.compute_dtype)[None] - 1.)
@@ -530,7 +536,10 @@ class SwinTransformerBlock(layers.Layer):
         else:
             self.window_size = window_size
         if isinstance(shift_size, int):
-            self.shift_size = (shift_size, shift_size)  # size of window shift
+            self.shift_size = (shift_size,
+                               shift_size)  # size of window shift
+        else:
+            self.shift_size = shift_size
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
 

@@ -3,7 +3,7 @@ import numpy as np
 from tensorflow.keras import Model, layers
 from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_2d
-from .classfication import swin_classification_2d_base
+from .classfication import swin_classification_2d_base, swin_classification_3d_base
 
 BLOCK_MODE_NAME = "seg"
 
@@ -204,6 +204,24 @@ def get_swin_class_disc_2d(input_shape, last_channel_num,
                            act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
+                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+    X = layers.GlobalAveragePooling1D()(X)
+    # The output section
+    VALIDITY = layers.Dense(1, activation='sigmoid')(X)
+    # The output section
+    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(X)
+    # Model configuration
+    model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
+    return model
+
+
+def get_swin_class_disc_3d(input_shape, last_channel_num,
+                           filter_num_begin, depth, stack_num_per_depth,
+                           patch_size, stride_mode, num_heads, window_size, num_mlp,
+                           act="gelu", shift_window=True, swin_v2=False):
+    IN = layers.Input(input_shape)
+    X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)

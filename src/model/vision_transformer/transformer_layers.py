@@ -409,8 +409,7 @@ class patch_expanding_3d(layers.Layer):
         self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
-        self.upsample_layer = layers.UpSampling3D(size=upsample_rate,
-                                                  interpolation="bilinear")
+        self.upsample_layer = layers.UpSampling3D(size=upsample_rate)
         self.upsample_linear_trans = layers.Conv3D(embed_dim // 2,
                                                    kernel_size=1, use_bias=False, name='{}_upsample_linear_trans'.format(name))
         self.pixel_shuffle_linear_trans = layers.Conv3D((upsample_rate ** 2) * embed_dim,

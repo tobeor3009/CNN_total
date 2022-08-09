@@ -4,6 +4,7 @@ import math
 from tensorflow.keras import layers, Model
 
 from .base_layer import swin_transformer_stack_2d, swin_transformer_stack_3d
+from .classfication import swin_classification_3d_base
 from . import utils, transformer_layers
 
 BLOCK_MODE_NAME = "seg"
@@ -197,8 +198,8 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                       name='{}_swin_up{}'.format(name, i))
         print(f"depth {i} decode output X shape: {X.shape}")
 
-    X = transformer_layers.patch_expanding_3d(num_patch=(num_patch_z, 
-                                                         num_patch_x, 
+    X = transformer_layers.patch_expanding_3d(num_patch=(num_patch_z,
+                                                         num_patch_x,
                                                          num_patch_y),
                                               embed_dim=embed_dim,
                                               upsample_rate=patch_size[0],
@@ -220,4 +221,21 @@ def get_swin_x2ct(input_shape, last_channel_num,
     OUT = layers.Conv2D(last_channel_num, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
     model = Model(inputs=[IN, ], outputs=[OUT, ])
+    return model
+
+
+def get_swin_disc_3d(input_shape,
+                     filter_num_begin, depth, stack_num_per_depth,
+                     patch_size, stride_mode, num_heads, window_size, num_mlp,
+                     act="gelu", shift_window=True, swin_v2=False):
+    IN = layers.Input(input_shape)
+    X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
+                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                    act=act, shift_window=shift_window, include_3d=True, 
+                                    swin_v2=swin_v2, name="classification")
+    X = layers.GlobalAveragePooling1D()(X)
+    # The output section
+    VALIDITY = layers.Dense(1, activation='sigmoid')(X)
+    # Model configuration
+    model = Model(inputs=[IN, ], outputs=[VALIDITY])
     return model
