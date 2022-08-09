@@ -3,10 +3,10 @@ from __future__ import absolute_import
 from sklearn.preprocessing import KernelCenterer
 
 import tensorflow as tf
-from .swin_layers import SwinTransformerBlock3D
 from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
 from tensorflow import extract_volume_patches
+from .util_layers import get_act_layer, get_norm_layer
 
 
 class patch_extract(layers.Layer):
@@ -182,16 +182,17 @@ class patch_merging(layers.Layer):
 
     '''
 
-    def __init__(self, num_patch, embed_dim, name=''):
+    def __init__(self, num_patch, embed_dim, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
-
+        self.swin_v2 = swin_v2
         # A linear transform that doubles the channels
         self.linear_trans = layers.Dense(2 * embed_dim,
                                          use_bias=False,
                                          name='{}_linear_trans'.format(name))
+        self.norm = get_norm_layer(norm)
 
     def call(self, x):
 
@@ -216,7 +217,12 @@ class patch_merging(layers.Layer):
         x = tf.reshape(x, shape=(-1, (H // 2) * (W // 2), 4 * C))
 
         # Linear transform
-        x = self.linear_trans(x)
+        if self.swin_v2:
+            x = self.linear_trans(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.linear_trans(x)
 
         return x
 
@@ -237,16 +243,19 @@ class patch_merging_3d(layers.Layer):
 
     '''
 
-    def __init__(self, num_patch, embed_dim, name=''):
+    def __init__(self, num_patch, embed_dim, include_3d=False, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
+        self.include_3d = include_3d
+        self.swin_v2 = swin_v2
 
         # A linear transform that doubles the channels
         self.linear_trans = layers.Dense(2 * embed_dim,
                                          use_bias=False,
                                          name='{}_linear_trans'.format(name))
+        self.norm = get_norm_layer(norm)
 
     def call(self, x):
 
@@ -261,40 +270,62 @@ class patch_merging_3d(layers.Layer):
         x = tf.reshape(x, shape=(-1, Z, H, W, C))
 
         # Downsample
-        x0 = x[:, :, 0::2, 0::2, :]  # B Z H/2 W/2 C
-        x1 = x[:, :, 1::2, 0::2, :]  # B Z H/2 W/2 C
-        x2 = x[:, :, 0::2, 1::2, :]  # B Z H/2 W/2 C
-        x3 = x[:, :, 1::2, 1::2, :]  # B Z H/2 W/2 C
-        x = tf.concat((x0, x1, x2, x3), axis=-1)
-
-        # Convert to the patch squence
-        x = tf.reshape(x, shape=(-1, Z * (H // 2) * (W // 2), 4 * C))
+        if self.include_3d:
+            x0 = x[:, 0::2, 0::2, 0::2, :]  # B Z H/2 W/2 C
+            x1 = x[:, 1::2, 0::2, 0::2, :]  # B Z H/2 W/2 C
+            x2 = x[:, 0::2, 1::2, 0::2, :]  # B Z H/2 W/2 C
+            x3 = x[:, 1::2, 1::2, 0::2, :]  # B Z H/2 W/2 C
+            x4 = x[:, 0::2, 0::2, 1::2, :]  # B Z H/2 W/2 C
+            x5 = x[:, 1::2, 0::2, 1::2, :]  # B Z H/2 W/2 C
+            x6 = x[:, 0::2, 1::2, 1::2, :]  # B Z H/2 W/2 C
+            x7 = x[:, 1::2, 1::2, 1::2, :]  # B Z H/2 W/2 C
+            x = tf.concat((x0, x1, x2, x3, x4, x5, x6, x7), axis=-1)
+            x = tf.reshape(
+                x, shape=(-1, (Z // 2) * (H // 2) * (W // 2), 8 * C))
+        else:
+            x0 = x[:, :, 0::2, 0::2, :]  # B Z H/2 W/2 C
+            x1 = x[:, :, 1::2, 0::2, :]  # B Z H/2 W/2 C
+            x2 = x[:, :, 0::2, 1::2, :]  # B Z H/2 W/2 C
+            x3 = x[:, :, 1::2, 1::2, :]  # B Z H/2 W/2 C
+            x = tf.concat((x0, x1, x2, x3), axis=-1)
+            # Convert to the patch squence
+            x = tf.reshape(x, shape=(-1, Z * (H // 2) * (W // 2), 4 * C))
 
         # Linear transform
-        x = self.linear_trans(x)
+        if self.swin_v2:
+            x = self.linear_trans(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.linear_trans(x)
 
         return x
 
 
 class patch_expanding(layers.Layer):
 
-    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, name=''):
+    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
+        self.norm = get_act_layer(norm)
+        self.swin_v2 = swin_v2
+
         self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
                                                   interpolation="bicubic")
         self.upsample_linear_trans = layers.Conv2D(embed_dim // 2,
-                                                   kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+                                                   kernel_size=1,
+                                                   use_bias=False,
+                                                   name='{}_upsample_linear_trans'.format(name))
         self.pixel_shuffle_linear_trans = layers.Conv2D(upsample_rate * embed_dim,
                                                         kernel_size=1,
                                                         use_bias=False,
-                                                        name='{}_linear_trans1'.format(name))
+                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
         self.concat_linear_trans = layers.Conv2D(embed_dim // 2,
-                                                 kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
+                                                 kernel_size=1, use_bias=False, name='{}_concat_linear_trans'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -314,7 +345,13 @@ class patch_expanding(layers.Layer):
         pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, self.upsample_rate,
                                              data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
         x = tf.concat([upsample, pixel_shuffle], axis=-1)
-        x = self.concat_linear_trans(x)
+
+        if self.swin_v2:
+            x = self.concat_linear_trans(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.concat_linear_trans(x)
         if self.return_vector:
             # Convert aligned patches to a patch sequence
             x = tf.reshape(x, (-1,
@@ -359,18 +396,30 @@ class Pixelshuffle3D(layers.Layer):
 
 class patch_expanding_3d(layers.Layer):
 
-    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, name=''):
+    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.linear_trans1 = layers.Conv3D((upsample_rate ** 2) * embed_dim,
-                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.norm = get_act_layer(norm)
+        self.swin_v2 = swin_v2
+
+        self.upsample_layer = layers.UpSampling3D(size=upsample_rate,
+                                                  interpolation="bilinear")
+        self.upsample_linear_trans = layers.Conv3D(embed_dim // 2,
+                                                   kernel_size=1, use_bias=False, name='{}_upsample_linear_trans'.format(name))
+        self.pixel_shuffle_linear_trans = layers.Conv3D((upsample_rate ** 2) * embed_dim,
+                                                        kernel_size=1,
+                                                        use_bias=False,
+                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
         self.pixel_shuffle_3d = Pixelshuffle3D(kernel_size=upsample_rate)
-        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
-        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
+        self.concat_linear_trans = layers.Conv3D(embed_dim // 2,
+                                                 kernel_size=1,
+                                                 use_bias=False,
+                                                 name='{}_concat_linear_trans'.format(name))
+
         self.prefix = name
 
     def call(self, x):
@@ -382,10 +431,19 @@ class patch_expanding_3d(layers.Layer):
 
         x = tf.reshape(x, (-1, Z, H, W, C))
 
-        x = self.linear_trans1(x)
+        upsample = self.upsample_layer(x)
+        upsample = self.upsample_linear_trans(upsample)
 
+        pixel_shuffle = self.pixel_shuffle_linear_trans(x)
         # rearange depth to number of patches
-        x = self.pixel_shuffle_3d(x)
+        pixel_shuffle = self.pixel_shuffle_3d(pixel_shuffle)
+        x = tf.concat([upsample, pixel_shuffle], axis=-1)
+        if self.swin_v2:
+            x = self.concat_linear_trans(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.concat_linear_trans(x)
 
         if self.return_vector:
             # Convert aligned patches to a patch sequence
@@ -397,17 +455,18 @@ class patch_expanding_3d(layers.Layer):
 
 class patch_expanding_2d_3d(layers.Layer):
 
-    def __init__(self, num_patch, embed_dim, return_vector=True, name=''):
+    def __init__(self, num_patch, embed_dim, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
         self.return_vector = return_vector
         self.embed_dim = embed_dim
+        self.norm = get_act_layer(norm)
+        self.swin_v2 = swin_v2
+
         self.linear_trans1 = layers.Conv3D(embed_dim,
                                            kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
-        # self.linear_trans2 = layers.Conv2D(upsample_rate * embed_dim,
-        #                             kernel_size=1, use_bias=False, name='{}_linear_trans2'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -419,7 +478,12 @@ class patch_expanding_2d_3d(layers.Layer):
         assert (L == H * W), 'input feature has wrong size'
 
         x = tf.reshape(x, (-1, Z, H, W, C // Z))
-        x = self.linear_trans1(x)
+        if self.swin_v2:
+            x = self.linear_trans1(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.linear_trans1(x)
 
         if self.return_vector:
             # Convert aligned patches to a patch sequence

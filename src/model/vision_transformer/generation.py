@@ -29,7 +29,8 @@ def tile_concat(a_list, b_list=[]):
 
 
 def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
-                           patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='unet'):
+                           patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
+                           swin_v2=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -76,7 +77,7 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
                                   act=act,
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
-
+                                  swin_v2=swin_v2,
                                   name='{}_swin_down'.format(name))
     X_skip.append(X)
 
@@ -85,6 +86,7 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
         # Patch merging
         X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
                                              embed_dim=embed_dim,
+                                             swin_v2=swin_v2,
                                              name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -102,6 +104,7 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
         # Store tensors for concat
@@ -123,7 +126,8 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
         X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                                embed_dim=embed_dim,
                                                upsample_rate=2,
-                                               return_vector=True)(X)
+                                               return_vector=True,
+                                               swin_v2=swin_v2)(X)
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
@@ -169,7 +173,8 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
                                            embed_dim=embed_dim,
                                            upsample_rate=patch_size[0],
-                                           return_vector=False)(X)
+                                           return_vector=False,
+                                           swin_v2=swin_v2)(X)
     return X
 
 
@@ -177,13 +182,13 @@ def get_swin_class_gen_2d(input_shape, class_num, last_channel_num,
                           filter_num_begin, depth,
                           stack_num_down, stack_num_up,
                           patch_size, stride_mode, num_heads, window_size, num_mlp,
-                          act="gelu", last_act="sigmoid", shift_window=True):
+                          act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     CLASS = layers.Input(class_num)
     # Base architecture
     X = swin_class_gen_2d_base(IN, CLASS, filter_num_begin, depth, stack_num_down, stack_num_up,
                                patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                               shift_window=shift_window, name='unet')
+                               shift_window=shift_window, swin_v2=swin_v2, name='unet')
 
     OUT = layers.Conv2D(last_channel_num, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
@@ -196,16 +201,16 @@ def get_swin_class_gen_2d(input_shape, class_num, last_channel_num,
 def get_swin_class_disc_2d(input_shape, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", shift_window=True):
+                           act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
     VALIDITY = layers.Dense(1, activation='sigmoid')(X)
     # The output section
-    CLASS = layers.Dense(last_channel_num, activation='softmax')(X)
+    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
     return model

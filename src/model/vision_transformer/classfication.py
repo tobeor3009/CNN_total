@@ -9,7 +9,7 @@ BLOCK_MODE_NAME = "classification"
 
 def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num_per_depth,
                                 patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                act="gelu", shift_window=True, name="classification"):
+                                act="gelu", shift_window=True, swin_v2=False, name="classification"):
 
     # Compute number be patches to be embeded
     if stride_mode == "same":
@@ -50,11 +50,14 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
                                       act=act,
                                       shift_window=shift_window_temp,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_block{}'.format(name, idx))
     # Patch-merging
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
     X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                         embed_dim=embed_dim, name='down{}'.format(idx))(X)
+                                         embed_dim=embed_dim,
+                                         swin_v2=swin_v2,
+                                         name='down{}'.format(idx))(X)
     return X
 
 

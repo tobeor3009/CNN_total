@@ -3,9 +3,9 @@ from __future__ import absolute_import
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras import layers, initializers
 from tensorflow_addons.layers import SpectralNormalization
-from tensorflow.keras.layers import Dense, Dropout, LayerNormalization
+from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.activations import softmax
 
 from .util_layers import drop_path, get_norm_layer, get_act_layer
@@ -142,55 +142,92 @@ class Mlp(layers.Layer):
 
 
 class WindowAttention(layers.Layer):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., name=''):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., swin_v2=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
         self.window_size = window_size  # size of the attention window
         self.num_heads = num_heads  # number of self-attention heads
-
-        head_dim = dim // num_heads
-        self.scale = qk_scale or head_dim ** -0.5  # query scaling factor
-
+        self.qkv_bias = not self.swin_v2 and qkv_bias
+        self.qk_scale = qk_scale
+        self.swin_v2 = swin_v2
         self.prefix = name
 
         # Layers
-        self.qkv = Dense(dim * 3, use_bias=qkv_bias,
+        self.qkv = Dense(dim * 3, use_bias=self.qkv_bias,
                          name='{}_attn_qkv'.format(self.prefix))
         self.attn_drop = Dropout(attn_drop)
         self.proj = Dense(dim, name='{}_attn_proj'.format(self.prefix))
         self.proj_drop = Dropout(proj_drop)
 
+        self.compute_dtype = tf.float32
+
     def build(self, input_shape):
 
-        # zero initialization
-        num_window_elements = ((2 * self.window_size[0] - 1) *
-                               (2 * self.window_size[1] - 1))
-        self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
-                                                            shape=(
-                                                                num_window_elements, self.num_heads),
-                                                            initializer=tf.initializers.Zeros(), trainable=True)
+        if self.swin_v2:
+            self.scale = self.add_weight(
+                'logit_scale',
+                shape=[self.num_heads, 1, 1],
+                initializer=initializers.Constant(np.log(10.)),
+                trainable=True,
+                dtype=self.dtype)
+            # noinspection PyAttributeOutsideInit
+            self.cpb0 = layers.Dense(512,
+                                     activation='relu',
+                                     name='cpb_mlp.0')
+            self.cpb1 = layers.Dense(self.num_heads,
+                                     activation='sigmoid', use_bias=False,
+                                     name=f'cpb_mlp.2')
 
-        # Indices of relative positions
-        coords_h = np.arange(self.window_size[0])
-        coords_w = np.arange(self.window_size[1])
-        coords_matrix = np.meshgrid(coords_h, coords_w, indexing='ij')
-        coords = np.stack(coords_matrix)
-        coords_flatten = coords.reshape(2, -1)
-        relative_coords = (coords_flatten[:, :, None] -
-                           coords_flatten[:, None, :])
-        relative_coords = relative_coords.transpose([1, 2, 0])
-        relative_coords[:, :, 0] += self.window_size[0] - 1
-        relative_coords[:, :, 1] += self.window_size[1] - 1
-        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-        relative_position_index = relative_coords.sum(-1)
+            # noinspection PyAttributeOutsideInit
+            self.q_bias = None
+            # noinspection PyAttributeOutsideInit
+            self.v_bias = None
+            if self.qkv_bias:
+                self.q_bias = self.add_weight(
+                    'q_bias',
+                    shape=[self.channels],
+                    initializer='zeros',
+                    trainable=True,
+                    dtype=self.dtype)
+                self.v_bias = self.add_weight(
+                    'v_bias',
+                    shape=[self.channels],
+                    initializer='zeros',
+                    trainable=True,
+                    dtype=self.dtype)
+        else:
+            head_dim = self.dim // self.num_heads
+            self.scale = self.qk_scale or head_dim ** -0.5  # query scaling factor
 
-        # convert to the tf variable
-        self.relative_position_index = tf.Variable(
-            initial_value=tf.convert_to_tensor(relative_position_index),
-            trainable=False,
-            name='{}_attn_pos_ind'.format(self.prefix)
-        )
+            # zero initialization
+            num_window_elements = ((2 * self.window_size[0] - 1) *
+                                   (2 * self.window_size[1] - 1))
+            self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
+                                                                shape=(num_window_elements,
+                                                                       self.num_heads),
+                                                                initializer=tf.initializers.Zeros(), trainable=True)
+
+            # Indices of relative positions
+            coords_h = np.arange(self.window_size[0])
+            coords_w = np.arange(self.window_size[1])
+            coords_matrix = np.meshgrid(coords_h, coords_w, indexing='ij')
+            coords = np.stack(coords_matrix)
+            coords_flatten = coords.reshape(2, -1)
+            relative_coords = (coords_flatten[:, :, None] -
+                               coords_flatten[:, None, :])
+            relative_coords = relative_coords.transpose([1, 2, 0])
+            relative_coords[:, :, 0] += self.window_size[0] - 1
+            relative_coords[:, :, 1] += self.window_size[1] - 1
+            relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+            relative_position_index = relative_coords.sum(-1)
+
+            # convert to the tf variable
+            self.relative_position_index = tf.Variable(
+                initial_value=tf.convert_to_tensor(relative_position_index),
+                trainable=False,
+                name='{}_attn_pos_ind'.format(self.prefix)
+            )
 
         self.built = True
 
@@ -201,9 +238,24 @@ class WindowAttention(layers.Layer):
         head_dim = C // self.num_heads
 
         x_qkv = self.qkv(x)
+
+        if self.swin_v2 and self.qkv_bias:
+            k_bias = tf.zeros_like(self.v_bias, self.compute_dtype)
+            qkv_bias = tf.concat([self.q_bias, k_bias, self.v_bias], axis=0)
+            qkv = tf.nn.bias_add(qkv, qkv_bias)
+
         x_qkv = tf.reshape(x_qkv, shape=(-1, N, 3, self.num_heads, head_dim))
         x_qkv = tf.transpose(x_qkv, perm=(2, 0, 3, 1, 4))
-        q, k, v = x_qkv[0], x_qkv[1], x_qkv[2]
+        q, k, v = tf.unstack(x_qkv, 3)
+
+        if self.swin_v2:
+            scale = tf.minimum(self.scale, np.log(1. / .01))
+            scale = tf.exp(scale)
+            q, _ = tf.linalg.normalize(q, axis=-1)
+            k, _ = tf.linalg.normalize(k, axis=-1)
+        else:
+            scale = self.scale
+
         # Query rescaling
         q = q * self.scale
 
@@ -212,15 +264,23 @@ class WindowAttention(layers.Layer):
         attn = (q @ k)
         # Shift window
         num_window_elements = np.prod(self.window_size)
+
         relative_position_index_flat = tf.reshape(self.relative_position_index,
                                                   shape=(-1,))
-        relative_position_bias = tf.gather(self.relative_position_bias_table,
-                                           relative_position_index_flat)
-        relative_position_bias = tf.reshape(relative_position_bias,
-                                            shape=(num_window_elements, num_window_elements, -1))
-        relative_position_bias = tf.transpose(relative_position_bias,
-                                              perm=(2, 0, 1))
-        attn = attn + tf.expand_dims(relative_position_bias, axis=0)
+        if self.swin_v2:
+            relative_bias = self.cpb0(self.relative_table(self.window_size))
+            relative_bias = self.cpb1(relative_bias)
+            relative_bias = tf.reshape(relative_bias, [-1, self.num_heads])
+            bias = tf.gather(relative_bias, relative_position_index_flat) * 16.
+        else:
+            bias = tf.gather(self.relative_position_bias_table,
+                             relative_position_index_flat)
+
+        bias = tf.reshape(bias,
+                          shape=(num_window_elements, num_window_elements, -1))
+        bias = tf.transpose(bias,
+                            perm=(2, 0, 1))
+        attn = attn + bias[None]
 
         if mask is not None:
             nW = mask.get_shape()[0]
@@ -248,6 +308,22 @@ class WindowAttention(layers.Layer):
         x_qkv = self.proj_drop(x_qkv)
 
         return x_qkv
+
+    def relative_table(self, window_size):
+        offset1 = tf.range(1 - window_size[0], window_size[0])
+        offset1 = tf.cast(offset1, self.compute_dtype)
+        offset2 = tf.range(1 - window_size[1], window_size[1])
+        offset2 = tf.cast(offset2, self.compute_dtype)
+        # offset.shape = [2 window_size[0], window_size[1])]
+        offset = tf.stack(tf.meshgrid(offset1, offset2, indexing='ij'))
+        # offset.shape = [1 window_size[0], window_size[1] 2]
+        offset = tf.transpose(offset, [1, 2, 0])[None]
+
+        window = window_size
+        offset *= 8. / (tf.cast(window, self.compute_dtype)[None] - 1.)
+        offset = tf.sign(offset) * tf.math.log1p(tf.abs(offset)) / np.log(8)
+
+        return offset
 
 
 class WindowAttention3D(layers.Layer):
@@ -385,7 +461,7 @@ class WindowAttention3D(layers.Layer):
 
 class SwinTransformerBlock(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
-                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, name=''):
+                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, swin_v2=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -401,10 +477,13 @@ class SwinTransformerBlock(layers.Layer):
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
 
+        norm = None if swin_v2 else norm
         # Layers
         self.norm1 = get_norm_layer(norm, name='{}_norm1'.format(self.prefix))
         self.attn = WindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
-                                    qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
+                                    qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                    attn_drop=attn_drop, proj_drop=proj_drop,
+                                    swin_v2=swin_v2, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
         self.mlp = Mlp([num_mlp, dim], act=act,
@@ -532,7 +611,7 @@ class SwinTransformerBlock(layers.Layer):
 
 class SwinTransformerBlock3D(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
-                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, name=''):
+                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, swin_v2=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -553,11 +632,14 @@ class SwinTransformerBlock3D(layers.Layer):
             self.shift_size = shift_size
         self.num_mlp = num_mlp  # number of MLP nodes
         self.prefix = name
+        norm = None if swin_v2 else norm
 
         # Layers
         self.norm1 = get_norm_layer(norm, name='{}_norm1'.format(self.prefix))
         self.attn = WindowAttention3D(dim, window_size=self.window_size, num_heads=num_heads,
-                                      qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=proj_drop, name=self.prefix)
+                                      qkv_bias=qkv_bias, qk_scale=qk_scale,
+                                      attn_drop=attn_drop, proj_drop=proj_drop,
+                                      swin_v2=swin_v2, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
         self.mlp = Mlp([num_mlp, dim], act=act,
