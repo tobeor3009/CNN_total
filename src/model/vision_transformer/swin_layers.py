@@ -161,7 +161,9 @@ class WindowAttention(layers.Layer):
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
-
+        # zero initialization
+        num_window_elements = ((2 * self.window_size[0] - 1) *
+                               (2 * self.window_size[1] - 1))
         if self.swin_v2:
             self.scale = self.add_weight(
                 'logit_scale',
@@ -197,35 +199,31 @@ class WindowAttention(layers.Layer):
         else:
             head_dim = self.dim // self.num_heads
             self.scale = self.qk_scale or head_dim ** -0.5  # query scaling factor
-
-            # zero initialization
-            num_window_elements = ((2 * self.window_size[0] - 1) *
-                                   (2 * self.window_size[1] - 1))
             self.relative_position_bias_table = self.add_weight('{}_attn_pos'.format(self.prefix),
                                                                 shape=(num_window_elements,
                                                                        self.num_heads),
                                                                 initializer=tf.initializers.Zeros(), trainable=True)
 
-            # Indices of relative positions
-            coords_h = np.arange(self.window_size[0])
-            coords_w = np.arange(self.window_size[1])
-            coords_matrix = np.meshgrid(coords_h, coords_w, indexing='ij')
-            coords = np.stack(coords_matrix)
-            coords_flatten = coords.reshape(2, -1)
-            relative_coords = (coords_flatten[:, :, None] -
-                               coords_flatten[:, None, :])
-            relative_coords = relative_coords.transpose([1, 2, 0])
-            relative_coords[:, :, 0] += self.window_size[0] - 1
-            relative_coords[:, :, 1] += self.window_size[1] - 1
-            relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
-            relative_position_index = relative_coords.sum(-1)
+        # Indices of relative positions
+        coords_h = np.arange(self.window_size[0])
+        coords_w = np.arange(self.window_size[1])
+        coords_matrix = np.meshgrid(coords_h, coords_w, indexing='ij')
+        coords = np.stack(coords_matrix)
+        coords_flatten = coords.reshape(2, -1)
+        relative_coords = (coords_flatten[:, :, None] -
+                           coords_flatten[:, None, :])
+        relative_coords = relative_coords.transpose([1, 2, 0])
+        relative_coords[:, :, 0] += self.window_size[0] - 1
+        relative_coords[:, :, 1] += self.window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        relative_position_index = relative_coords.sum(-1)
 
-            # convert to the tf variable
-            self.relative_position_index = tf.Variable(
-                initial_value=tf.convert_to_tensor(relative_position_index),
-                trainable=False,
-                name='{}_attn_pos_ind'.format(self.prefix)
-            )
+        # convert to the tf variable
+        self.relative_position_index = tf.Variable(
+            initial_value=tf.convert_to_tensor(relative_position_index),
+            trainable=False,
+            name='{}_attn_pos_ind'.format(self.prefix)
+        )
 
         self.built = True
 

@@ -6,7 +6,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
 from tensorflow import extract_volume_patches
-from .util_layers import get_act_layer, get_norm_layer
+from .util_layers import get_norm_layer
 
 
 class patch_extract(layers.Layer):
@@ -311,11 +311,11 @@ class patch_expanding(layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
-                                                  interpolation="bicubic")
+                                                  interpolation="bilinear")
         self.upsample_linear_trans = layers.Conv2D(embed_dim // 2,
                                                    kernel_size=1,
                                                    use_bias=False,
@@ -403,7 +403,7 @@ class patch_expanding_3d(layers.Layer):
         self.embed_dim = embed_dim
         self.upsample_rate = upsample_rate
         self.return_vector = return_vector
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling3D(size=upsample_rate,
@@ -462,7 +462,7 @@ class patch_expanding_2d_3d(layers.Layer):
         self.embed_dim = embed_dim
         self.return_vector = return_vector
         self.embed_dim = embed_dim
-        self.norm = get_act_layer(norm)
+        self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
         self.linear_trans1 = layers.Conv3D(embed_dim,
