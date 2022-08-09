@@ -160,8 +160,6 @@ class WindowAttention(layers.Layer):
         self.proj = Dense(dim, name='{}_attn_proj'.format(self.prefix))
         self.proj_drop = Dropout(proj_drop)
 
-        self.compute_dtype = tf.float32
-
     def build(self, input_shape):
 
         if self.swin_v2:
