@@ -148,7 +148,7 @@ class WindowAttention(layers.Layer):
         self.dim = dim  # number of input dimensions
         self.window_size = window_size  # size of the attention window
         self.num_heads = num_heads  # number of self-attention heads
-        self.qkv_bias = not self.swin_v2 and qkv_bias
+        self.qkv_bias = not swin_v2 and qkv_bias
         self.qk_scale = qk_scale
         self.swin_v2 = swin_v2
         self.prefix = name
