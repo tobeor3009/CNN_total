@@ -38,13 +38,13 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
 
     X = input_tensor
     # Patch extraction
-    X = transformer_layers.patch_extract(patch_size,
-                                         stride_size)(X)
-    print(f"patch_extract shape: {X.shape}")
+    X = transformer_layers.PatchExtract(patch_size,
+                                        stride_size)(X)
+    print(f"PatchExtract shape: {X.shape}")
     # Embed patches to tokens
-    X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
-                                           embed_dim)(X)
-    print(f"patch_embedding shape: {X.shape}")
+    X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
+                                          embed_dim)(X)
+    print(f"PatchEmbedding shape: {X.shape}")
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -65,9 +65,9 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     for i in range(depth_ - 1):
         print(f"depth {i} X shape: {X.shape}")
         # Patch merging
-        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                             embed_dim=embed_dim,
-                                             name='down{}'.format(i))(X)
+        X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                            embed_dim=embed_dim,
+                                            name='down{}'.format(i))(X)
         print(f"depth {i} X merging shape: {X.shape}")
 
         # update token shape info
@@ -108,10 +108,10 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     for i in range(depth_decode):
         print(f"depth decode {i} X shape: {X.shape}")
         # Patch expanding
-        X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
-                                               embed_dim=embed_dim,
-                                               upsample_rate=2,
-                                               return_vector=True)(X)
+        X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                              embed_dim=embed_dim,
+                                              upsample_rate=2,
+                                              return_vector=True)(X)
         print(f"depth expanding {i} X shape: {X.shape}")
         # update token shape info
         embed_dim = embed_dim // 2
@@ -143,9 +143,9 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     print(X.shape)
 
     if stride_mode == "half":
-        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                             embed_dim=embed_dim,
-                                             name='down_last')(X)
+        X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                            embed_dim=embed_dim,
+                                            name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
         X = swin_transformer_stack_2d(X,
@@ -160,10 +160,10 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                       mode=BLOCK_MODE_NAME,
                                       name='{}_swin_down_last'.format(name))
     print(X.shape, num_patch_x, num_patch_y)
-    X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
-                                           embed_dim=embed_dim,
-                                           upsample_rate=patch_size[0],
-                                           return_vector=False)(X)
+    X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                          embed_dim=embed_dim,
+                                          upsample_rate=patch_size[0],
+                                          return_vector=False)(X)
 
     print(X.shape)
     return X

@@ -9,11 +9,11 @@ from tensorflow import extract_volume_patches
 from .util_layers import get_norm_layer
 
 
-class patch_extract(layers.Layer):
+class PatchExtract(layers.Layer):
     '''
     Extract patches from the input feature map.
 
-    patches = patch_extract(patch_size)(feature_map)
+    patches = PatchExtract(patch_size)(feature_map)
 
     ----------
     Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, 
@@ -36,7 +36,7 @@ class patch_extract(layers.Layer):
     '''
 
     def __init__(self, patch_size, stride_size=None):
-        super(patch_extract, self).__init__()
+        super(PatchExtract, self).__init__()
         if stride_size is None:
             stride_size = patch_size
         self.patch_size_row = patch_size[0]
@@ -64,11 +64,11 @@ class patch_extract(layers.Layer):
         return patches
 
 
-class patch_extract_3d(layers.Layer):
+class PatchExtract3D(layers.Layer):
     '''
     Extract patches from the input feature map.
 
-    patches = patch_extract(patch_size)(feature_map)
+    patches = PatchExtract(patch_size)(feature_map)
 
     ----------
     Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, 
@@ -91,7 +91,7 @@ class patch_extract_3d(layers.Layer):
     '''
 
     def __init__(self, patch_size, stride_size=None):
-        super(patch_extract_3d, self).__init__()
+        super(PatchExtract3D, self).__init__()
         if stride_size is None:
             stride_size = patch_size
 
@@ -125,12 +125,12 @@ class patch_extract_3d(layers.Layer):
         return patches
 
 
-class patch_embedding(layers.Layer):
+class PatchEmbedding(layers.Layer):
     '''
 
     Embed patches to tokens.
 
-    patches_embed = patch_embedding(num_patch, embed_dim)(pathes)
+    patches_embed = PatchEmbedding(num_patch, embed_dim)(pathes)
 
     ----------
     Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, 
@@ -152,7 +152,7 @@ class patch_embedding(layers.Layer):
     '''
 
     def __init__(self, num_patch, embed_dim):
-        super(patch_embedding, self).__init__()
+        super(PatchEmbedding, self).__init__()
         self.num_patch = num_patch
         self.proj = layers.Dense(embed_dim)
         self.pos_embed = layers.Embedding(
@@ -166,7 +166,7 @@ class patch_embedding(layers.Layer):
         return embed
 
 
-class patch_merging(layers.Layer):
+class PatchMerging(layers.Layer):
     '''
     Downsample embedded patches; it halfs the number of patches
     and double the embedded dimensions (c.f. pooling layers).
@@ -227,7 +227,7 @@ class patch_merging(layers.Layer):
         return x
 
 
-class patch_merging_3d(layers.Layer):
+class PatchMerging3D(layers.Layer):
     '''
     Downsample embedded patches; it halfs the number of patches
     and double the embedded dimensions (c.f. pooling layers).
@@ -305,7 +305,7 @@ class patch_merging_3d(layers.Layer):
         return x
 
 
-class patch_expanding(layers.Layer):
+class PatchExpanding(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
@@ -397,7 +397,7 @@ class Pixelshuffle3D(layers.Layer):
         return convert_tuple
 
 
-class patch_expanding_3d(layers.Layer):
+class PatchExpanding3D(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
@@ -455,7 +455,7 @@ class patch_expanding_3d(layers.Layer):
         return x
 
 
-class patch_expanding_2d_3d(layers.Layer):
+class PatchExpanding_2D_3D(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()

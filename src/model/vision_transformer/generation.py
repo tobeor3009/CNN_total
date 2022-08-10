@@ -61,11 +61,11 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
 
     X = input_tensor
     # Patch extraction
-    X = transformer_layers.patch_extract(patch_size,
-                                         stride_size)(X)
+    X = transformer_layers.PatchExtract(patch_size,
+                                        stride_size)(X)
     # Embed patches to tokens
-    X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
-                                           embed_dim)(X)
+    X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
+                                          embed_dim)(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -84,10 +84,10 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     # Downsampling blocks
     for i in range(depth_ - 1):
         # Patch merging
-        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                             embed_dim=embed_dim,
-                                             swin_v2=swin_v2,
-                                             name='down{}'.format(i))(X)
+        X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                            embed_dim=embed_dim,
+                                            swin_v2=swin_v2,
+                                            name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
         num_patch_x = num_patch_x // 2
@@ -123,11 +123,11 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     depth_decode = len(X_decode)
     for i in range(depth_decode):
         # Patch expanding
-        X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
-                                               embed_dim=embed_dim,
-                                               upsample_rate=2,
-                                               return_vector=True,
-                                               swin_v2=swin_v2)(X)
+        X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                              embed_dim=embed_dim,
+                                              upsample_rate=2,
+                                              return_vector=True,
+                                              swin_v2=swin_v2)(X)
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
@@ -154,9 +154,9 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
     if stride_mode == "half":
-        X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                             embed_dim=embed_dim,
-                                             name='down_last')(X)
+        X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                            embed_dim=embed_dim,
+                                            name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
         X = swin_transformer_stack_2d(X,
@@ -170,11 +170,11 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
                                       name='{}_swin_down_last'.format(name))
-    X = transformer_layers.patch_expanding(num_patch=(num_patch_x, num_patch_y),
-                                           embed_dim=embed_dim,
-                                           upsample_rate=patch_size[0],
-                                           return_vector=False,
-                                           swin_v2=swin_v2)(X)
+    X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                          embed_dim=embed_dim,
+                                          upsample_rate=patch_size[0],
+                                          return_vector=False,
+                                          swin_v2=swin_v2)(X)
     return X
 
 

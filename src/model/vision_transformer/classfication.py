@@ -25,11 +25,11 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
     embed_dim = filter_num_begin
 
     # Extract patches from the input tensor
-    X = transformer_layers.patch_extract(patch_size)(input_tensor)
+    X = transformer_layers.PatchExtract(patch_size)(input_tensor)
 
     # Embed patches to tokens
-    X = transformer_layers.patch_embedding(num_patch_x * num_patch_y,
-                                           embed_dim)(X)
+    X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
+                                          embed_dim)(X)
     # -------------------- Swin transformers -------------------- #
     # Stage 1: window-attention + Swin-attention + patch-merging
 
@@ -54,10 +54,10 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
                                       name='{}_swin_block{}'.format(name, idx))
     # Patch-merging
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
-    X = transformer_layers.patch_merging((num_patch_x, num_patch_y),
-                                         embed_dim=embed_dim,
-                                         swin_v2=swin_v2,
-                                         name='down{}'.format(idx))(X)
+    X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                        embed_dim=embed_dim,
+                                        swin_v2=swin_v2,
+                                        name='down{}'.format(idx))(X)
     return X
 
 
@@ -95,11 +95,11 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
     embed_dim = filter_num_begin
 
     # Extract patches from the input tensor
-    X = transformer_layers.patch_extract_3d(patch_size)(input_tensor)
+    X = transformer_layers.PatchExtract3D(patch_size)(input_tensor)
 
     # Embed patches to tokens
-    X = transformer_layers.patch_embedding(num_patch_z * num_patch_x * num_patch_y,
-                                           embed_dim)(X)
+    X = transformer_layers.PatchEmbedding(num_patch_z * num_patch_x * num_patch_y,
+                                          embed_dim)(X)
     # -------------------- Swin transformers -------------------- #
     # Stage 1: window-attention + Swin-attention + patch-merging
 
@@ -125,11 +125,11 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
                                       name='{}_swin_block{}'.format(name, idx))
     # Patch-merging
     #    Pooling patch sequences. Half the number of patches (skip every two patches) and double the embedded dimensions
-    X = transformer_layers.patch_merging_3d((num_patch_z, num_patch_x, num_patch_y),
-                                            embed_dim=embed_dim,
-                                            include_3d=include_3d,
-                                            swin_v2=swin_v2,
-                                            name='down{}'.format(idx))(X)
+    X = transformer_layers.PatchMerging3D((num_patch_z, num_patch_x, num_patch_y),
+                                          embed_dim=embed_dim,
+                                          include_3d=include_3d,
+                                          swin_v2=swin_v2,
+                                          name='down{}'.format(idx))(X)
     return X
 
 
