@@ -7,7 +7,8 @@ BLOCK_MODE_NAME = "seg"
 
 
 def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
-                      patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True, name='unet'):
+                      patch_size, stride_mode, num_heads, window_size, num_mlp,
+                      act="gelu", shift_window=True, swin_v2=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -56,7 +57,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                   act=act,
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
-
+                                  swin_v2=swin_v2,
                                   name='{}_swin_down'.format(name))
     print(f"depth {depth} X shape: {X.shape}")
     X_skip.append(X)
@@ -67,6 +68,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         # Patch merging
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
+                                            swin_v2=swin_v2,
                                             name='down{}'.format(i))(X)
         print(f"depth {i} X merging shape: {X.shape}")
 
@@ -86,6 +88,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
         print(f"depth {i} X Skip shape: {X.shape}")
@@ -111,6 +114,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
         X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                               embed_dim=embed_dim,
                                               upsample_rate=2,
+                                              swin_v2=swin_v2,
                                               return_vector=True)(X)
         print(f"depth expanding {i} X shape: {X.shape}")
         # update token shape info
@@ -135,6 +139,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
                                       name='{}_swin_up{}'.format(name, i))
         print(f"depth decode output {i} X shape: {X.shape}")
     print(X.shape)
@@ -163,6 +168,7 @@ def swin_unet_2d_base(input_tensor, filter_num_begin, depth, stack_num_down, sta
     X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                           embed_dim=embed_dim,
                                           upsample_rate=patch_size[0],
+                                          swin_v2=swin_v2,
                                           return_vector=False)(X)
 
     print(X.shape)
@@ -173,13 +179,13 @@ def get_swin_unet_2d(input_shape, last_channel_num,
                      filter_num_begin, depth,
                      stack_num_down, stack_num_up,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
-                     act="gelu", last_act="sigmoid", shift_window=True):
+                     act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
 
     # Base architecture
     X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                           patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                          shift_window=shift_window, name='unet')
+                          shift_window=shift_window, swin_v2=swin_v2, name='unet')
     OUT = layers.Conv2D(last_channel_num, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
 
