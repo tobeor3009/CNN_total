@@ -1,9 +1,7 @@
 # base module
-import os
 import random
 from copy import deepcopy
-from collections import deque
-from tqdm import tqdm
+from glob import glob
 # external module
 import numpy as np
 from sklearn.utils import shuffle as syncron_shuffle
@@ -33,7 +31,7 @@ class StarGanDataGetter(BaseDataGetter):
                  dtype):
         super().__init__()
 
-        self.image_folder_dict = {idx: sorted(f"{image_folder}/*")
+        self.image_folder_dict = {idx: sorted(glob(f"{image_folder}/*"))
                                   for idx, image_folder in enumerate(image_folder_list)}
         self.data_on_ram_dict = {}
         self.label_policy = label_policy
@@ -77,13 +75,13 @@ class StarGanDataGetter(BaseDataGetter):
         else:
             image_path_list = self.image_folder_dict[current_index]
             slice_num = len(image_path_list)
-            slice_idx = random.randint(slice_num - DATA_SLICE_NUM)
+            slice_idx = random.randint(0, slice_num - DATA_SLICE_NUM)
             slice_idx_list = range(slice_idx, slice_idx + DATA_SLICE_NUM)
 
             image_array_stacked = []
             for slice_idx in slice_idx_list:
-                image_array = imread(
-                    image_path_list[slice_idx], channel=self.image_channel)
+                image_array = imread(image_path_list[slice_idx],
+                                     channel=self.image_channel)
                 image_array, image_array_max, image_array_min = self.preprocess_method(
                     image_array)
                 image_array = self.resize_method(image_array)
@@ -97,7 +95,7 @@ class StarGanDataGetter(BaseDataGetter):
                 self.class_dict[current_index] = label
                 self.single_data_dict = deepcopy(self.single_data_dict)
 
-        self.single_data_dict["image_array"] = image_array
+        self.single_data_dict["image_array"] = image_array_stacked
         self.single_data_dict["image_max"] = image_array_max
         self.single_data_dict["image_min"] = image_array_min
         self.single_data_dict["label"] = label
