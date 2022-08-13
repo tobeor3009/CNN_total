@@ -104,6 +104,12 @@ class StarGanDataGetter(BaseDataGetter):
 
         return self.single_data_dict
 
+    def __len__(self):
+        if self.data_len is None:
+            self.data_len = len(self.image_folder_dict)
+
+        return self.data_len
+
 
 class StarGanDataloader(BaseDataLoader):
 
