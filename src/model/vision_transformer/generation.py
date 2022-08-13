@@ -127,7 +127,8 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
                                               embed_dim=embed_dim,
                                               upsample_rate=2,
                                               return_vector=True,
-                                              swin_v2=swin_v2)(X)
+                                              swin_v2=swin_v2,
+                                              name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
@@ -174,7 +175,8 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
                                           embed_dim=embed_dim,
                                           upsample_rate=patch_size[0],
                                           return_vector=False,
-                                          swin_v2=swin_v2)(X)
+                                          swin_v2=swin_v2,
+                                          name=f'{name}_swin_expanding_last')(X)
     return X
 
 
