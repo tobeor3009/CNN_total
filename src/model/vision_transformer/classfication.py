@@ -64,14 +64,14 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
 def get_swin_classification_2d(input_shape, last_channel_num,
                                filter_num_begin, depth, stack_num_per_depth,
                                patch_size, stride_mode, num_heads, window_size, num_mlp,
-                               act="gelu", shift_window=True, swin_v2=False):
+                               act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
-    OUT = layers.Dense(last_channel_num, activation='softmax')(X)
+    OUT = layers.Dense(last_channel_num, activation=last_act)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
@@ -136,17 +136,17 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
 def get_swin_classification_3d(input_shape, last_channel_num,
                                filter_num_begin, depth, stack_num_per_depth,
                                patch_size, stride_mode, num_heads, window_size, num_mlp,
-                               act="gelu", shift_window=True, swin_v2=False):
+                               act="gelu", last_act="softmax", shift_window=True, include_3d=False, swin_v2=False):
     IN = layers.Input(input_shape)
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window,
-                                    swin_v2=swin_v2, name="classification")
+                                    include_3d=include_3d, swin_v2=swin_v2, name="classification")
     print(f"transformer output shape: {X.shape}")
     X = layers.GlobalAveragePooling1D()(X)
     print(f"GAP shape: {X.shape}")
     # The output section
-    OUT = layers.Dense(last_channel_num, activation='softmax')(X)
+    OUT = layers.Dense(last_channel_num, activation=last_act)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model

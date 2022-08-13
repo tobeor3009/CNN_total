@@ -1,13 +1,12 @@
 # base module
 from copy import deepcopy
-from tqdm import tqdm
 from glob import glob
-import os
+import math
 # external module
 import numpy as np
 
 # this library module
-from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
+from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
     base_argumentation_policy_dict
@@ -24,6 +23,19 @@ test - negative
      - positive
 
 """
+
+
+def video_collate_fn(data_object_list):
+    batch_image_array = []
+    batch_label_array = []
+    for single_data_dict in data_object_list:
+        image_array, label_array = single_data_dict["image_array"], single_data_dict["label"]
+        batch_image_array.append(image_array)
+        batch_label_array.append(label_array)
+    batch_image_array = np.stack(batch_image_array, axis=0)
+    batch_label_array = np.stack(batch_label_array, axis=0)
+
+    return batch_image_array, batch_label_array
 
 
 class ClassifyDataGetter(BaseDataGetter):
@@ -129,6 +141,7 @@ class ClassifyDataloader(BaseDataLoader):
                  label_to_index_dict=None,
                  label_level=1,
                  batch_size=None,
+                 num_workers=1,
                  on_memory=False,
                  argumentation_proba=False,
                  argumentation_policy_dict=base_argumentation_policy_dict,
@@ -154,33 +167,59 @@ class ClassifyDataloader(BaseDataLoader):
                                               dtype=dtype
                                               )
         self.batch_size = batch_size
+        self.data_num = len(self.data_getter)
         self.num_classes = len(label_to_index_dict)
         self.image_data_shape = self.data_getter[0]["image_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
         self.class_mode = class_mode
 
-        self.batch_image_array = np.zeros(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_label_array = np.zeros(
-            (self.batch_size, ), dtype=self.dtype)
-        self.batch_label_array = self.data_getter.categorize_method(
-            self.batch_label_array)
+        if num_workers == 1:
+            self.data_pool = SingleProcessPool(data_getter=self.data_getter,
+                                               batch_size=self.batch_size,
+                                               collate_fn=video_collate_fn,
+                                               shuffle=self.shuffle
+                                               )
+        else:
+            self.data_pool = MultiProcessPool(data_getter=self.data_getter,
+                                              batch_size=self.batch_size,
+                                              num_workers=num_workers,
+                                              collate_fn=video_collate_fn,
+                                              shuffle=self.shuffle
+                                              )
 
         self.print_data_info()
         self.on_epoch_end()
 
+    def __iter__(self):
+        return lazy_cycle(self.data_pool)
+
+    def __next__(self):
+        return next(self.data_pool)
+
     def __getitem__(self, i):
 
         start = i * self.batch_size
-        end = start + self.batch_size
-
-        for batch_index, total_index in enumerate(range(start, end)):
+        end = min(start + self.batch_size, self.data_num)
+        batch_image_array = []
+        batch_label_array = []
+        for total_index in range(start, end):
             single_data_dict = self.data_getter[total_index]
-            self.batch_image_array[batch_index] = single_data_dict["image_array"]
-            self.batch_label_array[batch_index] = single_data_dict["label"]
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_label_array.append(single_data_dict["label"])
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_label_array = np.stack(batch_label_array, axis=0)
+        return batch_image_array, batch_label_array
 
-        return self.batch_image_array, self.batch_label_array
+    def __len__(self):
+        return math.ceil(self.data_num / self.batch_size)
+
+    def change_batch_size(self, batch_size):
+        self.batch_size = batch_size
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            self.data_getter.shuffle()
 
     def print_data_info(self):
         data_num = len(self.data_getter)
