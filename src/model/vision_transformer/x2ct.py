@@ -227,12 +227,15 @@ def get_swin_x2ct(input_shape, last_channel_num,
     return model
 
 
-def get_swin_disc_3d(input_shape,
+def get_swin_disc_2d(input_shape,
                      filter_num_begin, depth, stack_num_per_depth,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
                      act="gelu", shift_window=True, swin_v2=False):
+    # IN.shape = [B Z H W 1]
     IN = layers.Input(input_shape)
-    X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
+
+    X = tf.transpose(IN[..., 0], (0, 2, 3, 1))
+    X = swin_classification_2d_base(X, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, include_3d=True,
                                     swin_v2=swin_v2, name="classification")
@@ -243,15 +246,13 @@ def get_swin_disc_3d(input_shape,
     model = Model(inputs=[IN, ], outputs=[VALIDITY])
     return model
 
-def get_swin_disc_2d(input_shape,
+
+def get_swin_disc_3d(input_shape,
                      filter_num_begin, depth, stack_num_per_depth,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
                      act="gelu", shift_window=True, swin_v2=False):
-    # IN.shape = [B Z H W 1]
     IN = layers.Input(input_shape)
-
-    X = tf.transpose(IN[..., 0], (0, 2, 3, 1))
-    X = swin_classification_2d_base(X, filter_num_begin, depth, stack_num_per_depth,
+    X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, include_3d=True,
                                     swin_v2=swin_v2, name="classification")
