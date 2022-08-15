@@ -237,7 +237,7 @@ def get_swin_disc_2d(input_shape,
     X = tf.transpose(IN[..., 0], (0, 2, 3, 1))
     X = swin_classification_2d_base(X, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, include_3d=True,
+                                    act=act, shift_window=shift_window,
                                     swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
@@ -252,6 +252,7 @@ def get_swin_disc_3d(input_shape,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
                      act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
+
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, include_3d=True,
