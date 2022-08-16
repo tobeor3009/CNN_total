@@ -98,7 +98,7 @@ class PatchExtract3D(layers.Layer):
         self.patch_size_z = patch_size[0]
         self.patch_size_row = patch_size[1]
         self.patch_size_col = patch_size[2]
-        self.stride_size_z = patch_size[0]
+        self.stride_size_z = stride_size[0]
         self.stride_size_row = stride_size[1]
         self.stride_size_col = stride_size[2]
 

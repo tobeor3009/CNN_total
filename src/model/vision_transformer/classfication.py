@@ -25,7 +25,8 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
     embed_dim = filter_num_begin
 
     # Extract patches from the input tensor
-    X = transformer_layers.PatchExtract(patch_size)(input_tensor)
+    X = transformer_layers.PatchExtract(patch_size,
+                                        stride_size)(input_tensor)
 
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
@@ -95,7 +96,8 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
     embed_dim = filter_num_begin
 
     # Extract patches from the input tensor
-    X = transformer_layers.PatchExtract3D(patch_size)(input_tensor)
+    X = transformer_layers.PatchExtract3D(patch_size,
+                                          stride_size)(input_tensor)
 
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_z * num_patch_x * num_patch_y,
