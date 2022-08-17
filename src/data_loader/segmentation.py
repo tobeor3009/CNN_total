@@ -184,22 +184,19 @@ class SegDataloader(BaseIterDataLoader):
     def __next__(self):
         return next(self.data_pool)
 
-    def __getitem__(self, i, training=True):
-        if training:
-            batch_image_array, batch_mask_array = next(self.data_pool)
-        else:
-            start = i * self.batch_size
-            end = min(start + self.batch_size, self.data_num)
+    def __getitem__(self, i):
+        start = i * self.batch_size
+        end = min(start + self.batch_size, self.data_num)
 
-            batch_image_array = []
-            batch_mask_array = []
-            for total_index in range(start, end):
-                single_data_dict = self.data_getter[total_index]
+        batch_image_array = []
+        batch_mask_array = []
+        for total_index in range(start, end):
+            single_data_dict = self.data_getter[total_index]
 
-                batch_image_array.append(single_data_dict["image_array"])
-                batch_mask_array.append(single_data_dict["mask_array"])
-            batch_image_array = np.stack(batch_image_array, axis=0)
-            batch_mask_array = np.stack(batch_mask_array, axis=0)
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_mask_array.append(single_data_dict["mask_array"])
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_mask_array = np.stack(batch_mask_array, axis=0)
 
         return batch_image_array, batch_mask_array
 
