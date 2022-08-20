@@ -4,7 +4,7 @@
   "data_set_name": "glomerulus_0.65_1024_remove_peel_split_man",
   "batch_size": 8,
   "on_memory": true,
-  "argumentation_proba": 0.8,
+  "augumentation_proba": 0.8,
   "target_size": "(512, 512)",
   "interpolation": "bilinear",
   "class_mode": "binary",

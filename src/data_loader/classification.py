@@ -1,15 +1,14 @@
 # base module
+import math
 from copy import deepcopy
-from tqdm import tqdm
-import os
 # external module
 import numpy as np
 
 # this library module
-from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
+from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -25,6 +24,20 @@ test - negative
 """
 
 
+def classification_collate_fn(data_object_list):
+    batch_image_array = []
+    batch_label_array = []
+    for single_data_dict in data_object_list:
+        image_array = single_data_dict["image_array"]
+        label_array = single_data_dict["label"]
+        batch_image_array.append(image_array)
+        batch_label_array.append(label_array)
+    batch_image_array = np.stack(batch_image_array, axis=0)
+    batch_label_array = np.stack(batch_label_array, axis=0)
+
+    return batch_image_array, batch_label_array
+
+
 class ClassifyDataGetter(BaseDataGetter):
 
     def __init__(self,
@@ -32,10 +45,10 @@ class ClassifyDataGetter(BaseDataGetter):
                  label_to_index_dict,
                  label_level,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
-                 preprocess_input,
+                 preprocess_dict,
                  target_size,
                  interpolation,
                  class_mode,
@@ -63,18 +76,18 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
-        self.argumentation_method = ClassifyArgumentationPolicy(
-            0, argumentation_policy_dict)
+        self.augumentation_method = ClassifyaugumentationPolicy(
+            0, augumentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
         # else:
         #     self.get_data_on_disk()
 
-        self.argumentation_method = \
-            ClassifyArgumentationPolicy(
-                argumentation_proba, argumentation_policy_dict)
-        self.preprocess_method = PreprocessPolicy(preprocess_input)
+        self.augumentation_method = \
+            ClassifyaugumentationPolicy(
+                augumentation_proba, augumentation_policy_dict)
+        self.preprocess_method = PreprocessPolicy(preprocess_dict["image"])
 
     def __getitem__(self, i):
 
@@ -86,13 +99,13 @@ class ClassifyDataGetter(BaseDataGetter):
         if self.on_memory:
             image_array, label = \
                 self.data_on_ram_dict[current_index].values()
-            image_array = self.argumentation_method(image_array)
+            image_array = self.augumentation_method(image_array)
             image_array = self.preprocess_method(image_array)
         else:
             image_path = self.image_path_dict[current_index]
             image_array = imread(image_path, channel=self.image_channel)
             image_array = self.resize_method(image_array)
-            image_array = self.argumentation_method(image_array)
+            image_array = self.augumentation_method(image_array)
             image_array = self.preprocess_method(image_array)
 
             if self.is_class_cached:
@@ -111,49 +124,6 @@ class ClassifyDataGetter(BaseDataGetter):
 
         return self.single_data_dict
 
-    def get_data_on_disk(self):
-
-        single_data_dict = self[0]
-        image_array_shape = list(single_data_dict["image_array"].shape)
-        image_array_shape = tuple([len(self)] + image_array_shape)
-        image_array_dtype = single_data_dict["image_array"].dtype
-        if self.class_mode == "categorical":
-            label_array_shape = list(single_data_dict["label"].shape)
-            label_array_shape = tuple([len(self)] + label_array_shape)
-            label_array_dtype = single_data_dict["label"].dtype
-        elif self.class_mode == "binary":
-            label_array_shape = tuple([len(self)])
-            label_array_dtype = np.int32
-
-        # get_npy_array(path, target_size, data_key, shape, dtype)
-        image_memmap_array, image_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="image",
-                                                            shape=image_array_shape,
-                                                            dtype=image_array_dtype)
-        label_memmap_array, label_lock_path = get_npy_array(path=self.image_path_dict[0],
-                                                            target_size=self.target_size,
-                                                            data_key="label",
-                                                            shape=label_array_shape,
-                                                            dtype=label_array_dtype)
-
-        if os.path.exists(image_lock_path) and os.path.exists(label_lock_path):
-            pass
-        else:
-            for index, single_data_dict in tqdm(enumerate(self)):
-                image_array, label = single_data_dict.values()
-                image_memmap_array[index] = image_array
-                label_memmap_array[index] = label
-
-            with open(image_lock_path, "w") as _, open(label_lock_path, "w") as _:
-                pass
-        array_dict_lazy = get_array_dict_lazy(key_tuple=("image_array", "label"),
-                                              array_tuple=(image_memmap_array, label_memmap_array))
-        self.data_on_ram_dict = LazyDict({
-            i: (array_dict_lazy, i) for i in range(len(self))
-        })
-        self.on_memory = True
-
 
 class ClassifyDataloader(BaseDataLoader):
 
@@ -162,11 +132,12 @@ class ClassifyDataloader(BaseDataLoader):
                  label_to_index_dict=None,
                  label_level=1,
                  batch_size=None,
+                 num_workers=1,
                  on_memory=False,
-                 argumentation_proba=False,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=False,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
-                 preprocess_input="-1~1",
+                 preprocess_dict={"image": "-1~1"},
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
@@ -177,10 +148,10 @@ class ClassifyDataloader(BaseDataLoader):
                                               label_to_index_dict=label_to_index_dict,
                                               label_level=label_level,
                                               on_memory=on_memory,
-                                              argumentation_proba=argumentation_proba,
-                                              argumentation_policy_dict=argumentation_policy_dict,
+                                              augumentation_proba=augumentation_proba,
+                                              augumentation_policy_dict=augumentation_policy_dict,
                                               image_channel_dict=image_channel_dict,
-                                              preprocess_input=preprocess_input,
+                                              preprocess_dict=preprocess_dict,
                                               target_size=target_size,
                                               interpolation=interpolation,
                                               class_mode=class_mode,
@@ -188,32 +159,48 @@ class ClassifyDataloader(BaseDataLoader):
                                               )
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
-        self.image_data_shape = self.data_getter[0]["image_array"].shape
         self.shuffle = shuffle
         self.dtype = dtype
-        self.class_mode = class_mode
-
-        self.batch_image_array = np.zeros(
-            (self.batch_size, *self.image_data_shape), dtype=self.dtype)
-        self.batch_label_array = np.zeros(
-            (self.batch_size, ), dtype=self.dtype)
-        self.batch_label_array = self.data_getter.categorize_method(
-            self.batch_label_array)
-
+        if num_workers == 1:
+            self.data_pool = SingleProcessPool(data_getter=self.data_getter,
+                                               batch_size=self.batch_size,
+                                               collate_fn=classification_collate_fn,
+                                               shuffle=self.shuffle
+                                               )
+        else:
+            self.data_pool = MultiProcessPool(data_getter=self.data_getter,
+                                              batch_size=self.batch_size,
+                                              num_workers=num_workers,
+                                              collate_fn=classification_collate_fn,
+                                              shuffle=self.shuffle
+                                              )
         self.print_data_info()
         self.on_epoch_end()
 
+    def __iter__(self):
+        return lazy_cycle(self.data_pool)
+
+    def __next__(self):
+        return next(self.data_pool)
+
+    def __len__(self):
+        return math.ceil(self.data_num / self.batch_size)
+
     def __getitem__(self, i):
-
         start = i * self.batch_size
-        end = start + self.batch_size
+        end = min(start + self.batch_size, self.data_num)
 
-        for batch_index, total_index in enumerate(range(start, end)):
+        batch_image_array = []
+        batch_label_array = []
+        for total_index in range(start, end):
             single_data_dict = self.data_getter[total_index]
-            self.batch_image_array[batch_index] = single_data_dict["image_array"]
-            self.batch_label_array[batch_index] = single_data_dict["label"]
 
-        return self.batch_image_array, self.batch_label_array
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_label_array.append(single_data_dict["label"])
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_label_array = np.stack(batch_label_array, axis=0)
+
+        return batch_image_array, batch_label_array
 
     def print_data_info(self):
         data_num = len(self.data_getter)

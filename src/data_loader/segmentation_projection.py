@@ -9,8 +9,8 @@ import progressbar
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, SegaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 
 """
@@ -35,8 +35,8 @@ class SegDataGetter(BaseDataGetter):
                  image_path_list,
                  mask_path_list,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  mask_preprocess_input,
@@ -64,15 +64,15 @@ class SegDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
-        self.argumentation_method = SegArgumentationPolicy(
-            0, argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(
+            0, augumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(None)
         self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.argumentation_method = SegArgumentationPolicy(
-            argumentation_proba, argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(
+            augumentation_proba, augumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
 
@@ -90,7 +90,7 @@ class SegDataGetter(BaseDataGetter):
             image_array, mask_array = \
                 self.data_on_ram_dict[current_index].values()
             image_array, mask_array = \
-                self.argumentation_method(image_array, mask_array)
+                self.augumentation_method(image_array, mask_array)
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
         else:
@@ -108,7 +108,7 @@ class SegDataGetter(BaseDataGetter):
             image_array = np.concatenate([ap_array, lat_array], axis=-1)
 
             image_array, mask_array = \
-                self.argumentation_method(image_array, mask_array)
+                self.augumentation_method(image_array, mask_array)
 
             # image_array = self.image_preprocess_method(image_array)
 
@@ -168,8 +168,8 @@ class SegDataloader(BaseDataLoader):
                  mask_path_list=None,
                  batch_size=4,
                  on_memory=False,
-                 argumentation_proba=None,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=None,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_input="-1~1",
                  mask_preprocess_input="mask",
@@ -180,8 +180,8 @@ class SegDataloader(BaseDataLoader):
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
                                          on_memory=on_memory,
-                                         argumentation_proba=argumentation_proba,
-                                         argumentation_policy_dict=argumentation_policy_dict,
+                                         augumentation_proba=augumentation_proba,
+                                         augumentation_policy_dict=augumentation_policy_dict,
                                          image_channel_dict=image_channel_dict,
                                          preprocess_input=preprocess_input,
                                          mask_preprocess_input=mask_preprocess_input,
@@ -231,8 +231,8 @@ class SelfModifyDataGetter(BaseDataGetter):
                  image_path_list,
                  mask_path_list,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_size,
@@ -260,15 +260,15 @@ class SelfModifyDataGetter(BaseDataGetter):
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
         if self.on_memory is True:
-            self.argumentation_method = \
-                SegArgumentationPolicy(0, argumentation_policy_dict)
+            self.augumentation_method = \
+                SegaugumentationPolicy(0, augumentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
 
-        self.argumentation_method = \
-            SegArgumentationPolicy(argumentation_proba,
-                                   argumentation_policy_dict)
+        self.augumentation_method = \
+            SegaugumentationPolicy(augumentation_proba,
+                                   augumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
 
@@ -297,7 +297,7 @@ class SelfModifyDataGetter(BaseDataGetter):
         mask_array = self.resize_method(mask_array)
 
         image_array, mask_array = \
-            self.argumentation_method(image_array, mask_array)
+            self.augumentation_method(image_array, mask_array)
 
         image_array = self.image_preprocess_method(image_array)
         mask_array = self.mask_preprocess_method(mask_array)
@@ -337,8 +337,8 @@ class SelfModifyDataLoader(BaseDataLoader):
                  mask_path_list=None,
                  batch_size=4,
                  on_memory=False,
-                 argumentation_proba=None,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=None,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_input="-1~1",
                  target_size=None,
@@ -348,8 +348,8 @@ class SelfModifyDataLoader(BaseDataLoader):
         self.data_getter = SelfModifyDataGetter(image_path_list=image_path_list,
                                                 mask_path_list=mask_path_list,
                                                 on_memory=on_memory,
-                                                argumentation_proba=argumentation_proba,
-                                                argumentation_policy_dict=argumentation_policy_dict,
+                                                augumentation_proba=augumentation_proba,
+                                                augumentation_policy_dict=augumentation_policy_dict,
                                                 image_channel_dict=image_channel_dict,
                                                 preprocess_input=preprocess_input,
                                                 target_size=target_size,

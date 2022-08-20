@@ -11,8 +11,8 @@ import random
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, SegaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 
 """
@@ -36,8 +36,8 @@ class MultiScaleDataGetter(BaseDataGetter):
     def __init__(self,
                  image_folder_list,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_dict,
                  target_size,
@@ -70,8 +70,8 @@ class MultiScaleDataGetter(BaseDataGetter):
         if not use_multi_scale:
             self.image_name_list_1 = self.image_name_list_1[-1:]
             self.image_name_list_2 = self.image_name_list_2[-1:]
-        self.argumentation_method = SegArgumentationPolicy(argumentation_proba,
-                                                           argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(augumentation_proba,
+                                                           augumentation_policy_dict)
 
     def getitem(self, idx, downscale):
 
@@ -82,7 +82,7 @@ class MultiScaleDataGetter(BaseDataGetter):
         if self.on_memory:
             image_array, mask_array, label_array = self.data_on_ram_dict[current_folder]
             image_array, mask_array = \
-                self.argumentation_method(image_array, mask_array)
+                self.augumentation_method(image_array, mask_array)
         else:
             folder = self.folder_dict[current_index]
             image_array_list = []
@@ -104,7 +104,7 @@ class MultiScaleDataGetter(BaseDataGetter):
                 mask_array)
             # image_array = self.resize_method(image_array)
             # mask_array = self.resize_method(mask_array)
-            image_array, mask_array = self.argumentation_method(image_array,
+            image_array, mask_array = self.augumentation_method(image_array,
                                                                 mask_array)
             if self.is_cached is False:
                 self.single_data_dict = deepcopy(self.single_data_dict)
@@ -139,8 +139,8 @@ class MultiScaleDataloader(BaseDataLoader):
                  image_folder_list=None,
                  batch_size=4,
                  on_memory=False,
-                 argumentation_proba=None,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=None,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": "rgb"},
                  preprocess_dict=None,
                  target_size=None,
@@ -150,8 +150,8 @@ class MultiScaleDataloader(BaseDataLoader):
                  use_multi_scale=True):
         self.data_getter = MultiScaleDataGetter(image_folder_list=image_folder_list,
                                                 on_memory=on_memory,
-                                                argumentation_proba=argumentation_proba,
-                                                argumentation_policy_dict=argumentation_policy_dict,
+                                                augumentation_proba=augumentation_proba,
+                                                augumentation_policy_dict=augumentation_policy_dict,
                                                 image_channel_dict=image_channel_dict,
                                                 preprocess_dict=preprocess_dict,
                                                 target_size=target_size,

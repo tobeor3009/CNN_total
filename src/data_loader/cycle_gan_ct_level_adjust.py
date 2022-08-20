@@ -10,8 +10,8 @@ from glob import glob
 # this library module
 from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, SegaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -37,8 +37,8 @@ class CycleGanDataGetter(BaseDataGetter):
                  image_folder_list,
                  target_folder_list,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_preprocess_input,
@@ -75,8 +75,8 @@ class CycleGanDataGetter(BaseDataGetter):
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.target_image_preprocess_method = PreprocessPolicy(
             target_preprocess_input)
-        self.argumentation_method = SegArgumentationPolicy(
-            argumentation_proba, argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(
+            augumentation_proba, augumentation_policy_dict)
 
     def __getitem__(self, i):
 
@@ -103,7 +103,7 @@ class CycleGanDataGetter(BaseDataGetter):
         target_image_array, target_image_max, target_image_min = \
             self.target_image_preprocess_method(target_image_array)
 
-        image_array, target_image_array = self.argumentation_method(
+        image_array, target_image_array = self.augumentation_method(
             image_array, target_image_array)
 
         self.single_data_dict["image_array"] = image_array
@@ -171,8 +171,8 @@ class CycleGanDataloader(BaseDataLoader):
                  batch_size=4,
                  include_min_max=False,
                  on_memory=False,
-                 argumentation_proba=None,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=None,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "target_image": "rgb"},
                  preprocess_input="-1~1",
                  target_preprocess_input="-1~1",
@@ -184,8 +184,8 @@ class CycleGanDataloader(BaseDataLoader):
         self.data_getter = CycleGanDataGetter(image_folder_list=image_folder_list,
                                               target_folder_list=target_folder_list,
                                               on_memory=on_memory,
-                                              argumentation_proba=argumentation_proba,
-                                              argumentation_policy_dict=argumentation_policy_dict,
+                                              augumentation_proba=augumentation_proba,
+                                              augumentation_policy_dict=augumentation_policy_dict,
                                               image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
                                               target_preprocess_input=target_preprocess_input,

@@ -10,8 +10,8 @@ from sklearn.utils import shuffle as syncron_shuffle
 # this library module
 from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 
 """
@@ -40,8 +40,8 @@ class StarGanDataGetter(BaseDataGetter):
                  label_to_index_dict,
                  label_level,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_size,
@@ -77,16 +77,16 @@ class StarGanDataGetter(BaseDataGetter):
         self.target_single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
-        self.argumentation_method = ClassifyArgumentationPolicy(
-            0, argumentation_policy_dict)
+        self.augumentation_method = ClassifyaugumentationPolicy(
+            0, augumentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(None)
 
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.argumentation_method = \
-            ClassifyArgumentationPolicy(
-                argumentation_proba, argumentation_policy_dict)
+        self.augumentation_method = \
+            ClassifyaugumentationPolicy(
+                augumentation_proba, augumentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -109,8 +109,8 @@ class StarGanDataGetter(BaseDataGetter):
                 self.data_on_ram_dict[current_index].values()
             target_image_array, target_label = \
                 self.data_on_ram_dict[target_index].values()
-            image_array = self.argumentation_method(image_array)
-            target_image_array = self.argumentation_method(target_image_array)
+            image_array = self.augumentation_method(image_array)
+            target_image_array = self.augumentation_method(target_image_array)
 
             image_array = self.preprocess_method(image_array)
             target_image_array = self.preprocess_method(target_image_array)
@@ -125,8 +125,8 @@ class StarGanDataGetter(BaseDataGetter):
             image_array = self.resize_method(image_array)
             target_image_array = self.resize_method(target_image_array)
 
-            image_array = self.argumentation_method(image_array)
-            target_image_array = self.argumentation_method(target_image_array)
+            image_array = self.augumentation_method(image_array)
+            target_image_array = self.augumentation_method(target_image_array)
 
             image_array = self.preprocess_method(image_array)
             target_image_array = self.preprocess_method(target_image_array)
@@ -190,8 +190,8 @@ class StarGanDataloader(BaseDataLoader):
                  label_level=1,
                  batch_size=None,
                  on_memory=False,
-                 argumentation_proba=False,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=False,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
@@ -204,8 +204,8 @@ class StarGanDataloader(BaseDataLoader):
                                              label_to_index_dict=label_to_index_dict,
                                              label_level=label_level,
                                              on_memory=on_memory,
-                                             argumentation_proba=argumentation_proba,
-                                             argumentation_policy_dict=argumentation_policy_dict,
+                                             augumentation_proba=augumentation_proba,
+                                             augumentation_policy_dict=augumentation_policy_dict,
                                              image_channel_dict=image_channel_dict,
                                              preprocess_input=preprocess_input,
                                              target_size=target_size,

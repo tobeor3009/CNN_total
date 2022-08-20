@@ -10,8 +10,8 @@ import progressbar
 # this library module
 from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegArgumentationPolicy, \
-    base_argumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, SegaugumentationPolicy, \
+    base_augumentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -54,8 +54,8 @@ class MultiLabelDataGetter(BaseDataGetter):
                  label_to_index_dict,
                  label_level,
                  on_memory,
-                 argumentation_proba,
-                 argumentation_policy_dict,
+                 augumentation_proba,
+                 augumentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  mask_preprocess_input,
@@ -85,15 +85,15 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
-        self.argumentation_method = SegArgumentationPolicy(
-            0, argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(
+            0, augumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(None)
         self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.argumentation_method = SegArgumentationPolicy(
-            argumentation_proba, argumentation_policy_dict)
+        self.augumentation_method = SegaugumentationPolicy(
+            augumentation_proba, augumentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
 
@@ -111,7 +111,7 @@ class MultiLabelDataGetter(BaseDataGetter):
             image_array, mask_array = \
                 self.data_on_ram_dict[current_index].values()
             image_array, mask_array = \
-                self.argumentation_method(image_array, mask_array)
+                self.augumentation_method(image_array, mask_array)
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
         else:
@@ -127,7 +127,7 @@ class MultiLabelDataGetter(BaseDataGetter):
             mask_array = self.resize_method(mask_array)
 
             image_array, mask_array = \
-                self.argumentation_method(image_array, mask_array)
+                self.augumentation_method(image_array, mask_array)
 
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
@@ -152,8 +152,8 @@ class MultiLabelDataloader(BaseIterDataLoader):
                  batch_size=4,
                  num_workers=1,
                  on_memory=False,
-                 argumentation_proba=None,
-                 argumentation_policy_dict=base_argumentation_policy_dict,
+                 augumentation_proba=None,
+                 augumentation_policy_dict=base_augumentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_input="-1~1",
                  mask_preprocess_input="mask",
@@ -166,8 +166,8 @@ class MultiLabelDataloader(BaseIterDataLoader):
                                                 label_to_index_dict=label_to_index_dict,
                                                 label_level=label_level,
                                                 on_memory=on_memory,
-                                                argumentation_proba=argumentation_proba,
-                                                argumentation_policy_dict=argumentation_policy_dict,
+                                                augumentation_proba=augumentation_proba,
+                                                augumentation_policy_dict=augumentation_policy_dict,
                                                 image_channel_dict=image_channel_dict,
                                                 preprocess_input=preprocess_input,
                                                 mask_preprocess_input=mask_preprocess_input,
@@ -201,26 +201,23 @@ class MultiLabelDataloader(BaseIterDataLoader):
     def __next__(self):
         return next(self.data_pool)
 
-    def __getitem__(self, i, training=True):
-        if training:
-            batch_image_array, batch_mask_array = next(self.data_pool)
-        else:
-            start = i * self.batch_size
-            end = min(start + self.batch_size, self.data_num)
+    def __getitem__(self, i):
+        start = i * self.batch_size
+        end = min(start + self.batch_size, self.data_num)
 
-            batch_image_array = []
-            batch_label_array = []
-            batch_mask_array = []
-            for total_index in range(start, end):
-                single_data_dict = self.data_getter[total_index]
+        batch_image_array = []
+        batch_label_array = []
+        batch_mask_array = []
+        for total_index in range(start, end):
+            single_data_dict = self.data_getter[total_index]
 
-                batch_image_array.append(single_data_dict["image_array"])
-                batch_label_array.append(single_data_dict["label_array"])
-                batch_mask_array.append(single_data_dict["mask_array"])
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_label_array.append(single_data_dict["label_array"])
+            batch_mask_array.append(single_data_dict["mask_array"])
 
-            batch_image_array = np.stack(batch_image_array, axis=0)
-            batch_label_array = np.stack(batch_label_array, axis=0)
-            batch_mask_array = np.stack(batch_mask_array, axis=0)
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_label_array = np.stack(batch_label_array, axis=0)
+        batch_mask_array = np.stack(batch_mask_array, axis=0)
 
         return (batch_image_array, batch_label_array), batch_mask_array
 

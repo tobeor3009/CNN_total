@@ -29,7 +29,7 @@ task = str(config_dict["task"])
 data_set_name = str(config_dict["data_set_name"])
 batch_size = int(config_dict["batch_size"])
 on_memory = bool(config_dict["on_memory"])
-argumentation_proba = float(config_dict["argumentation_proba"])
+augumentation_proba = float(config_dict["augumentation_proba"])
 target_size = make_tuple(config_dict["target_size"])
 interpolation = str(config_dict["interpolation"])
 class_mode = str(config_dict["class_mode"])
@@ -134,7 +134,7 @@ train_data_loader = SegDataloader(image_path_list=train_image_path_list,
                                   mask_path_list=train_mask_path_list,
                                   batch_size=batch_size,
                                   on_memory=on_memory,
-                                  argumentation_proba=argumentation_proba,
+                                  augumentation_proba=augumentation_proba,
                                   preprocess_input=preprocess_input,
                                   target_size=target_size,
                                   interpolation=interpolation,
@@ -145,7 +145,7 @@ valid_data_loader = SegDataloader(image_path_list=valid_image_path_list,
                                   mask_path_list=valid_mask_path_list,
                                   batch_size=batch_size,
                                   on_memory=on_memory,
-                                  argumentation_proba=0,
+                                  augumentation_proba=0,
                                   preprocess_input=preprocess_input,
                                   target_size=target_size,
                                   interpolation=interpolation,
@@ -156,7 +156,7 @@ test_data_loader = SegDataloader(image_path_list=test_image_path_list,
                                  mask_path_list=test_mask_path_list,
                                  batch_size=1,
                                  on_memory=False,
-                                 argumentation_proba=0,
+                                 augumentation_proba=0,
                                  preprocess_input=preprocess_input,
                                  target_size=target_size,
                                  interpolation=interpolation,
