@@ -26,5 +26,5 @@ config.json
 !segmenation_deeplabv3_gpu_0.ipynb
 !segmenation_auto_curation_inceptionv3_unet_gpu_0.ipynb
 !star_gan_inceptionv3_gpu_0.ipynb
-!check_augumentations.ipynb
+!check_augmentations.ipynb
 !multi_label_incetpionv3_gpu_0.ipynb

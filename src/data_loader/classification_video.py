@@ -8,8 +8,8 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugumentationPolicy, \
-    base_augumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugmentationPolicy, \
+    base_augmentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -45,8 +45,8 @@ class ClassifyDataGetter(BaseDataGetter):
                  label_to_index_dict,
                  label_level,
                  on_memory,
-                 augumentation_proba,
-                 augumentation_policy_dict,
+                 augmentation_proba,
+                 augmentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_size,
@@ -76,15 +76,15 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
-        self.augumentation_method = ClassifyaugumentationPolicy(
-            0, augumentation_policy_dict)
+        self.augmentation_method = ClassifyaugmentationPolicy(
+            0, augmentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.augumentation_method = \
-            ClassifyaugumentationPolicy(
-                augumentation_proba, augumentation_policy_dict)
+        self.augmentation_method = \
+            ClassifyaugmentationPolicy(
+                augmentation_proba, augmentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -97,7 +97,7 @@ class ClassifyDataGetter(BaseDataGetter):
         if self.on_memory:
             image_array, label = \
                 self.data_on_ram_dict[current_index].values()
-            image_array = self.augumentation_method(image_array)
+            image_array = self.augmentation_method(image_array)
             image_array = self.preprocess_method(image_array)
         else:
             image_folder = self.image_folder_dict[current_index]
@@ -106,7 +106,7 @@ class ClassifyDataGetter(BaseDataGetter):
             for image_path in image_path_list:
                 image_array = imread(image_path, channel=self.image_channel)
                 image_array = self.resize_method(image_array)
-                image_array = self.augumentation_method(image_array)
+                image_array = self.augmentation_method(image_array)
                 video_array.append(image_array)
             video_array = np.stack(video_array, axis=0)
             video_array = self.preprocess_method(video_array)
@@ -143,8 +143,8 @@ class ClassifyDataloader(BaseDataLoader):
                  batch_size=None,
                  num_workers=1,
                  on_memory=False,
-                 augumentation_proba=False,
-                 augumentation_policy_dict=base_augumentation_policy_dict,
+                 augmentation_proba=False,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
@@ -157,8 +157,8 @@ class ClassifyDataloader(BaseDataLoader):
                                               label_to_index_dict=label_to_index_dict,
                                               label_level=label_level,
                                               on_memory=on_memory,
-                                              augumentation_proba=augumentation_proba,
-                                              augumentation_policy_dict=augumentation_policy_dict,
+                                              augmentation_proba=augmentation_proba,
+                                              augmentation_policy_dict=augmentation_policy_dict,
                                               image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
                                               target_size=target_size,

@@ -4,7 +4,7 @@
   "data_set_name": "detect_lvi",
   "batch_size": 8,
   "on_memory": true,
-  "augumentation_proba": 0.8,
+  "augmentation_proba": 0.8,
   "target_size": "(512, 512)",
   "interpolation": "bilinear",
   "class_mode": "binary",

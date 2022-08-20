@@ -9,8 +9,8 @@ import progressbar
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, ClassifyaugumentationPolicy, \
-    base_augumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, ClassifyaugmentationPolicy, \
+    base_augmentation_policy_dict
 
 
 """
@@ -34,8 +34,8 @@ class ReconDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  on_memory,
-                 augumentation_proba,
-                 augumentation_policy_dict,
+                 augmentation_proba,
+                 augmentation_policy_dict,
                  image_channel_dict,
                  preprocess_dict,
                  target_size,
@@ -59,14 +59,14 @@ class ReconDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None}
-        self.augumentation_method = ClassifyaugumentationPolicy(
-            0, augumentation_policy_dict)
+        self.augmentation_method = ClassifyaugmentationPolicy(
+            0, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.augumentation_method = ClassifyaugumentationPolicy(
-            augumentation_proba, augumentation_policy_dict)
+        self.augmentation_method = ClassifyaugmentationPolicy(
+            augmentation_proba, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(
             preprocess_dict["image"])
 
@@ -79,7 +79,7 @@ class ReconDataGetter(BaseDataGetter):
 
         if self.on_memory:
             image_array = self.data_on_ram_dict[current_index].values()
-            image_array = self.augumentation_method(image_array)
+            image_array = self.augmentation_method(image_array)
             image_array = self.image_preprocess_method(image_array)
         else:
             image_path = self.image_path_dict[current_index]
@@ -88,7 +88,7 @@ class ReconDataGetter(BaseDataGetter):
 
             image_array = self.resize_method(image_array)
 
-            image_array = self.augumentation_method(image_array)
+            image_array = self.augmentation_method(image_array)
 
             image_array = self.image_preprocess_method(image_array)
 
@@ -131,8 +131,8 @@ class ReconDataloader(BaseDataLoader):
                  image_path_list=None,
                  batch_size=4,
                  on_memory=False,
-                 augumentation_proba=None,
-                 augumentation_policy_dict=base_augumentation_policy_dict,
+                 augmentation_proba=None,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
                  preprocess_dict={"image": "-1~1"},
                  target_size=None,
@@ -141,8 +141,8 @@ class ReconDataloader(BaseDataLoader):
                  dtype="float32"):
         self.data_getter = ReconDataGetter(image_path_list=image_path_list,
                                            on_memory=on_memory,
-                                           augumentation_proba=augumentation_proba,
-                                           augumentation_policy_dict=augumentation_policy_dict,
+                                           augmentation_proba=augmentation_proba,
+                                           augmentation_policy_dict=augmentation_policy_dict,
                                            image_channel_dict=image_channel_dict,
                                            preprocess_dict=preprocess_dict,
                                            target_size=target_size,

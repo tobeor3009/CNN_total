@@ -10,8 +10,8 @@ from tqdm import tqdm
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugumentationPolicy, \
-    base_augumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    base_augmentation_policy_dict
 
 """
 Expected Data Path Structure
@@ -35,8 +35,8 @@ class CycleGanDataGetter(BaseDataGetter):
                  image_path_list,
                  target_image_path_list,
                  on_memory,
-                 augumentation_proba,
-                 augumentation_policy_dict,
+                 augmentation_proba,
+                 augmentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_preprocess_input,
@@ -74,8 +74,8 @@ class CycleGanDataGetter(BaseDataGetter):
         self.single_data_dict = \
             {"image_array": None, "target_image_array": None}
         if self.on_memory is True:
-            self.augumentation_method = SegaugumentationPolicy(
-                0, augumentation_policy_dict)
+            self.augmentation_method = SegaugmentationPolicy(
+                0, augmentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.target_image_preprocess_method = PreprocessPolicy(
                 None)
@@ -84,8 +84,8 @@ class CycleGanDataGetter(BaseDataGetter):
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.target_image_preprocess_method = PreprocessPolicy(
             target_preprocess_input)
-        self.augumentation_method = SegaugumentationPolicy(
-            augumentation_proba, augumentation_policy_dict)
+        self.augmentation_method = SegaugmentationPolicy(
+            augmentation_proba, augmentation_policy_dict)
 
     def __getitem__(self, i):
 
@@ -106,7 +106,7 @@ class CycleGanDataGetter(BaseDataGetter):
             image_array = self.data_on_ram_dict[current_index]
             target_image_array = self.target_data_on_ram_dict[target_index]
 
-            image_array, target_image_array = self.augumentation_method(
+            image_array, target_image_array = self.augmentation_method(
                 image_array, target_image_array)
             image_array = \
                 self.image_preprocess_method(image_array)
@@ -123,7 +123,7 @@ class CycleGanDataGetter(BaseDataGetter):
             image_array = self.resize_method(image_array)
             target_image_array = self.resize_method(target_image_array)
 
-            image_array, target_image_array = self.augumentation_method(
+            image_array, target_image_array = self.augmentation_method(
                 image_array, target_image_array)
 
             image_array = \
@@ -175,8 +175,8 @@ class CycleGanDataloader(BaseDataLoader):
                  target_image_path_list=None,
                  batch_size=4,
                  on_memory=False,
-                 augumentation_proba=None,
-                 augumentation_policy_dict=base_augumentation_policy_dict,
+                 augmentation_proba=None,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb", "target_image": "rgb"},
                  preprocess_input="-1~1",
                  target_preprocess_input="-1~1",
@@ -187,8 +187,8 @@ class CycleGanDataloader(BaseDataLoader):
         self.data_getter = CycleGanDataGetter(image_path_list=image_path_list,
                                               target_image_path_list=target_image_path_list,
                                               on_memory=on_memory,
-                                              augumentation_proba=augumentation_proba,
-                                              augumentation_policy_dict=augumentation_policy_dict,
+                                              augmentation_proba=augmentation_proba,
+                                              augmentation_policy_dict=augmentation_policy_dict,
                                               image_channel_dict=image_channel_dict,
                                               preprocess_input=preprocess_input,
                                               target_preprocess_input=target_preprocess_input,

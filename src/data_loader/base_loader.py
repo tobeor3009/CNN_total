@@ -8,7 +8,7 @@ from tensorflow.keras.utils import to_categorical
 from sklearn.utils import shuffle as syncron_shuffle
 import albumentations as A
 
-base_augumentation_policy_dict = {
+base_augmentation_policy_dict = {
     "positional": True,
     "noise": True,
     "elastic": True,
@@ -218,32 +218,32 @@ class CategorizePolicy():
         return label_array
 
 
-class ClassifyaugumentationPolicy():
+class ClassifyaugmentationPolicy():
     def __init__(self,
-                 augumentation_proba,
-                 augumentation_policy_dict):
+                 augmentation_proba,
+                 augmentation_policy_dict):
 
         final_transform_list = []
-        if augumentation_policy_dict["randomcrop"]:
+        if augmentation_policy_dict["randomcrop"]:
             randomcrop_transform = A.RandomCrop(
-                *augumentation_policy_dict["randomcrop"], p=1)
+                *augmentation_policy_dict["randomcrop"], p=1)
             final_transform_list.append(randomcrop_transform)
-        if augumentation_policy_dict["positional"] is True:
+        if augmentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
-        if augumentation_policy_dict["noise"] is True:
+        if augmentation_policy_dict["noise"] is True:
             final_transform_list.append(noise_transform)
-        if augumentation_policy_dict["elastic"] is True:
+        if augmentation_policy_dict["elastic"] is True:
             final_transform_list.append(elastic_tranform)
-        if augumentation_policy_dict["brightness_contrast"] is True:
+        if augmentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
-        if augumentation_policy_dict["color"] is True:
+        if augmentation_policy_dict["color"] is True:
             final_transform_list.append(color_transform)
-        if augumentation_policy_dict["to_jpeg"] is True:
+        if augmentation_policy_dict["to_jpeg"] is True:
             final_transform_list.append(to_jpeg_transform)
 
         self.final_transform = A.Compose(
-            final_transform_list, p=augumentation_proba)
-        if augumentation_proba:
+            final_transform_list, p=augmentation_proba)
+        if augmentation_proba:
             self.transform = self.image_transform
         else:
             self.transform = identity_fn
@@ -260,33 +260,33 @@ class ClassifyaugumentationPolicy():
         return image_transformed_array
 
 
-class SegaugumentationPolicy():
+class SegaugmentationPolicy():
     def __init__(self,
-                 augumentation_proba,
-                 augumentation_policy_dict):
+                 augmentation_proba,
+                 augmentation_policy_dict):
 
         final_transform_list = []
-        if augumentation_policy_dict["randomcrop"] is tuple:
+        if augmentation_policy_dict["randomcrop"] is tuple:
             randomcrop_transform = A.RandomCrop(
-                *augumentation_policy_dict["randomcrop"], p=1)
+                *augmentation_policy_dict["randomcrop"], p=1)
             final_transform_list.append(randomcrop_transform)
-        if augumentation_policy_dict["positional"] is True:
+        if augmentation_policy_dict["positional"] is True:
             final_transform_list.append(positional_transform)
-        if augumentation_policy_dict["noise"] is True:
+        if augmentation_policy_dict["noise"] is True:
             final_transform_list.append(noise_transform)
-        if augumentation_policy_dict["elastic"] is True:
+        if augmentation_policy_dict["elastic"] is True:
             final_transform_list.append(elastic_tranform)
-        if augumentation_policy_dict["brightness_contrast"] is True:
+        if augmentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
-        if augumentation_policy_dict["color"] is True:
+        if augmentation_policy_dict["color"] is True:
             final_transform_list.append(color_transform)
-        if augumentation_policy_dict["to_jpeg"] is True:
+        if augmentation_policy_dict["to_jpeg"] is True:
             final_transform_list.append(to_jpeg_transform)
 
         self.final_transform = A.Sequential(final_transform_list,
-                                            p=augumentation_proba)
+                                            p=augmentation_proba)
 
-        if augumentation_proba:
+        if augmentation_proba:
             self.transform = self.image_mask_sync_transform
         else:
             self.transform = identity_multi_fn

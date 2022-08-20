@@ -10,8 +10,8 @@ from sklearn.utils import shuffle as syncron_shuffle
 # this library module
 from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugumentationPolicy, \
-    base_augumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugmentationPolicy, \
+    base_augmentation_policy_dict
 
 
 def split_multiclass_into_batch(real_img, label, img_min, img_max):
@@ -62,8 +62,8 @@ class StarGanDataGetter(BaseDataGetter):
                  dicom_path_list,
                  label_policy,
                  on_memory,
-                 augumentation_proba,
-                 augumentation_policy_dict,
+                 augmentation_proba,
+                 augmentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_size,
@@ -93,8 +93,8 @@ class StarGanDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
-        self.augumentation_method = ClassifyaugumentationPolicy(
-            0, augumentation_policy_dict)
+        self.augmentation_method = ClassifyaugmentationPolicy(
+            0, augmentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(None)
 
         if self.on_memory is True:
@@ -102,9 +102,9 @@ class StarGanDataGetter(BaseDataGetter):
         # else:
         #     self.get_data_on_disk()
 
-        self.augumentation_method = \
-            ClassifyaugumentationPolicy(
-                augumentation_proba, augumentation_policy_dict)
+        self.augmentation_method = \
+            ClassifyaugmentationPolicy(
+                augmentation_proba, augmentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -126,7 +126,7 @@ class StarGanDataGetter(BaseDataGetter):
             image_array, image_array_max, image_array_min = self.preprocess_method(
                 image_array)
             image_array = self.resize_method(image_array)
-            image_array = self.augumentation_method(image_array)
+            image_array = self.augmentation_method(image_array)
             image_array_list.append(image_array)
             image_max_array.append(image_array_max)
             image_min_array.append(image_array_min)
@@ -165,8 +165,8 @@ class StarGanDataloader(BaseDataLoader):
                  include_min_max=False,
                  batch_size=None,
                  on_memory=False,
-                 augumentation_proba=False,
-                 augumentation_policy_dict=base_augumentation_policy_dict,
+                 augmentation_proba=False,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
@@ -180,8 +180,8 @@ class StarGanDataloader(BaseDataLoader):
                                              dicom_path_list=dicom_path_list,
                                              label_policy=label_policy,
                                              on_memory=on_memory,
-                                             augumentation_proba=augumentation_proba,
-                                             augumentation_policy_dict=augumentation_policy_dict,
+                                             augmentation_proba=augmentation_proba,
+                                             augmentation_policy_dict=augmentation_policy_dict,
                                              image_channel_dict=image_channel_dict,
                                              preprocess_input=preprocess_input,
                                              target_size=target_size,

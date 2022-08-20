@@ -31,7 +31,7 @@ task = str(config_dict["task"])
 data_set_name = str(config_dict["data_set_name"])
 batch_size = int(config_dict["batch_size"])
 on_memory = bool(config_dict["on_memory"])
-augumentation_proba = float(config_dict["augumentation_proba"])
+augmentation_proba = float(config_dict["augmentation_proba"])
 target_size = make_tuple(config_dict["target_size"])
 interpolation = str(config_dict["interpolation"])
 class_mode = str(config_dict["class_mode"])
@@ -175,7 +175,7 @@ train_data_loader = ClassifyDataloader(image_path_list=train_image_path_list,
                                        label_to_index_dict=label_to_index_dict,
                                        batch_size=batch_size,
                                        on_memory=on_memory,
-                                       augumentation_proba=augumentation_proba,
+                                       augmentation_proba=augmentation_proba,
                                        preprocess_input=preprocess_input,
                                        target_size=target_size,
                                        interpolation=interpolation,
@@ -187,7 +187,7 @@ valid_data_loader = ClassifyDataloader(image_path_list=valid_image_path_list,
                                        label_to_index_dict=label_to_index_dict,
                                        batch_size=batch_size,
                                        on_memory=on_memory,
-                                       augumentation_proba=0,
+                                       augmentation_proba=0,
                                        preprocess_input=preprocess_input,
                                        target_size=target_size,
                                        interpolation=interpolation,
@@ -199,7 +199,7 @@ test_data_loader = ClassifyDataloader(image_path_list=test_image_path_list,
                                       label_to_index_dict=label_to_index_dict,
                                       batch_size=1,
                                       on_memory=False,
-                                      augumentation_proba=0,
+                                      augmentation_proba=0,
                                       preprocess_input=preprocess_input,
                                       target_size=target_size,
                                       interpolation=interpolation,

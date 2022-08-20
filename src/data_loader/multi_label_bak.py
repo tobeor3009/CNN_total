@@ -6,8 +6,8 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, SegaugumentationPolicy, \
-    base_augumentation_policy_dict
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, SegaugmentationPolicy, \
+    base_augmentation_policy_dict
 
 
 """
@@ -35,8 +35,8 @@ class MultiLabelDataGetter(BaseDataGetter):
                  mask_path_list,
                  label_to_index_dict,
                  on_memory,
-                 augumentation_proba,
-                 augumentation_policy_dict,
+                 augmentation_proba,
+                 augmentation_policy_dict,
                  image_channel_dict,
                  preprocess_input,
                  target_size,
@@ -68,14 +68,14 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.augumentation_method = SegaugumentationPolicy(
-                0, augumentation_policy_dict)
+            self.augmentation_method = SegaugmentationPolicy(
+                0, augmentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
 
-        self.augumentation_method = SegaugumentationPolicy(
-            augumentation_proba, augumentation_policy_dict)
+        self.augmentation_method = SegaugmentationPolicy(
+            augmentation_proba, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")
 
@@ -89,7 +89,7 @@ class MultiLabelDataGetter(BaseDataGetter):
         if self.on_memory:
             image_array, mask_array, label, preserve = self.data_on_ram_dict[current_index]
             image_array, mask_array = \
-                self.augumentation_method(image_array, mask_array)
+                self.augmentation_method(image_array, mask_array)
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
         else:
@@ -102,7 +102,7 @@ class MultiLabelDataGetter(BaseDataGetter):
             mask_array = self.resize_method(mask_array)
 
             image_array, mask_array = \
-                self.augumentation_method(image_array, mask_array)
+                self.augmentation_method(image_array, mask_array)
 
             image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
@@ -135,8 +135,8 @@ class MultiLabelDataloader(BaseDataLoader):
                  label_to_index_dict=None,
                  batch_size=None,
                  on_memory=False,
-                 augumentation_proba=False,
-                 augumentation_policy_dict=base_augumentation_policy_dict,
+                 augmentation_proba=False,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb"},
                  preprocess_input="-1~1",
                  target_size=None,
@@ -148,8 +148,8 @@ class MultiLabelDataloader(BaseDataLoader):
                                                 mask_path_list=mask_path_list,
                                                 label_to_index_dict=label_to_index_dict,
                                                 on_memory=on_memory,
-                                                augumentation_proba=augumentation_proba,
-                                                augumentation_policy_dict=augumentation_policy_dict,
+                                                augmentation_proba=augmentation_proba,
+                                                augmentation_policy_dict=augmentation_policy_dict,
                                                 image_channel_dict=image_channel_dict,
                                                 preprocess_input=preprocess_input,
                                                 target_size=target_size,
