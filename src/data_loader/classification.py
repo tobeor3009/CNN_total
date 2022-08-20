@@ -157,6 +157,7 @@ class ClassifyDataloader(BaseDataLoader):
                                               class_mode=class_mode,
                                               dtype=dtype
                                               )
+        self.data_num = len(self.data_getter)
         self.batch_size = batch_size
         self.num_classes = len(label_to_index_dict)
         self.shuffle = shuffle

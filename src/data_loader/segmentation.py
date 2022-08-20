@@ -157,8 +157,8 @@ class SegDataloader(BaseIterDataLoader):
                                          target_size=target_size,
                                          interpolation=interpolation
                                          )
-        self.batch_size = batch_size
         self.data_num = len(self.data_getter)
+        self.batch_size = batch_size
         self.shuffle = shuffle
         self.dtype = dtype
 
