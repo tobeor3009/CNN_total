@@ -205,7 +205,7 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                                        num_patch_x,
                                                        num_patch_y),
                                             embed_dim=embed_dim,
-                                            upsample_rate=stride_size[0],
+                                            upsample_rate=int(stride_size[0]),
                                             swin_v2=swin_v2,
                                             return_vector=False)(X)
     return X
