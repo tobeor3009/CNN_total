@@ -11,6 +11,33 @@ from .base_loader import BaseDataGetter, BaseDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugmentationPolicy, \
     base_augmentation_policy_dict
 
+from vidaug import augmentors as va
+
+
+# Used to apply augmentor with 50% probability
+def sometimes(aug): return va.Sometimes(0.5, aug)
+
+
+blur_aug = va.OneOf([
+    sometimes(va.GaussianBlur(sigma=1)),
+    sometimes(va.Pepper()),
+    sometimes(va.Salt())
+])
+
+video_aug_seq = va.Sequential([
+    blur_aug,
+    sometimes(va.InvertColor()),
+    sometimes(va.VerticalFlip()),
+    sometimes(va.HorizontalFlip())
+])
+
+
+def get_aug_video_array(video_array):
+    aug_video_array = video_aug_seq(video_array)
+    aug_video_array = np.stack(aug_video_array, axis=0)
+    return aug_video_array
+
+
 """
 Expected Data Path Structure
 
@@ -76,15 +103,8 @@ class ClassifyDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
 
-        self.augmentation_method = ClassifyaugmentationPolicy(
-            0, augmentation_policy_dict)
-        self.preprocess_method = PreprocessPolicy(None)
-        if self.on_memory is True:
-            self.get_data_on_ram()
+        self.augmentation_method = get_aug_video_array if augmentation_proba > 0 else lambda x: x
 
-        self.augmentation_method = \
-            ClassifyaugmentationPolicy(
-                augmentation_proba, augmentation_policy_dict)
         self.preprocess_method = PreprocessPolicy(preprocess_input)
 
     def __getitem__(self, i):
@@ -106,16 +126,16 @@ class ClassifyDataGetter(BaseDataGetter):
             for image_path in image_path_list:
                 image_array = imread(image_path, channel=self.image_channel)
                 image_array = self.resize_method(image_array)
-                image_array = self.augmentation_method(image_array)
                 video_array.append(image_array)
             video_array = np.stack(video_array, axis=0)
+            video_array = self.augmentation_method(video_array)
             video_array = self.preprocess_method(video_array)
 
             if self.is_class_cached:
                 label = self.class_dict[current_index]
             else:
-                image_dir_name = get_parent_dir_name(
-                    image_folder, self.label_level)
+                image_dir_name = get_parent_dir_name(image_folder,
+                                                     self.label_level)
                 label = self.label_to_index_dict[image_dir_name]
                 label = self.categorize_method(label)
                 self.class_dict[current_index] = label

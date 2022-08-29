@@ -6,7 +6,7 @@ import numpy as np
 
 # this library module
 from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
-from .base_loader import BaseDataGetter, BaseDataLoader, \
+from .base_loader import BaseDataGetter, BaseIterDataLoader, \
     ResizePolicy, PreprocessPolicy, CategorizePolicy, ClassifyaugmentationPolicy, \
     base_augmentation_policy_dict
 
@@ -125,7 +125,7 @@ class ClassifyDataGetter(BaseDataGetter):
         return self.single_data_dict
 
 
-class ClassifyDataloader(BaseDataLoader):
+class ClassifyDataloader(BaseIterDataLoader):
 
     def __init__(self,
                  image_path_list=None,
