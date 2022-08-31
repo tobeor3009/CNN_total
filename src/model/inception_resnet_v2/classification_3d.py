@@ -11,6 +11,22 @@ np.random.seed(1337)  # for reproducibility
 DROPOUT_RATIO = 0.5
 
 
+class PatchEmbedding(layers.Layer):
+    def __init__(self, num_patch, embed_dim):
+        super(PatchEmbedding, self).__init__()
+        self.num_patch = num_patch
+        self.proj = layers.Dense(embed_dim)
+        self.pos_embed = layers.Embedding(
+            input_dim=num_patch, output_dim=embed_dim)
+
+    def call(self, patch):
+        # patch.shape = [B num_patch C]
+        pos = tf.range(start=0, limit=self.num_patch, delta=1)
+        # embed.shape = [B num_patch embed_dim] + [num_patch]
+        embed = self.proj(patch) + self.pos_embed(pos)
+        return embed
+
+
 def get_inception_resnet_v2_classification_model_transformer(input_shape, num_class,
                                                              padding="valid",
                                                              activation="sigmoid",
@@ -56,7 +72,8 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     x = base_model.output
     _, Z, H, W, C = keras_backend.int_shape(x)
     x = layers.Reshape((Z * H * W, C))(x)
-    x = AddPositionEmbs(input_shape=(Z * H * W, C))(x)
+    x = PatchEmbedding(num_patch=Z * H * W,
+                       embed_dim=C)(x)
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
     # let's add a fully-connected layer

@@ -58,6 +58,22 @@ def get_act_layer(activation, name=None):
     return act_layer
 
 
+class PatchEmbedding(layers.Layer):
+    def __init__(self, num_patch, embed_dim):
+        super(PatchEmbedding, self).__init__()
+        self.num_patch = num_patch
+        self.proj = layers.Dense(embed_dim)
+        self.pos_embed = layers.Embedding(
+            input_dim=num_patch, output_dim=embed_dim)
+
+    def call(self, patch):
+        # patch.shape = [B num_patch C]
+        pos = tf.range(start=0, limit=self.num_patch, delta=1)
+        # embed.shape = [B num_patch embed_dim] + [num_patch]
+        embed = self.proj(patch) + self.pos_embed(pos)
+        return embed
+
+
 class EqualizedConv(layers.Layer):
     def __init__(self, out_channels, downsample=False, kernel=3,
                  padding="same", use_bias=True, gain=2, **kwargs):
