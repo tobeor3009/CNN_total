@@ -10,6 +10,7 @@ from tensorflow_addons.layers import GroupNormalization
 CHANNEL_AXIS = -1
 USE_CONV_BIAS = True
 USE_DENSE_BIAS = True
+Z_NON_DOWNSAMPLE_STRIDE = [1, 2, 2]
 
 
 def to_stride_tuple_3d(int_data):
@@ -143,6 +144,8 @@ def InceptionResNetV2_3D_Progressive(target_shape=None,
                                      last_act="relu",
                                      name_prefix="",
                                      num_downsample=5,
+                                     z_downsample_list=[
+                                         True, True, True, True, True],
                                      use_attention=True,
                                      skip_connect_names=False):
     if name_prefix == "":
@@ -158,25 +161,23 @@ def InceptionResNetV2_3D_Progressive(target_shape=None,
                    target_shape[2] // (2 **
                                        (final_downsample - num_downsample)),
                    target_shape[3])
-    H, W, Z, _ = input_shape
-
     input_tensor = layers.Input(input_shape)
     x = get_init_conv(input_tensor, block_size, groups, norm, base_act,
                       num_downsample, name_prefix)(input_tensor)
     if num_downsample >= 5:
-        x = get_block_1(x, block_size, padding,
+        x = get_block_1(x, block_size, padding, z_downsample_list[0],
                         groups, norm, base_act, name_prefix)
     if num_downsample >= 4:
-        x = get_block_2(x, block_size, padding,
+        x = get_block_2(x, block_size, padding, z_downsample_list[1],
                         groups, norm, base_act, name_prefix)
     if num_downsample >= 3:
-        x = get_block_3(x, block_size, padding,
+        x = get_block_3(x, block_size, padding, z_downsample_list[2],
                         groups, norm, base_act, name_prefix)
     if num_downsample >= 2:
-        x = get_block_4(x, block_size, padding, groups,
+        x = get_block_4(x, block_size, padding, groups, z_downsample_list[3],
                         use_attention, norm, base_act, name_prefix)
     if num_downsample >= 1:
-        x = get_block_5(x, block_size, padding, groups,
+        x = get_block_5(x, block_size, padding, groups, z_downsample_list[4],
                         use_attention, norm, base_act, name_prefix)
     x = get_output_block(x, block_size, groups,
                          use_attention, norm, base_act, last_act, name_prefix)(x)
@@ -210,38 +211,54 @@ def get_init_conv(input_tensor, block_size, groups,
                  name=f"{name_prefix}init_conv")
 
 
-def get_block_1(input_tensor, block_size, padding,
+def get_block_1(input_tensor, block_size, padding, z_downsample,
                 groups, norm, activation, name_prefix):
-    conv = Conv3DBN(block_size * 2, 3, strides=2, padding=padding,
+    if z_downsample:
+        strides = Z_NON_DOWNSAMPLE_STRIDE
+    else:
+        strides = 2
+    conv = Conv3DBN(block_size * 2, 3, strides=strides, padding=padding,
                     groups=groups, norm=norm, activation=activation,
                     name=f"{name_prefix}down_block_1")(input_tensor)
     return conv
 
 
-def get_block_2(input_tensor, block_size, padding,
+def get_block_2(input_tensor, block_size, padding, z_downsample,
                 groups, norm, activation, name_prefix):
+    if z_downsample:
+        strides = Z_NON_DOWNSAMPLE_STRIDE
+    else:
+        strides = 2
     conv_1 = Conv3DBN(block_size * 2, 3, padding=padding, groups=groups,
                       norm=norm, activation=activation)(input_tensor)
     conv_2 = Conv3DBN(block_size * 4, 3, groups=groups,
                       norm=norm, activation=activation)(conv_1)
-    max_pool = layers.MaxPooling3D(3, strides=2, padding=padding,
+    max_pool = layers.MaxPooling3D(3, strides=strides, padding=padding,
                                    name=f"{name_prefix}down_block_2")(conv_2)
     return max_pool
 
 
-def get_block_3(input_tensor, block_size, padding,
+def get_block_3(input_tensor, block_size, padding, z_downsample,
                 groups, norm, activation, name_prefix):
+    if z_downsample:
+        strides = Z_NON_DOWNSAMPLE_STRIDE
+    else:
+        strides = 2
     conv_1 = Conv3DBN(block_size * 5, 1, padding=padding, groups=groups,
                       norm=norm, activation=activation)(input_tensor)
     conv_2 = Conv3DBN(block_size * 12, 3, padding=padding, groups=groups,
                       norm=norm, activation=activation)(conv_1)
-    max_pool = layers.MaxPooling3D(3, strides=2, padding=padding,
+    max_pool = layers.MaxPooling3D(3, strides=strides, padding=padding,
                                    name=f"{name_prefix}down_block_3")(conv_2)
     return max_pool
 
 
-def get_block_4(input_tensor, block_size, padding, groups,
+def get_block_4(input_tensor, block_size, padding, groups, z_downsample,
                 use_attention, norm, activation, name_prefix):
+    if z_downsample:
+        strides = Z_NON_DOWNSAMPLE_STRIDE
+    else:
+        strides = 2
     branch_0 = Conv3DBN(block_size * 6, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
     branch_1 = Conv3DBN(block_size * 3, 1, groups=groups,
@@ -268,15 +285,15 @@ def get_block_4(input_tensor, block_size, padding, groups,
                                           groups=groups, norm=norm, activation=activation,
                                           use_attention=use_attention,
                                           name=f'{name_prefix}block_35_{idx}')(branches_1)
-    branch_0 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
+    branch_0 = Conv3DBN(block_size * 24, 3, strides=strides, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branches_1)
     branch_1 = Conv3DBN(block_size * 16, 1, groups=groups,
                         norm=norm, activation=activation)(branches_1)
     branch_1 = Conv3DBN(block_size * 16, 3, groups=groups,
                         norm=norm, activation=activation)(branch_1)
-    branch_1 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
+    branch_1 = Conv3DBN(block_size * 24, 3, strides=strides, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_1)
-    branch_pool = layers.AveragePooling3D(3, strides=2,
+    branch_pool = layers.AveragePooling3D(3, strides=strides,
                                           padding=padding)(branches_1)
     branches_2 = [branch_0, branch_1, branch_pool]
     branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
@@ -285,8 +302,12 @@ def get_block_4(input_tensor, block_size, padding, groups,
     return branches_2
 
 
-def get_block_5(input_tensor, block_size, padding, groups,
+def get_block_5(input_tensor, block_size, padding, groups, z_downsample,
                 use_attention, norm, activation, name_prefix):
+    if z_downsample:
+        strides = Z_NON_DOWNSAMPLE_STRIDE
+    else:
+        strides = 2
     branches_1 = input_tensor
     for idx in range(1, 21):
         branches_1 = InceptionResnetBlock(scale=0.11,
@@ -296,19 +317,19 @@ def get_block_5(input_tensor, block_size, padding, groups,
                                           name=f'{name_prefix}block_17_{idx}')(branches_1)
     branch_0 = Conv3DBN(block_size * 16, 1, groups=groups,
                         norm=norm, activation=activation)(branches_1)
-    branch_0 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
+    branch_0 = Conv3DBN(block_size * 24, 3, strides=z_downsample, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_0)
     branch_1 = Conv3DBN(block_size * 16, 1, groups=groups,
                         norm=norm, activation=activation)(branches_1)
-    branch_1 = Conv3DBN(block_size * 18, 3, strides=2, padding=padding,
+    branch_1 = Conv3DBN(block_size * 18, 3, strides=z_downsample, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_1)
     branch_2 = Conv3DBN(block_size * 16, 1, groups=groups,
                         norm=norm, activation=activation)(branches_1)
     branch_2 = Conv3DBN(block_size * 18, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
-    branch_2 = Conv3DBN(block_size * 20, 3, strides=2, padding=padding,
+    branch_2 = Conv3DBN(block_size * 20, 3, strides=z_downsample, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_2)
-    branch_pool = layers.MaxPooling3D(3, strides=2,
+    branch_pool = layers.MaxPooling3D(3, strides=z_downsample,
                                       padding=padding)(branches_1)
     branches_2 = [branch_0, branch_1, branch_2, branch_pool]
     branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
@@ -339,28 +360,18 @@ class Conv3DBN(layers.Layer):
                  norm="batch", activation="relu", use_bias=False, name=None):
         super().__init__()
         norm_axis = CHANNEL_AXIS
-        if groups == 1:
-            self.conv_layer = EqualizedConv3D(out_channels=filters,
-                                              kernel=kernel_size,
-                                              downsample=strides == 2,
-                                              padding=padding,
-                                              use_bias=use_bias)
-            if use_bias:
-                self.norm_layer = get_norm_layer(None)
-            else:
-                self.norm_layer = get_norm_layer(norm, axis=norm_axis)
+        self.conv_layer = layers.Conv3D(filters=filters,
+                                        kernel_size=kernel_size,
+                                        strides=strides,
+                                        padding=padding,
+                                        groups=groups,
+                                        use_bias=use_bias,
+                                        kernel_initializer='glorot_uniform',
+                                        bias_initializer='zeros')
+        if use_bias:
+            self.norm_layer = get_norm_layer(None)
         else:
-            self.conv_layer = layers.Conv3D(filters=filters,
-                                            kernel_size=kernel_size,
-                                            strides=strides,
-                                            padding=padding,
-                                            groups=groups,
-                                            use_bias=use_bias,
-                                            kernel_initializer='glorot_uniform',
-                                            bias_initializer='zeros')
-            self.norm_layer = GroupNormalization(groups=groups,
-                                                 axis=norm_axis,
-                                                 scale=False)
+            self.norm_layer = get_norm_layer(norm, axis=norm_axis)
         self.act_layer = get_act_layer(activation, name=name)
 
     def __call__(self, input_tensor):

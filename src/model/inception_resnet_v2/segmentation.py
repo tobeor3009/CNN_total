@@ -51,7 +51,7 @@ def get_segmentation_model_v1(input_shape,
         pass
     elif encode_block == "transformer":
         attn_dropout_proba = 0.1
-        attn_dim_list = [block_size * 3 for _ in range(6)]
+        attn_dim_list = [block_size * 12 for _ in range(6)]
         num_head_list = [8 for _ in range(6)]
         attn_layer_list = []
         for attn_dim, num_head in zip(attn_dim_list, num_head_list):
@@ -112,7 +112,7 @@ def get_segmentation_model_v2(input_shape,
         pass
     elif encode_block == "transformer":
         attn_dropout_proba = 0.1
-        attn_dim_list = [block_size * 3 for _ in range(6)]
+        attn_dim_list = [block_size * 12 for _ in range(6)]
         num_head_list = [8 for _ in range(6)]
         attn_layer_list = []
         for attn_dim, num_head in zip(attn_dim_list, num_head_list):
