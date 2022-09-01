@@ -2,8 +2,8 @@ from .base_model import conv2d_bn
 from .base_model_as_class import InceptionResNetV2_progressive, InceptionResNetV2, InceptionResNetV2_Small
 from .base_model_as_class import DecoderBlock2D, DecoderBlock2D_stargan, get_input_label2image_tensor
 from .base_model_resnet import HighWayResnet2D, HighWayDecoder2D
-from .layers import OutputLayer2D, TwoWayOutputLayer2D, Decoder2D, TransformerEncoder
-from .transformer_layers import AddPositionEmbs, PatchEmbedding
+from .layers import OutputLayer2D, TwoWayOutputLayer2D, Decoder2D, TransformerEncoder, PatchEmbedding
+from .transformer_layers import AddPositionEmbs
 from .reformer_layers import ReformerBlock
 from tensorflow.keras import Model, Sequential, layers
 from tensorflow.keras import backend
@@ -151,8 +151,7 @@ def get_segmentation_model_v3(input_shape,
         attn_sequence = Sequential(attn_layer_list)
         decoded = layers.Reshape((H * W, C))(decoded)
         decoded = PatchEmbedding(num_patch=H * W,
-                                 embed_dim=C)
-        decoded = AddPositionEmbs(input_shape=(H * W, C))(decoded)
+                                 embed_dim=C)(decoded)
         decoded = attn_sequence(decoded)
         decoded = layers.Reshape((H, W, C))(decoded)
 

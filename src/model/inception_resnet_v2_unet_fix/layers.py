@@ -694,9 +694,6 @@ class PixelShuffleBlock2D(layers.Layer):
 
         self.kernel_size = kernel_size
         self.unsharp = unsharp
-        self.conv_before_pixel_shffle = layers.Conv2D(filters=out_channel * (kernel_size ** 2),
-                                                      kernel_size=3, padding="same",
-                                                      strides=1, use_bias=USE_CONV_BIAS)
         self.conv_after_pixel_shffle = layers.Conv2D(filters=out_channel,
                                                      kernel_size=3, padding="same",
                                                      strides=1, use_bias=USE_CONV_BIAS)
@@ -709,8 +706,7 @@ class PixelShuffleBlock2D(layers.Layer):
 
     def call(self, input_tensor):
 
-        pixel_shuffle = self.conv_before_pixel_shffle(input_tensor)
-        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle,
+        pixel_shuffle = tf.nn.depth_to_space(input_tensor,
                                              block_size=self.kernel_size)
         pixel_shuffle = self.conv_after_pixel_shffle(pixel_shuffle)
 

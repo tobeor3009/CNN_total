@@ -27,7 +27,7 @@ positional_transform = A.OneOf([
 
 noise_transform = A.OneOf([
     A.Blur(blur_limit=(2, 2), p=1),
-    A.GaussNoise(var_limit=(0.01, 5), p=1),
+    A.GaussNoise(var_limit=(0.01, 5), p=1)
 ], p=0.5)
 
 elastic_tranform = A.ElasticTransform(p=0.5)

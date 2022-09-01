@@ -12,6 +12,12 @@ temp/
 *.pyc
 *.ipynb
 *.hdf5
+*.pkl
+*.tmp
+*.ink
+*.db
+*.h5
+*.png
 
 temp.py
 config.json

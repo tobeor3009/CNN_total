@@ -1,5 +1,6 @@
 
 from __future__ import absolute_import
+from re import X
 from sklearn.preprocessing import KernelCenterer
 
 import tensorflow as tf
@@ -307,7 +308,8 @@ class PatchMerging3D(layers.Layer):
 
 class PatchExpanding(layers.Layer):
 
-    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
+    def __init__(self, num_patch, embed_dim, upsample_rate,
+                 return_vector=True, norm="layer", swin_v2=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -355,6 +357,54 @@ class PatchExpanding(layers.Layer):
         else:
             x = self.norm(x)
             x = self.concat_linear_trans(x)
+        if self.return_vector:
+            # Convert aligned patches to a patch sequence
+            x = tf.reshape(x, (-1,
+                               L * self.upsample_rate * self.upsample_rate,
+                               self.embed_dim // 2))
+        return x
+
+
+class PatchExpandingSimple(layers.Layer):
+
+    def __init__(self, num_patch, embed_dim, upsample_rate,
+                 return_vector=True, norm="layer", swin_v2=False, name=''):
+        super().__init__()
+
+        self.num_patch = num_patch
+        self.embed_dim = embed_dim
+        self.upsample_rate = upsample_rate
+        self.return_vector = return_vector
+        self.norm = get_norm_layer(norm)
+        self.swin_v2 = swin_v2
+
+        self.pixel_shuffle_linear_trans = layers.Conv2D(upsample_rate * embed_dim,
+                                                        kernel_size=1,
+                                                        use_bias=False,
+                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
+        self.linear_trans = layers.Conv2D(embed_dim // 2,
+                                          kernel_size=1, use_bias=False, name='{}_concat_linear_trans'.format(name))
+        self.prefix = name
+
+    def call(self, x):
+
+        H, W = self.num_patch
+        _, L, C = x.get_shape().as_list()
+
+        assert (L == H * W), 'input feature has wrong size'
+
+        x = tf.reshape(x, (-1, H, W, C))
+
+        x = self.pixel_shuffle_linear_trans(x)
+        # rearange depth to number of patches
+        x = tf.nn.depth_to_space(x, self.upsample_rate,
+                                 data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
+        if self.swin_v2:
+            x = self.linear_trans(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.linear_trans(x)
         if self.return_vector:
             # Convert aligned patches to a patch sequence
             x = tf.reshape(x, (-1,

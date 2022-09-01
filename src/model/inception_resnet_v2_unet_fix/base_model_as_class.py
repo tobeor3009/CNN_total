@@ -51,15 +51,11 @@ def DecoderBlock2D(input_tensor=None,
     init_filter = encoder.output.shape[-1]
     x = Conv2DBN(init_filter, 3, groups=groups,
                  activation=base_act)(input_tensor)
-    x = Conv2DBN(init_filter, 3, groups=groups,
-                 activation=base_act)(x)
 
     for idx in range(num_downsample - 1, -1, -1):
         skip_connect = encoder.get_layer(
             skip_connection_layer_names[idx]).output
         filter_size = int(round(skip_connect.shape[-1] * filter_scale))
-        x = Conv2DBN(filter_size, 3, groups=groups,
-                     activation=base_act)(x)
         x = Conv2DBN(filter_size, 3, groups=groups,
                      activation=base_act)(x)
         if idx % 2 == 0:
