@@ -483,8 +483,8 @@ class PatchExpanding3D(layers.Layer):
 
         x = tf.reshape(x, (-1, Z, H, W, C))
 
-        upsample = self.upsample_layer(x)
-        upsample = self.upsample_linear_trans(upsample)
+        upsample = self.upsample_linear_trans(x)
+        upsample = self.upsample_layer(upsample)
 
         pixel_shuffle = self.pixel_shuffle_linear_trans(x)
         # rearange depth to number of patches

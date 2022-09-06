@@ -35,7 +35,6 @@ class Pix2PixGan(Model):
         apply_adaptive_gradient_clipping=True,
         lambda_clip=0.1
     ):
-        super(Pix2PixGan, self).compile()
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.image_loss = image_loss
@@ -44,6 +43,7 @@ class Pix2PixGan(Model):
         self.disc_real_metric = tf.metrics.Accuracy()
         self.disc_fake_metric = tf.metrics.Accuracy()
         self.gen_fake_metric = tf.metrics.Accuracy()
+        super(Pix2PixGan, self).compile()
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
 
     def call(self, x):
