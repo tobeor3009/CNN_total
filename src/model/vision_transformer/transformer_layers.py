@@ -543,3 +543,43 @@ class PatchExpanding_2D_3D(layers.Layer):
                                L * Z,
                                self.embed_dim))
         return x
+
+
+class PatchExpanding_2D_3D(layers.Layer):
+
+    def __init__(self, num_patch, embed_dim, return_vector=True, norm="layer", swin_v2=False, name=''):
+        super().__init__()
+
+        self.num_patch = num_patch
+        self.embed_dim = embed_dim
+        self.return_vector = return_vector
+        self.embed_dim = embed_dim
+        self.norm = get_norm_layer(norm)
+        self.swin_v2 = swin_v2
+
+        self.linear_trans1 = layers.Conv3D(embed_dim,
+                                           kernel_size=1, use_bias=False, name='{}_linear_trans1'.format(name))
+        self.prefix = name
+
+    def call(self, x):
+
+        H, W = self.num_patch
+        Z = H
+        B, L, C = x.get_shape().as_list()
+
+        assert (L == H * W), 'input feature has wrong size'
+
+        x = tf.reshape(x, (-1, Z, H, W, C // Z))
+        if self.swin_v2:
+            x = self.linear_trans1(x)
+            x = self.norm(x)
+        else:
+            x = self.norm(x)
+            x = self.linear_trans1(x)
+
+        if self.return_vector:
+            # Convert aligned patches to a patch sequence
+            x = tf.reshape(x, (-1,
+                               L * Z,
+                               self.embed_dim))
+        return x
