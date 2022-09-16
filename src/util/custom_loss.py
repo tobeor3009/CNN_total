@@ -189,12 +189,12 @@ def x2ct_loss(y_true, y_pred):
     #####################################################
     #####################################################
 
-    projection_loss = (ap_projection_loss * 1.2 +
-                       lat_projection_loss * 0.6 +
-                       axial_projection_loss * 0.2)
-    max_projection_loss = (ap_projection_max_loss * 0.6 +
-                           lat_projection_max_loss * 0.3 +
-                           axial_projection_max_loss * 0.1)
+    projection_loss = (ap_projection_loss * 0.12 +
+                       lat_projection_loss * 0.06 +
+                       axial_projection_loss * 0.02)
+    max_projection_loss = (ap_projection_max_loss * 0.06 +
+                           lat_projection_max_loss * 0.03 +
+                           axial_projection_max_loss * 0.01)
 
     return K.mean(mae_error + projection_loss + max_projection_loss)
 
