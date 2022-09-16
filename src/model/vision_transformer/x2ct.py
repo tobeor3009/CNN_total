@@ -3,7 +3,6 @@ import tensorflow as tf
 import math
 
 from tensorflow.keras import layers, Model
-
 from .base_layer import swin_transformer_stack_2d, swin_transformer_stack_3d
 from .classfication import swin_classification_2d_base, swin_classification_3d_base
 from . import utils, transformer_layers
@@ -26,6 +25,7 @@ def skip_connect_expanding(decoded, skip_connect):
     skip_connect = transformer_layers.PatchExpanding_2D_3D(num_patch=(num_skip_patch_x, num_skip_patch_y),
                                                            embed_dim=embed_dim,
                                                            return_vector=True,
+                                                           preserve_dim=True,
                                                            name="xray_expand")(skip_connect)
 
     skip_connect = layers.Dense(decode_embed_dim, use_bias=False)(skip_connect)
@@ -122,42 +122,13 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
     X_decode = X_skip[1:]
     depth_decode = len(X_decode)
     print(f"dedoced shape: {X.shape}")
-
-    expand_ratio = math.log(num_patch_x, 4)
-    assert int(expand_ratio) == expand_ratio, f"expand_ratio: {expand_ratio}"
-    need_ct_upsacle = int(expand_ratio)
-
-    for _ in range(need_ct_upsacle):
-        print(f"depth middle {idx} X shape: {X.shape}")
-        # Patch expanding
-        X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
-                                              embed_dim=embed_dim,
-                                              upsample_rate=2,
-                                              swin_v2=swin_v2,
-                                              return_vector=True,
-                                              name="x2ct_2d_3d")(X)
-        print(f"depth middle expanding {idx} X shape: {X.shape}")
-        # update token shape info
-        embed_dim = embed_dim // 2
-        num_patch_x = num_patch_x * 2
-        num_patch_y = num_patch_y * 2
-
-        # Swin Transformer stacks
-        X = swin_transformer_stack_2d(X,
-                                      stack_num=stack_num_up,
-                                      embed_dim=embed_dim,
-                                      num_patch=(num_patch_x, num_patch_y),
-                                      num_heads=num_heads[idx],
-                                      window_size=window_size[idx],
-                                      num_mlp=num_mlp,
-                                      act=act,
-                                      shift_window=shift_window,
-                                      mode=BLOCK_MODE_NAME,
-                                      swin_v2=swin_v2,
-                                      name='2d_3d')
-
-    num_patch_x = num_patch_x // (2 ** need_ct_upsacle)
-    num_patch_y = num_patch_y // (2 ** need_ct_upsacle)
+    X = transformer_layers.PatchExpanding_2D_3D(num_patch=(num_patch_x, num_patch_y),
+                                                embed_dim=embed_dim,
+                                                return_vector=True,
+                                                preserve_dim=True,
+                                                name="xray_expand")(X)
+    num_patch_x = num_patch_x
+    num_patch_y = num_patch_y
     num_patch_z = num_patch_x
     print(f"ct decoded shape: {X.shape}")
 
