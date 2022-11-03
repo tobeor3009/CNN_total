@@ -543,6 +543,7 @@ def InceptionResNetV2_progressive(target_shape=None,
                                   name_prefix="",
                                   num_downsample=5,
                                   use_attention=True,
+                                  skip_connect_tensor=False,
                                   skip_connect_names=False):
     if name_prefix == "":
         pass
@@ -556,28 +557,36 @@ def InceptionResNetV2_progressive(target_shape=None,
                                        (final_downsample - num_downsample)),
                    target_shape[2])
     H, W, _ = input_shape
-
+    skip_connect_tensor_list = []
     input_tensor = layers.Input(input_shape)
     x = get_block_1(input_tensor, block_size, groups,
                     norm, base_act, num_downsample, name_prefix)
+    skip_connect_tensor_list.append(x)
     if num_downsample >= 5:
         x = get_block_2(x, block_size, padding, groups,
                         norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
     if num_downsample >= 4:
         x = get_block_3(x, block_size, padding, pooling,
                         groups, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
     if num_downsample >= 3:
         x = get_block_4(x, block_size, padding, pooling, groups,
                         use_attention, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
     if num_downsample >= 2:
         x = get_block_5(x, block_size, padding, groups,
                         use_attention, norm, base_act, name_prefix)
+        skip_connect_tensor_list.append(x)
     if num_downsample >= 1:
         x = get_output_block(x, block_size, padding, groups,
                              use_attention, norm, base_act, last_act, name_prefix)
-
-    model = Model(input_tensor, x,
-                  name=f'{name_prefix}inception_resnet_v2')
+    if skip_connect_tensor:
+        model = Model(input_tensor, [x, skip_connect_tensor_list],
+                    name=f'{name_prefix}inception_resnet_v2')
+    else:
+        model = Model(input_tensor, x,
+                    name=f'{name_prefix}inception_resnet_v2')
     if skip_connect_names:
         skip_connect_name_list = [f"{name_prefix}block_1"] + \
             [f"{name_prefix}block_{idx}"

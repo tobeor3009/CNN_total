@@ -11,6 +11,9 @@ def imread(img_path, channel=None):
     if extension == ".npy":
         img_numpy_array = np.load(
             img_path, allow_pickle=True).astype("float32")
+    elif extension == ".gz":
+        image_object = nib.load(img_path)
+        img_numpy_array = image_object.get_fdata().astype("float32")
     else:
         img_byte_stream = open(img_path.encode("utf-8"), "rb")
         img_byte_array = bytearray(img_byte_stream.read())

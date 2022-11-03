@@ -398,11 +398,11 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
         skip_connect = model.get_layer(f"x2ct_down_block_{idx}").output
         _, H, W, current_filter = skip_connect.shape
         skip_connect = SkipUpsample3D(current_filter,
-                                      activation=base_act)(skip_connect, H)
+                                      activation=base_act,
+                                      include_context=True)(skip_connect, H)
         decoded = conv3d_bn(decoded, current_filter, 3, activation=base_act)
         decoded = layers.Concatenate()([decoded, skip_connect])
         decoded = conv3d_bn(decoded, current_filter, 3, activation=base_act)
-        print(decoded.shape)
         decoded = Decoder3D(current_filter,
                             strides=(2, 2, 2),
                             activation=base_act)(decoded)

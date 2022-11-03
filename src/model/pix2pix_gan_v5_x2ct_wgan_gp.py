@@ -18,14 +18,16 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        lambda_image=1,
+        lambda_disc=0.1,
         gp_weight=10,
-        lambda_disc=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
-        self.gp_weight = gp_weight
+        self.lambda_image = lambda_image
         self.lambda_disc = lambda_disc
+        self.gp_weight = gp_weight
 
     def compile(
         self,
@@ -52,7 +54,14 @@ class Pix2PixGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
-        real_x = [real_x[..., 0:1], real_x[..., 1:]]
+        lower_rand_idx = tf.random.uniform(shape=(), minval=0, maxval=127,
+                                           dtype=tf.int32)
+        upper_rand_idx = tf.random.uniform(shape=(), minval=128, maxval=255,
+                                           dtype=tf.int32)
+        real_lower_slice = real_y[:, lower_rand_idx]
+        real_upper_slice = real_y[:, upper_rand_idx]
+        real_slice = tf.concat([real_lower_slice, real_upper_slice],
+                               axis=-1)
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
@@ -60,14 +69,18 @@ class Pix2PixGan(Model):
 
             # another domain mapping
             fake_y = self.generator(real_x)
+            fake_lower_slice = fake_y[:, lower_rand_idx]
+            fake_upper_slice = fake_y[:, upper_rand_idx]
+            fake_slice = tf.concat([fake_lower_slice, fake_upper_slice],
+                                   axis=-1)
             # discriminator loss
-            disc_real_y = self.discriminator(real_y, training=True)
-            disc_fake_y = self.discriminator(fake_y, training=True)
+            disc_real_y = self.discriminator(real_slice, training=True)
+            disc_fake_y = self.discriminator(fake_slice, training=True)
 
             disc_real_y_loss = to_real_loss(disc_real_y)
             disc_fake_y_loss = to_fake_loss(disc_fake_y)
-            gp = gradient_penalty(self.discriminator, real_y, fake_y,
-                                  gp_weight=self.gp_weight, mode="3d")
+            gp = gradient_penalty(self.discriminator, real_slice, fake_slice,
+                                  gp_weight=self.gp_weight, mode="2d")
             disc_y_loss = disc_real_y_loss + disc_fake_y_loss + gp
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_y_loss,
@@ -87,13 +100,17 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
+            fake_lower_slice = fake_y[:, lower_rand_idx]
+            fake_upper_slice = fake_y[:, upper_rand_idx]
+            fake_slice = tf.concat([fake_lower_slice, fake_upper_slice],
+                                   axis=-1)
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
             # Generator adverserial loss
-            disc_fake_y = self.discriminator(fake_y)
+            disc_fake_y = self.discriminator(fake_slice)
             gen_adverserial_loss = to_real_loss(disc_fake_y)
 
-            total_generator_loss = gen_loss_in_real_y * 100 + \
+            total_generator_loss = gen_loss_in_real_y * self.lambda_image + \
                 gen_adverserial_loss * self.lambda_disc
 
         # Get the gradients for the generators

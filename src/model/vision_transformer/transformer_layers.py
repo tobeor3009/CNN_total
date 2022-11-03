@@ -262,8 +262,8 @@ class PatchMerging3D(layers.Layer):
         Z, H, W = self.num_patch
         B, L, C = x.get_shape().as_list()
 
-        assert (L == H * W * Z), 'input feature has wrong size'
-        assert (H % 2 == 0 and W % 2 ==
+        assert (L == Z * H * W), 'input feature has wrong size'
+        assert (Z % 2 == 0 and H % 2 == 0 and W % 2 ==
                 0), '{}-by-{} patches received, they are not even.'.format(H, W)
 
         # Convert the patch sequence to aligned patches

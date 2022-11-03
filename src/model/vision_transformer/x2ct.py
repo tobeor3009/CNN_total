@@ -4,7 +4,8 @@ import math
 
 from tensorflow.keras import layers, Model
 from .base_layer import swin_transformer_stack_2d, swin_transformer_stack_3d
-from .classfication import swin_classification_2d_base, swin_classification_3d_base
+from .classfication import swin_classification_2d_base
+from .segmentation import swin_unet_3d_base
 from . import utils, transformer_layers
 
 BLOCK_MODE_NAME = "seg"
@@ -201,36 +202,49 @@ def get_swin_x2ct(input_shape, last_channel_num,
 def get_swin_disc_2d(input_shape,
                      filter_num_begin, depth, stack_num_per_depth,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
-                     act="gelu", shift_window=True, swin_v2=False):
-    # IN.shape = [B Z H W 1]
+                     act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+    # IN.shape = [B H W 2]
     IN = layers.Input(input_shape)
-
-    X = tf.transpose(IN[..., 0], (0, 2, 3, 1))
-    X = swin_classification_2d_base(X, filter_num_begin, depth, stack_num_per_depth,
+    X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window,
                                     swin_v2=swin_v2, name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
-    VALIDITY = layers.Dense(1, activation='sigmoid')(X)
+    VALIDITY = layers.Dense(1, activation=last_act)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY])
     return model
 
 
+def min_pool(x):
+
+    n_channel = x.shape[-1]
+    patches = tf.extract_volume_patches(x,
+                                        ksizes=[1, 8, 8, 8, 1],
+                                        strides=[1, 8, 8, 8, 1],
+                                        padding='VALID')
+
+    channel_pool = [tf.reduce_min(patches[:, :, :, :, c::n_channel], keepdims=True, axis=-1)
+                    for c in range(n_channel)]
+
+    return tf.concat(channel_pool, axis=-1)
+
+
 def get_swin_disc_3d(input_shape,
-                     filter_num_begin, depth, stack_num_per_depth,
+                     filter_num_begin, depth, stack_num_down, stack_num_up,
                      patch_size, stride_mode, num_heads, window_size, num_mlp,
                      act="gelu", shift_window=True, swin_v2=False):
     IN = layers.Input(input_shape)
 
-    X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
-                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, include_3d=True,
-                                    swin_v2=swin_v2, name="classification")
-    X = layers.GlobalAveragePooling1D()(X)
+    X = swin_unet_3d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
+                          patch_size, stride_mode, num_heads, window_size, num_mlp,
+                          decode_simple="pass", act=act, shift_window=shift_window,
+                          swin_v2=swin_v2, name="segmentation")
     # The output section
-    VALIDITY = layers.Dense(1, activation='sigmoid')(X)
+    VALIDITY = layers.Conv1D(1, kernel_size=1, activation='sigmoid')(X)
+    VALIDITY = layers.Reshape((64, 64, 64, 1))(VALIDITY)
+    VALIDITY = layers.Lambda(min_pool)(VALIDITY)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY])
     return model

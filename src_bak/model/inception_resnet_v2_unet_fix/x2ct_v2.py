@@ -434,6 +434,79 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
                                         act=last_act)(output_tensor)
     return Model(base_model_input, output_tensor)
 
+def get_x2ct_model_ap_lat_v12(xray_shape, ct_series_shape,
+                              block_size=16,
+                              start_channel_ratio=1,
+                              decoder_filter_ratio=1,
+                              pooling="average",
+                              num_downsample=5,
+                              base_act="leakyrelu",
+                              last_act="tanh"):
+    norm = "batch"
+    target_shape = (xray_shape[0] * (2 ** (5 - num_downsample)),
+                    xray_shape[1] * (2 ** (5 - num_downsample)),
+                    1)
+    base_model = InceptionResNetV2_progressive(target_shape=target_shape,
+                                               block_size=block_size,
+                                               padding="same",
+                                               pooling=pooling,
+                                               norm=norm,
+                                               base_act=base_act,
+                                               last_act=base_act,
+                                               name_prefix="xray",
+                                               num_downsample=num_downsample,
+                                               use_attention=True,
+                                               skip_connect_tensor=True)
+
+    base_model_input = base_model.input
+    base_model_output = base_model.output
+    _, H, W, C = backend.int_shape(base_model_output)
+    ct_start_channel = target_shape[0] // (2 ** 5)
+    ct_dim = ct_start_channel
+
+    # lat_output.shape: [B, 16, 16, 1536]
+    _, H, W, C = backend.int_shape(base_model_output)
+    down_channel = int(round(C // 3 * start_channel_ratio))
+    attn_num_head = 8
+
+    decoded = EqualizedConv(H * W * down_channel)(base_model_output)
+    decoded = layers.Flatten()(base_model_output)
+    decoded = EqualizedDense(H * W * down_channel)(decoded)
+
+    decoded = layers.Reshape((ct_start_channel,
+                              ct_start_channel,
+                              ct_start_channel,
+                              H * W * down_channel // (ct_start_channel ** 3)))(decoded)
+    decoded = Conv3DBN(C, 3,
+                       norm=norm, activation=base_act)(decoded)
+
+    for idx in range(5, 5 - num_downsample, -1):
+        skip_connect = base_model.get_layer(f"xray_block_{idx}").output
+        _, H, W, current_filter = skip_connect.shape
+        current_filter = int(round(current_filter * decoder_filter_ratio))
+        decoded = Conv3DBN(current_filter, 3,
+                           norm=norm, activation=base_act)(decoded)
+
+        skip_connect = SkipUpsample3D(current_filter,
+                                      norm=norm, activation=base_act)(skip_connect, H)
+        if idx % 2 == 0:
+            decoded = UpsampleBlock3D(current_filter,
+                                      strides=(2, 2, 2),
+                                      norm=norm, activation=base_act)(decoded)
+            decoded = layers.Concatenate()([decoded,
+                                            skip_connect])
+        else:
+            decoded = PixelShuffleBlock3D(current_filter,
+                                          strides=(2, 2, 2),
+                                          norm=norm, activation=base_act)(decoded)
+            decoded = layers.Concatenate()([decoded,
+                                            skip_connect])
+
+    output_tensor = Conv3DBN(current_filter, 3,
+                             norm=norm, activation=None)(decoded)
+    output_tensor = SimpleOutputLayer2D(last_channel_num=1,
+                                        act=last_act)(output_tensor)
+    return Model(base_model_input, output_tensor)
 
 def skip_recon_vae_block(input_tensor, latent_dim,
                          base_act, downscale=False, name=None):

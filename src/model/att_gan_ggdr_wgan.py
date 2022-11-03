@@ -3,7 +3,7 @@ from tensorflow.keras import backend as keras_backend
 from tensorflow.keras import layers, backend
 from tensorflow.keras import activations
 from tensorflow.keras.models import Model
-from tensorflow.keras.losses import MeanAbsoluteError
+from tensorflow.keras.losses import MeanAbsoluteError, CosineSimilarity
 from tensorflow.keras.losses import CategoricalCrossentropy, BinaryCrossentropy
 
 from .util.wgan_gp import to_real_loss, to_fake_loss, gradient_penalty
@@ -49,13 +49,15 @@ class ATTGan(Model):
         disc_class_loss_coef=1.0,
         gen_dics_loss_coef=1.0,
         lambda_clip=0.1,
-        lambda_gp=10.0
+        lambda_gp=10.0,
+        ggdr_coef=1.0
     ):
         super(ATTGan, self).compile()
         self.batch_size = batch_size
         self.image_shape = image_shape
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
+        self.ggdr_loss_fn = CosineSimilarity()
         self.recon_loss_fn = image_loss_fn
         self.class_loss_fn = class_loss_fn
         self.active_gradient_clip = active_gradient_clip
@@ -65,6 +67,8 @@ class ATTGan(Model):
         self.disc_class_loss_coef = disc_class_loss_coef
         self.gen_dics_loss_coef = gen_dics_loss_coef
         self.lambda_gp = lambda_gp
+        self.ggdr_coef = ggdr_coef
+        self.gp_weight = 10
     # seems no need in usage. it just exist for keras Model's child must implement "call" method
 
     def call(self, x):
@@ -84,12 +88,12 @@ class ATTGan(Model):
         with tf.GradientTape(persistent=True) as disc_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y])
+            fake_y, _ = self.generator([real_x, label_y])
             # Discriminator output
-            disc_real_x, label_pred_real_x = self.discriminator(real_x,
-                                                                training=True)
-            disc_fake_y, _ = self.discriminator(fake_y,
-                                                training=True)
+            disc_real_x, label_pred_real_x, _ = self.discriminator(real_x,
+                                                                   training=True)
+            disc_fake_y, _, _ = self.discriminator(fake_y,
+                                                                   training=True)
             # Compute Discriminator class_loss
             disc_real_x_class_loss = self.class_loss_fn(label_x,
                                                         label_pred_real_x)
@@ -101,8 +105,7 @@ class ATTGan(Model):
                                        self.lambda_gp, mode="2d")
             disc_loss = disc_real_x_loss + disc_fake_y_loss
 
-            disc_total_loss = (disc_class_loss * self.gen_dics_loss_coef + disc_loss +
-                               disc_gp * self.lambda_gp)
+            disc_total_loss = disc_class_loss * self.gen_dics_loss_coef + disc_loss + disc_gp
 
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_total_loss,
@@ -123,12 +126,13 @@ class ATTGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
 
             # another domain mapping
-            fake_y = self.generator([real_x, label_y],
-                                    training=True)
-            same_x = self.generator([real_x, label_x],
-                                    training=True)
+            fake_y, fake_feature_y = self.generator([real_x, label_y],
+                                                    training=True)
+            same_x, _ = self.generator([real_x, label_x],
+                                       training=True)
             # Discriminator output
-            disc_fake_y, label_pred_fake_y = self.discriminator(fake_y)
+            disc_fake_y, label_pred_fake_y, disc_fake_feature_y = self.discriminator(
+                fake_y)
 
             # Generator class loss
             gen_fake_y_class_loss = self.class_loss_fn(label_y,
@@ -137,15 +141,17 @@ class ATTGan(Model):
             # Generator adverserial loss
             gen_fake_y_disc_loss = to_real_loss(disc_fake_y)
             gen_disc_loss = gen_fake_y_disc_loss
-
+            ggdr_loss_y = self.ggdr_loss_fn(fake_feature_y,
+                                            disc_fake_feature_y)
             # Generator image loss
             same_x_image_loss = self.recon_loss_fn(real_x,
                                                    same_x)
             gen_image_loss = same_x_image_loss
             # Total generator loss
-            gen_total_loss = gen_class_loss * self.gen_class_loss_coef + \
-                gen_disc_loss * self.gen_dics_loss_coef + \
-                gen_image_loss * self.gen_class_loss_coef
+            gen_total_loss = (gen_class_loss * self.gen_class_loss_coef +
+                              gen_disc_loss * self.gen_dics_loss_coef + gen_image_loss * self.image_loss_coef +
+                              ggdr_loss_y * self.ggdr_coef
+                              )
 
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(gen_total_loss,

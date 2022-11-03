@@ -371,6 +371,7 @@ def InceptionResNetV2_progressive(target_shape=None,
                                   name_prefix="",
                                   num_downsample=5,
                                   use_attention=True,
+                                  skip_connect_tensor=False,
                                   skip_connect_names=False):
     if name_prefix == "":
         pass
@@ -388,26 +389,37 @@ def InceptionResNetV2_progressive(target_shape=None,
     input_tensor = layers.Input(input_shape)
     x = get_init_conv(input_tensor, block_size, groups, norm, base_act,
                       num_downsample, name_prefix)(input_tensor)
+    skip_connect_list = []
     if num_downsample >= 5:
         x = get_block_1(x, block_size, padding,
                         groups, norm, base_act, name_prefix)
+        skip_connect_list.append(x)
     if num_downsample >= 4:
         x = get_block_2(x, block_size, padding, pooling,
                         groups, norm, base_act, name_prefix)
+        skip_connect_list.append(x)
     if num_downsample >= 3:
         x = get_block_3(x, block_size, padding, pooling,
                         groups, norm, base_act, name_prefix)
+        skip_connect_list.append(x)
     if num_downsample >= 2:
         x = get_block_4(x, block_size, padding, groups,
                         use_attention, norm, base_act, name_prefix)
+        skip_connect_list.append(x)
     if num_downsample >= 1:
         x = get_block_5(x, block_size, padding, groups,
                         use_attention, norm, base_act, name_prefix)
+        skip_connect_list.append(x)
     x = get_output_block(x, block_size, groups,
                          use_attention, norm, base_act, last_act, name_prefix)(x)
 
-    model = Model(input_tensor, x,
-                  name=f'{name_prefix}inception_resnet_v2')
+    if skip_connect_tensor:
+        model = Model(input_tensor, [x, *skip_connect_list],
+                      name=f'{name_prefix}inception_resnet_v2')
+    else:
+        model = Model(input_tensor, x,
+                      name=f'{name_prefix}inception_resnet_v2')
+
     if skip_connect_names:
         skip_connect_name_list = [
             f"{name_prefix}down_block_{idx}" for idx in range(1, 6)]
