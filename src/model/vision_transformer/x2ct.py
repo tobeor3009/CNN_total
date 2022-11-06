@@ -5,7 +5,7 @@ import math
 from tensorflow.keras import layers, Model
 from .base_layer import swin_transformer_stack_2d, swin_transformer_stack_3d
 from .classfication import swin_classification_2d_base
-from .segmentation import swin_unet_3d_base
+from .segmentation import swin_unet_2d_base, swin_unet_3d_base
 from . import utils, transformer_layers
 
 BLOCK_MODE_NAME = "seg"
@@ -217,6 +217,27 @@ def get_swin_disc_2d(input_shape,
     return model
 
 
+def get_swin_unet_disc_2d(input_shape,
+                          filter_num_begin, depth, stack_num_down, stack_num_up,
+                          patch_size, stride_mode, num_heads, window_size, num_mlp,
+                          act="gelu", shift_window=True, swin_v2=False):
+    IN = layers.Input(input_shape)
+
+    X = swin_unet_2d_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
+                          patch_size, stride_mode, num_heads, window_size, num_mlp,
+                          decode_simple="pass", act=act, shift_window=shift_window,
+                          swin_v2=swin_v2, name="segmentation")
+    # The output section
+    VALIDITY = layers.Conv1D(1, kernel_size=1, activation='sigmoid')(X)
+    VALIDITY = layers.Reshape((64, 64, 1))(VALIDITY)
+    # VALIDITY = layers.Lambda(min_pool)(VALIDITY)
+    VALIDITY = layers.AveragePooling2D((8, 8))(VALIDITY)
+
+    # Model configuration
+    model = Model(inputs=[IN, ], outputs=[VALIDITY])
+    return model
+
+
 def min_pool(x):
 
     n_channel = x.shape[-1]
@@ -244,7 +265,9 @@ def get_swin_disc_3d(input_shape,
     # The output section
     VALIDITY = layers.Conv1D(1, kernel_size=1, activation='sigmoid')(X)
     VALIDITY = layers.Reshape((64, 64, 64, 1))(VALIDITY)
-    VALIDITY = layers.Lambda(min_pool)(VALIDITY)
+    # VALIDITY = layers.Lambda(min_pool)(VALIDITY)
+    VALIDITY = layers.MaxPooling3D()(VALIDITY)
+
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY])
     return model

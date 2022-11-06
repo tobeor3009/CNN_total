@@ -433,6 +433,7 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
                                         act=last_act)(output_tensor)
     return Model(base_model_input, output_tensor)
 
+
 def get_x2ct_model_ap_lat_v12(xray_shape, ct_series_shape,
                               block_size=16,
                               start_channel_ratio=1,
@@ -454,15 +455,24 @@ def get_x2ct_model_ap_lat_v12(xray_shape, ct_series_shape,
                                                last_act=base_act,
                                                name_prefix="xray",
                                                num_downsample=num_downsample,
-                                               use_attention=True)
+                                               use_attention=True,
+                                               skip_connect_tensor=True)
 
-    base_model_input = base_model.input
-    base_model_output = base_model.output
-    _, H, W, C = backend.int_shape(base_model_output)
+    n_drr = xray_shape[-1]
+    model_input = layers.Input(xray_shape)
+    model_input_split_list = tf.split(model_input, n_drr, axis=-1)
+    model_output_list = []
+    model_downsample_list = []
+    for model_input_split in model_input_split_list:
+        model_output, model_downsample = base_model(model_input_split)
+        model_output_list.append(model_output)
+        model_downsample_list.append(model_downsample)
+    _, H, W, C = backend.int_shape(model_input)
     ct_start_channel = target_shape[0] // (2 ** 5)
 
     # lat_output.shape: [B, 16, 16, 1536]
     _, H, W, C = backend.int_shape(base_model_output)
+
     down_channel = int(round(C // 3 * start_channel_ratio))
 
     decoded = EqualizedConv(H * W * down_channel)(base_model_output)
@@ -504,6 +514,7 @@ def get_x2ct_model_ap_lat_v12(xray_shape, ct_series_shape,
     output_tensor = SimpleOutputLayer2D(last_channel_num=1,
                                         act=last_act)(output_tensor)
     return Model(base_model_input, output_tensor)
+
 
 def skip_recon_vae_block(input_tensor, latent_dim,
                          base_act, downscale=False, name=None):
