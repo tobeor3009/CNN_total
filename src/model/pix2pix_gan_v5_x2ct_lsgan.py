@@ -19,13 +19,11 @@ class Pix2PixGan(Model):
         generator,
         discriminator,
         lambda_image=1,
-        lambda_disc=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
         self.lambda_image = lambda_image
-        self.lambda_disc = lambda_disc
 
     def compile(
         self,
@@ -33,13 +31,15 @@ class Pix2PixGan(Model):
         discriminator_optimizer,
         image_loss=base_image_loss_fn,
         apply_adaptive_gradient_clipping=True,
-        lambda_clip=0.1
+        lambda_clip=0.1,
+        lambda_disc=0.1
     ):
         self.generator_optimizer = generator_optimizer
         self.discriminator_optimizer = discriminator_optimizer
         self.image_loss = image_loss
         self.apply_adaptive_gradient_clipping = apply_adaptive_gradient_clipping
         self.lambda_clip = lambda_clip
+        self.lambda_disc = lambda_disc
         self.disc_real_metric = tf.metrics.Accuracy()
         self.disc_fake_metric = tf.metrics.Accuracy()
         self.gen_fake_metric = tf.metrics.Accuracy()

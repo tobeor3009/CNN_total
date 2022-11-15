@@ -213,10 +213,10 @@ class TransformerEncoder(layers.Layer):
         self.self_attn_dropout = layers.Dropout(dropout)
         self.self_attn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
         self.ffpn_dense_1 = EqualizedDense(hidden_dim)
-        self.ffpn_act_1 = get_act_layer("relu")
+        self.ffpn_act_1 = get_act_layer("gelu")
         self.ffpn_dropout_1 = layers.Dropout(dropout)
         self.ffpn_dense_2 = EqualizedDense(self.inner_dim)
-        self.ffpn_act_2 = get_act_layer("relu")
+        self.ffpn_act_2 = get_act_layer("gelu")
         self.ffpn_dropout_2 = layers.Dropout(dropout)
         self.ffpn_norm = layers.LayerNormalization(axis=-1, epsilon=1e-6)
 
