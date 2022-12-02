@@ -439,15 +439,14 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
         decoded = Conv3DBN(current_filter, 3,
                            norm=norm, activation=base_act)(decoded)
 
-        if idx % 2 == 0:
-            decoded = UpsampleBlock3D(current_filter,
-                                      strides=(2, 2, 2),
-                                      norm=norm, activation=base_act)(decoded)
-
-        else:
-            decoded = PixelShuffleBlock3D(current_filter,
-                                          strides=(2, 2, 2),
-                                          norm=norm, activation=base_act)(decoded)
+        decoded_upsample = UpsampleBlock3D(current_filter,
+                                           strides=(2, 2, 2),
+                                           norm=norm, activation=base_act)(decoded)
+        decoded_pixelshffle = PixelShuffleBlock3D(current_filter,
+                                                  strides=(2, 2, 2),
+                                                  norm=norm, activation=base_act)(decoded)
+        decoded = layers.Concatenate()([decoded_upsample,
+                                        decoded_pixelshffle])
         if idx == 5 - num_downsample + 1:
             pass
         else:
@@ -631,6 +630,88 @@ def get_x2ct_model_ap_lat_v13(xray_shape, ct_series_shape,
     return Model(model_input, output_tensor)
 
 
+def get_x2ct_model_ap_lat_v14(xray_shape, ct_series_shape,
+                              block_size=16,
+                              start_channel_ratio=1,
+                              decoder_filter_ratio=1,
+                              pooling="average",
+                              num_downsample=5,
+                              base_act="leakyrelu",
+                              last_act="tanh"):
+
+    norm = "batch"
+    target_shape = (xray_shape[0] * (2 ** (5 - num_downsample)),
+                    xray_shape[1] * (2 ** (5 - num_downsample)),
+                    1)
+    base_model = InceptionResNetV2_progressive(target_shape=target_shape,
+                                               block_size=block_size,
+                                               padding="same",
+                                               pooling=pooling,
+                                               norm=norm,
+                                               base_act=base_act,
+                                               last_act=base_act,
+                                               name_prefix="xray",
+                                               num_downsample=num_downsample,
+                                               use_attention=True,
+                                               skip_connect_tensor=True)
+    _, H, W, C = backend.int_shape(base_model.output[0])
+    down_channel = int(round(C // 3 * start_channel_ratio))
+
+    n_drr = xray_shape[-1]
+    model_input = layers.Input(xray_shape)
+    model_input_split_list = tf.split(model_input, n_drr, axis=-1)
+    model_output_list = []
+    model_downsample_list = []
+    block_2d_3d_transformer = Block2D3D(
+        H * W * down_channel, norm, base_act, block_num=6)
+    for model_input_split in model_input_split_list:
+        model_output, model_downsample = base_model(model_input_split)
+        model_output = block_2d_3d_transformer(model_output)
+        model_output_list.append(model_output)
+        model_downsample_list.insert(0, model_downsample)
+
+    decoded = layers.Concatenate()(model_output_list)
+    decoded = Conv3DBN(C, 1,
+                       norm=norm, activation=base_act)(decoded)
+    model_downsample_concat_list = []
+    for model_downsample_2d_list in zip(*model_downsample_list):
+        _, h, _, c = backend.int_shape(model_downsample_2d_list[0])
+        block_2d_3d = SkipUpsample3D(c, norm=norm, activation=base_act)
+        model_downsample_3d_list = [block_2d_3d(model_downsample_2d, h)
+                                    for model_downsample_2d in model_downsample_2d_list]
+        model_downsample_concat = layers.Concatenate()(model_downsample_3d_list)
+        model_downsample_concat = Conv3DBN(c, 1,
+                                           norm=norm, activation=base_act)(model_downsample_concat)
+        model_downsample_concat_list.append(model_downsample_concat)
+    model_downsample_concat_list = model_downsample_concat_list[::-1]
+    # lat_output.shape: [B, 16, 16, 1536]
+    for idx in range(0, num_downsample):
+        skip_connect = model_downsample_concat_list[idx]
+        _, _, _, _, current_filter = skip_connect.shape
+        current_filter = int(round(current_filter * decoder_filter_ratio))
+        decoded = Conv3DBN(current_filter, 3,
+                           norm=norm, activation=base_act)(decoded)
+        decoded_upsample = UpsampleBlock3D(current_filter,
+                                           strides=(2, 2, 2),
+                                           norm=norm, activation=base_act)(decoded)
+
+        decoded_transformer = PixelShuffleBlock3D(current_filter,
+                                                  strides=(2, 2, 2),
+                                                  norm=norm, activation=base_act)(decoded)
+        decoded = layers.Concatenate()([decoded_upsample,
+                                        decoded_transformer])
+        if idx == num_downsample - 1:
+            pass
+        else:
+            decoded = layers.Concatenate()([decoded,
+                                            skip_connect])
+    output_tensor = Conv3DBN(current_filter, 3,
+                             norm=norm, activation=None)(decoded)
+    output_tensor = SimpleOutputLayer2D(last_channel_num=1,
+                                        act=last_act)(output_tensor)
+    return Model(model_input, output_tensor)
+
+
 def skip_recon_vae_block(input_tensor, latent_dim,
                          base_act, downscale=False, name=None):
     _, H, W, C = backend.int_shape(input_tensor)
@@ -669,15 +750,15 @@ def get_inception_resnet_v2_disc(input_shape,
                     input_shape[1] * (2 ** (5 - num_downsample)),
                     input_shape[2] * (2 ** (5 - num_downsample)),
                     input_shape[3])
-    base_model = InceptionResNetV2_3D_Progressive(target_shape=target_shape,
-                                                  block_size=block_size,
-                                                  padding=padding,
-                                                  norm=norm,
-                                                  base_act=base_act,
-                                                  last_act=last_act,
-                                                  name_prefix="validity",
-                                                  num_downsample=num_downsample,
-                                                  use_attention=True)
+    base_model = InceptionResNetV2_progressive(target_shape=target_shape,
+                                               block_size=block_size,
+                                               padding=padding,
+                                               norm=norm,
+                                               base_act=base_act,
+                                               last_act=last_act,
+                                               name_prefix="validity",
+                                               num_downsample=num_downsample,
+                                               use_attention=True)
 
     base_input = base_model.input
     base_output = base_model.output
@@ -722,6 +803,39 @@ def get_inception_resnet_v2_disc_2d(input_shape,
     base_output = base_model.output
 
     validity_pred = EqualizedConv(1, kernel=3)(base_output)
+    validity_pred = get_act_layer(validity_act)(validity_pred)
+    model = Model(base_input, validity_pred)
+
+    return model
+
+
+def get_inception_resnet_v2_disc_3d(input_shape,
+                                    block_size=16,
+                                    num_downsample=5,
+                                    norm="instance",
+                                    padding="valid",
+                                    validity_act=None,
+                                    base_act="leakyrelu",
+                                    last_act="sigmoid",
+                                    ):
+    target_shape = (input_shape[0] * (2 ** (5 - num_downsample)),
+                    input_shape[1] * (2 ** (5 - num_downsample)),
+                    input_shape[2] * (2 ** (5 - num_downsample)),
+                    input_shape[3])
+    base_model = InceptionResNetV2_3D_Progressive(target_shape=target_shape,
+                                                  block_size=block_size,
+                                                  padding=padding,
+                                                  norm=norm,
+                                                  base_act=base_act,
+                                                  last_act=last_act,
+                                                  name_prefix="validity",
+                                                  num_downsample=num_downsample,
+                                                  use_attention=True)
+
+    base_input = base_model.input
+    base_output = base_model.output
+
+    validity_pred = EqualizedConv3D(1, kernel=1)(base_output)
     validity_pred = get_act_layer(validity_act)(validity_pred)
     model = Model(base_input, validity_pred)
 
@@ -786,15 +900,14 @@ def get_ct2x_model(ct_series_shape,
             # B H W Z C
             skip_connect_output = skip_connection_outputs[4 - index]
             skip_connect_ap_output = backend.mean(skip_connect_output, axis=1)
-            skip_connect_ap_output = conv2d_bn(
-                skip_connect_ap_output, current_filter // 2, 3)
+            skip_connect_ap_output = conv2d_bn(skip_connect_ap_output,
+                                               current_filter // 2, 3)
             skip_connect_lat_output = backend.mean(skip_connect_output, axis=2)
-            skip_connect_lat_output = conv2d_bn(
-                skip_connect_lat_output, current_filter // 2, 3)
-            skip_connect_output = layers.Concatenate(axis=-1)([skip_connect_ap_output,
-                                                               skip_connect_lat_output])
-            decoded = HighwayMulti(dim=current_filter, mode='2d')(
-                decoded, skip_connect_output)
+            skip_connect_lat_output = conv2d_bn(skip_connect_lat_output,
+                                                current_filter // 2, 3)
+            decoded = layers.Concatenate(axis=-1)([decoded,
+                                                   skip_connect_ap_output,
+                                                   skip_connect_lat_output])
         current_filter = init_filter // (2 ** index)
         decoded = conv2d_bn(decoded, current_filter, 3)
         decoded = Decoder2D(current_filter,

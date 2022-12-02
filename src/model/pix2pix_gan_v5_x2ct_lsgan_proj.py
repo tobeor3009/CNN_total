@@ -75,6 +75,9 @@ class Pix2PixGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
+        real_ap_y = tf.reduce_mean(real_y, axis=2)
+        real_lat_y = tf.reduce_mean(real_y, axis=3)
+        real_proj = tf.concat([real_ap_y, real_lat_y], axis=-1)
         # real_x = [real_x[..., 0:1], real_x[..., 1:]]
         # disc_real_input = backend.concatenate([real_y, real_y])
 
@@ -88,9 +91,12 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as disc_tape:
             # another domain mapping
             fake_y = self.generator(real_x)
+            fake_ap_y = tf.reduce_mean(fake_y, axis=2)
+            fake_lat_y = tf.reduce_mean(fake_y, axis=3)
+            fake_proj = tf.concat([fake_ap_y, fake_lat_y], axis=-1)
             # discriminator loss
-            disc_real_y = self.discriminator(real_y, training=True)
-            disc_fake_y = self.discriminator(fake_y, training=True)
+            disc_real_y = self.discriminator(real_proj, training=True)
+            disc_fake_y = self.discriminator(fake_proj, training=True)
 
             disc_real_loss = to_real_loss(disc_real_y)
             disc_fake_loss = to_fake_loss(disc_fake_y)
@@ -113,10 +119,13 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
+            fake_ap_y = tf.reduce_mean(fake_y, axis=2)
+            fake_lat_y = tf.reduce_mean(fake_y, axis=3)
+            fake_proj = tf.concat([fake_ap_y, fake_lat_y], axis=-1)
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
             # Generator adverserial loss
-            gen_disc_fake_y = self.discriminator(fake_y)
+            gen_disc_fake_y = self.discriminator(fake_proj)
             gen_adverserial_loss = to_real_loss(gen_disc_fake_y)
 
             total_generator_loss = gen_loss_in_real_y * self.lambda_image + \

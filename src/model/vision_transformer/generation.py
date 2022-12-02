@@ -218,6 +218,30 @@ def get_swin_class_disc_2d(input_shape, last_channel_num,
     return model
 
 
+def get_swin_class_patch_disc_2d(input_shape, last_channel_num,
+                                 filter_num_begin, depth, stack_num_per_depth,
+                                 patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                 act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+    down_ratio = 2 ** depth
+    feature_shape = (input_shape[0] // down_ratio,
+                     input_shape[1] // down_ratio,
+                     -1)
+    IN = layers.Input(input_shape)
+    X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
+                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+    VALIDITY = layers.Reshape(feature_shape)(X)
+    # The output section
+    VALIDITY = layers.Conv2D(1, kernel_size=3, strides=2,
+                             activation=last_act)(VALIDITY)
+    # The output section
+    CLASS = layers.GlobalAveragePooling1D()(X)
+    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(CLASS)
+    # Model configuration
+    model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
+    return model
+
+
 def get_swin_class_disc_3d(input_shape, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,

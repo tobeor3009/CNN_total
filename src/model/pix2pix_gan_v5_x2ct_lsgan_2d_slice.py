@@ -3,7 +3,6 @@ import random
 import tensorflow as tf
 from tensorflow.keras import backend
 from tensorflow.keras.models import Model
-from tensorflow.keras import backend as keras_backend
 from tensorflow.keras.losses import MeanAbsoluteError
 
 from .util.lsgan import to_real_loss, to_fake_loss
@@ -11,6 +10,7 @@ from .util.grad_clip import adaptive_gradient_clipping
 
 # Loss function for evaluating adversarial loss
 base_image_loss_fn = MeanAbsoluteError()
+CHECK_SLICE_NUM = 8
 
 
 class Pix2PixGan(Model):
@@ -18,12 +18,19 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        ct_size,
+        to_real_loss=to_real_loss,
+        to_fake_loss=to_fake_loss,
         lambda_image=1,
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
         self.lambda_image = lambda_image
+        self.ct_size = ct_size
+        self.slice_shape = (-1, self.ct_size, self.ct_size, 1)
+        self.to_real_loss = to_real_loss
+        self.to_fake_loss = to_fake_loss
 
     def compile(
         self,
@@ -69,12 +76,29 @@ class Pix2PixGan(Model):
         self.disc_fake_metric.update_state(tf.zeros_like(fake_data) < 0.5,
                                            fake_data < 0.5)
 
+    def get_random_slice_3d(self, data_3d, slice_rand_idx, slice_num):
+
+        slice_data_3d = data_3d[:, slice_rand_idx:slice_rand_idx + slice_num]
+        slice_data_3d = backend.permute_dimensions(slice_data_3d,
+                                                   (0, 4, 1, 2, 3))
+        slice_data_3d = backend.reshape(slice_data_3d, self.slice_shape)
+        return slice_data_3d
+
+    def disc_3d_to_batch_size(self, disc_3d, slice_num):
+        batch_disc_3d = backend.reshape(disc_3d, (-1, slice_num))
+        batch_disc_3d = backend.mean(batch_disc_3d, axis=1)
+        return batch_disc_3d
     # @tf.function
+
     def train_step(self, batch_data):
         # =================================================================================== #
         #                             1. Preprocess input data                                #
         # =================================================================================== #
+        slice_rand_idx = tf.random.uniform(shape=(), minval=0, maxval=self.ct_size - CHECK_SLICE_NUM,
+                                           dtype=tf.int32)
         real_x, real_y = batch_data
+        slice_real_y = self.get_random_slice_3d(real_y,
+                                                slice_rand_idx, CHECK_SLICE_NUM)
         # real_x = [real_x[..., 0:1], real_x[..., 1:]]
         # disc_real_input = backend.concatenate([real_y, real_y])
 
@@ -88,13 +112,16 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as disc_tape:
             # another domain mapping
             fake_y = self.generator(real_x)
+            slice_fake_y = self.get_random_slice_3d(fake_y,
+                                                    slice_rand_idx, CHECK_SLICE_NUM)
             # discriminator loss
-            disc_real_y = self.discriminator(real_y, training=True)
-            disc_fake_y = self.discriminator(fake_y, training=True)
+            disc_real_y = self.discriminator(slice_real_y, training=True)
+            disc_fake_y = self.discriminator(slice_fake_y, training=True)
 
-            disc_real_loss = to_real_loss(disc_real_y)
-            disc_fake_loss = to_fake_loss(disc_fake_y)
-            disc_loss = (disc_real_loss + disc_fake_loss) / 2
+            disc_real_loss = self.to_real_loss(disc_real_y)
+            disc_fake_loss = self.to_fake_loss(disc_fake_y)
+            disc_loss = self.disc_3d_to_batch_size(disc_real_loss + disc_fake_loss,
+                                                   CHECK_SLICE_NUM) / 2
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_loss,
                                         self.discriminator.trainable_variables)
@@ -113,12 +140,15 @@ class Pix2PixGan(Model):
         with tf.GradientTape(persistent=True) as gen_tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
+            slice_fake_y = self.get_random_slice_3d(fake_y,
+                                                    slice_rand_idx, CHECK_SLICE_NUM)
             # Generator paired real y loss
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
             # Generator adverserial loss
-            gen_disc_fake_y = self.discriminator(fake_y)
-            gen_adverserial_loss = to_real_loss(gen_disc_fake_y)
-
+            gen_disc_fake_y = self.discriminator(slice_fake_y)
+            gen_adverserial_loss = self.to_real_loss(gen_disc_fake_y)
+            gen_adverserial_loss = self.disc_3d_to_batch_size(gen_adverserial_loss,
+                                                              CHECK_SLICE_NUM)
             total_generator_loss = gen_loss_in_real_y * self.lambda_image + \
                 gen_adverserial_loss * self.lambda_disc
 

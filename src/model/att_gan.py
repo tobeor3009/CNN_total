@@ -45,11 +45,13 @@ class ATTGan(Model):
         discriminator_optimizer,
         image_loss_fn=base_image_loss_fn,
         class_loss_fn=base_class_loss_fn,
+        disc_real_loss_fn=to_real_loss,
+        disc_fake_loss_fn=to_fake_loss,
         active_gradient_clip=True,
         image_loss_coef=100.0,
         gen_class_loss_coef=10.0,
         disc_class_loss_coef=1.0,
-        gen_dics_loss_coef=1.0,
+        gen_disc_loss_coef=1.0,
         lambda_clip=0.1
     ):
         super(ATTGan, self).compile()
@@ -64,7 +66,9 @@ class ATTGan(Model):
         self.image_loss_coef = image_loss_coef
         self.gen_class_loss_coef = gen_class_loss_coef
         self.disc_class_loss_coef = disc_class_loss_coef
-        self.gen_dics_loss_coef = gen_dics_loss_coef
+        self.disc_real_loss_fn = disc_real_loss_fn
+        self.disc_fake_loss_fn = disc_fake_loss_fn
+        self.gen_disc_loss_coef = gen_disc_loss_coef
 
     # not in use. it just exist for keras Model's child must implement "call" method
     def call(self, x):
@@ -104,7 +108,8 @@ class ATTGan(Model):
         else:
             return pred_image_array
 
-    @tf.function
+    # Remark this line because it conflict with multi gpu call such as strategy.scope()
+    # @tf.function
     def train_step(self, batch_data):
 
         # =================================================================================== #
@@ -129,8 +134,8 @@ class ATTGan(Model):
                                                         label_pred_real_x)
             disc_class_loss = disc_real_x_class_loss
 
-            disc_real_x_loss = to_real_loss(disc_real_x)
-            disc_fake_y_loss = to_fake_loss(disc_fake_y)
+            disc_real_x_loss = self.disc_real_loss_fn(disc_real_x)
+            disc_fake_y_loss = self.disc_fake_loss_fn(disc_fake_y)
             disc_loss = (disc_real_x_loss + disc_fake_y_loss) / 2
 
             disc_total_loss = disc_class_loss * self.disc_class_loss_coef + disc_loss
@@ -165,16 +170,16 @@ class ATTGan(Model):
                                                        label_pred_fake_y)
             gen_class_loss = gen_fake_y_class_loss
             # Generator adverserial loss
-            gen_fake_y_disc_loss = to_real_loss(disc_fake_y)
+            gen_fake_y_disc_loss = self.disc_real_loss_fn(disc_fake_y)
             gen_disc_loss = gen_fake_y_disc_loss
 
             # Generator image loss
             same_x_image_loss = self.recon_loss_fn(real_x,
                                                    same_x)
-            gen_image_loss = same_x_image_loss
+            gen_image_loss = backend.mean(same_x_image_loss, axis=[1, 2])
             # Total generator loss
             gen_total_loss = gen_class_loss * self.gen_class_loss_coef + \
-                gen_disc_loss * self.gen_dics_loss_coef + gen_image_loss * self.image_loss_coef
+                gen_disc_loss * self.gen_disc_loss_coef + gen_image_loss * self.image_loss_coef
 
         # Get the gradients for the generators
         gen_grads = gen_tape.gradient(gen_total_loss,
