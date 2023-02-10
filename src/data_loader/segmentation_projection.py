@@ -38,8 +38,7 @@ class SegDataGetter(BaseDataGetter):
                  augmentation_proba,
                  augmentation_policy_dict,
                  image_channel_dict,
-                 preprocess_input,
-                 mask_preprocess_input,
+                 preprocess_dict,
                  target_size,
                  interpolation
                  ):
@@ -73,8 +72,9 @@ class SegDataGetter(BaseDataGetter):
 
         self.augmentation_method = SegaugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
-        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
+        self.image_preprocess_method = PreprocessPolicy(
+            preprocess_dict["image"])
+        self.mask_preprocess_method = PreprocessPolicy(preprocess_dict["mask"])
 
         assert len(image_path_list) == len(mask_path_list), \
             f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
@@ -171,7 +171,7 @@ class SegDataloader(BaseDataLoader):
                  augmentation_proba=None,
                  augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
-                 preprocess_input="-1~1",
+                 preprocess_dict={"image": "-1~1", "mask": None},
                  mask_preprocess_input="mask",
                  target_size=None,
                  interpolation="bilinear",
@@ -183,8 +183,7 @@ class SegDataloader(BaseDataLoader):
                                          augmentation_proba=augmentation_proba,
                                          augmentation_policy_dict=augmentation_policy_dict,
                                          image_channel_dict=image_channel_dict,
-                                         preprocess_input=preprocess_input,
-                                         mask_preprocess_input=mask_preprocess_input,
+                                         preprocess_dict=preprocess_dict,
                                          target_size=target_size,
                                          interpolation=interpolation
                                          )

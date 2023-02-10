@@ -32,7 +32,7 @@ noise_transform = A.OneOf([
 
 elastic_tranform = A.ElasticTransform(p=0.5)
 
-brightness_value = 0.1
+brightness_value = 0.02
 brightness_contrast_transform = A.OneOf([
     A.RandomBrightnessContrast(brightness_limit=(-brightness_value, brightness_value),
                                contrast_limit=(-brightness_value,

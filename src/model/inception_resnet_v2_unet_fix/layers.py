@@ -967,10 +967,7 @@ class PixelShuffleBlock3D(layers.Layer):
         self.conv_before_pixel_shuffle = layers.Conv3D(filters=filters * 8,
                                                        kernel_size=3, padding="same",
                                                        strides=1, use_bias=False)
-        self.pixel_shuffle = Pixelshuffle3D(kernel_size=2)
-        self.conv_after_pixel_shuffle = layers.Conv3D(filters=filters,
-                                                      kernel_size=3, padding="same",
-                                                      strides=1, use_bias=False)
+        self.pixel_shuffle = Pixelshuffle3D(kernel_size=strides)
 
         self.norm_layer = get_norm_layer(norm)
         self.act_layer = get_act_layer(activation)
@@ -979,7 +976,6 @@ class PixelShuffleBlock3D(layers.Layer):
 
         pixel_shuffle = self.conv_before_pixel_shuffle(input_tensor)
         pixel_shuffle = self.pixel_shuffle(pixel_shuffle)
-        pixel_shuffle = self.conv_after_pixel_shuffle(pixel_shuffle)
 
         output = self.norm_layer(pixel_shuffle)
         output = self.act_layer(output)
@@ -1132,7 +1128,7 @@ class SimpleOutputLayer3D(layers.Layer):
     def __init__(self, last_channel_num, act="tanh"):
         super().__init__()
         self.conv_4x4x4 = layers.Conv3D(filters=last_channel_num,
-                                        kernel_size=3,
+                                        kernel_size=4,
                                         padding="same",
                                         strides=1,
                                         use_bias=False,

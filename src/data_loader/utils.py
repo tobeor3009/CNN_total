@@ -4,6 +4,7 @@ import json
 import math
 import numpy as np
 from collections.abc import Mapping
+import SimpleITK as sitk
 
 
 def imread(img_path, channel=None):
@@ -14,6 +15,9 @@ def imread(img_path, channel=None):
     elif extension == ".gz":
         image_object = nib.load(img_path)
         img_numpy_array = image_object.get_fdata().astype("float32")
+    elif extension == ".dcm":
+        image_slice = sitk.ReadImage(img_path)
+        img_numpy_array = sitk.GetArrayFromImage(image_slice)[0, ...]
     else:
         img_byte_stream = open(img_path.encode("utf-8"), "rb")
         img_byte_array = bytearray(img_byte_stream.read())

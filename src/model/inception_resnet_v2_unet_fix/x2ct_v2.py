@@ -339,9 +339,10 @@ def get_x2ct_model_ap_lat_v10(xray_shape, ct_series_shape,
                               pooling="average",
                               num_downsample=5,
                               base_act="leakyrelu",
-                              last_act="tanh"):
+                              last_act="tanh",
+                              use_skipconnect=True):
 
-    norm = "batch"
+    norm = "instance"
     target_shape = (xray_shape[0] * (2 ** (5 - num_downsample)),
                     xray_shape[1] * (2 ** (5 - num_downsample)),
                     xray_shape[2])
@@ -381,13 +382,14 @@ def get_x2ct_model_ap_lat_v10(xray_shape, ct_series_shape,
                                                     norm=norm, activation=base_act)(decoded)
         decoded = layers.Concatenate()([decoded_upsample,
                                         decoded_pixel_shuffle])
-        if idx == 5 - num_downsample + 1:
-            pass
-        else:
-            skip_connect = SkipUpsample3D(current_filter,
-                                          norm=norm, activation=base_act)(skip_connect, H)
-            decoded = layers.Concatenate()([decoded,
-                                            skip_connect])
+        if use_skipconnect:
+            if idx == 5 - num_downsample + 1:
+                pass
+            else:
+                skip_connect = SkipUpsample3D(current_filter,
+                                              norm=norm, activation=base_act)(skip_connect, H)
+                decoded = layers.Concatenate()([decoded,
+                                                skip_connect])
     output_tensor = Conv3DBN(current_filter, 3,
                              norm=norm, activation=None)(decoded)
     output_tensor = SimpleOutputLayer2D(last_channel_num=1,

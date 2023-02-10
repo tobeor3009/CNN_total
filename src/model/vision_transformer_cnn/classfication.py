@@ -32,6 +32,7 @@ def swin_classification_2d_base(input_tensor, filter_num_begin, depth, stack_num
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
                                           embed_dim)(X)
+    X = layers.Reshape((num_patch_x, num_patch_y, -1))(X)
     # -------------------- Swin transformers -------------------- #
     # Stage 1: window-attention + Swin-attention + patch-merging
 
@@ -72,8 +73,7 @@ def get_swin_classification_2d(input_shape, last_channel_num,
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
                                     act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
-    X = layers.Reshape((h, w, -1))(X)
-    X = AdaptiveAveragePooling2D((h // 4, w // 4))(X)
+    X = AdaptiveAveragePooling2D((h // 8, w // 8))(X)
     X = layers.Flatten()(X)
     # The output section
     OUT = layers.Dense(last_channel_num, activation=last_act)(X)
@@ -106,6 +106,7 @@ def swin_classification_3d_base(input_tensor, filter_num_begin, depth, stack_num
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_z * num_patch_x * num_patch_y,
                                           embed_dim)(X)
+    X = layers.Reshape((num_patch_z, num_patch_x, num_patch_y, -1))(X)
     # -------------------- Swin transformers -------------------- #
     # Stage 1: window-attention + Swin-attention + patch-merging
 
@@ -149,7 +150,8 @@ def get_swin_classification_3d(input_shape, last_channel_num,
                                     act=act, shift_window=shift_window,
                                     include_3d=include_3d, swin_v2=swin_v2, name="classification")
     print(f"transformer output shape: {X.shape}")
-    X = layers.GlobalAveragePooling1D()(X)
+    X = AdaptiveAveragePooling2D((h // 8, w // 8))(X)
+    X = layers.Flatten()(X)
     print(f"GAP shape: {X.shape}")
     # The output section
     OUT = layers.Dense(last_channel_num, activation=last_act)(X)

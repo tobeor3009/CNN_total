@@ -14,6 +14,14 @@ from .inception_resnet_v2.util.pathology import recon_overlapping_patches_quarte
 adv_loss_fn = MeanAbsoluteError()
 base_image_loss_fn = MeanAbsoluteError()
 base_class_loss_fn = BinaryCrossentropy(label_smoothing=0.01)
+
+
+def base_ssim_loss_fn(y_true, y_pred):
+    ssim_score = tf.image.ssim(y_true, y_pred, max_val=1)
+    ssim_loss = 1 - ssim_score
+    return ssim_loss
+
+
 mean_layer = layers.Average()
 
 
@@ -130,8 +138,8 @@ class ATTGan(Model):
             disc_fake_y, _ = self.discriminator(fake_y,
                                                 training=True)
             # Compute Discriminator class_loss
-            disc_real_x_class_loss = self.class_loss_fn(label_x,
-                                                        label_pred_real_x)
+            disc_real_x_class_loss = backend.mean(self.class_loss_fn(label_x,
+                                                                     label_pred_real_x))
             disc_class_loss = disc_real_x_class_loss
 
             disc_real_x_loss = self.disc_real_loss_fn(disc_real_x)
@@ -166,8 +174,8 @@ class ATTGan(Model):
             # Discriminator output
             disc_fake_y, label_pred_fake_y = self.discriminator(fake_y)
             # Generator class loss
-            gen_fake_y_class_loss = self.class_loss_fn(label_y,
-                                                       label_pred_fake_y)
+            gen_fake_y_class_loss = backend.mean(self.class_loss_fn(label_y,
+                                                                    label_pred_fake_y))
             gen_class_loss = gen_fake_y_class_loss
             # Generator adverserial loss
             gen_fake_y_disc_loss = self.disc_real_loss_fn(disc_fake_y)
@@ -176,9 +184,9 @@ class ATTGan(Model):
             # Generator image loss
             same_x_image_loss = self.recon_loss_fn(real_x,
                                                    same_x)
-            gen_image_loss = backend.mean(same_x_image_loss, axis=[1, 2])
+            gen_image_loss = backend.mean(same_x_image_loss)
             # Total generator loss
-            gen_total_loss = gen_class_loss * self.gen_class_loss_coef + \
+            gen_total_loss = gen_class_loss * self.gen_class_loss_coef +\
                 gen_disc_loss * self.gen_disc_loss_coef + gen_image_loss * self.image_loss_coef
 
         # Get the gradients for the generators
@@ -199,6 +207,7 @@ class ATTGan(Model):
             "total_disc_loss": disc_total_loss,
             "disc_real_x_loss": disc_real_x_loss,
             "disc_fake_y_loss": disc_fake_y_loss,
+            "disc_class_loss": disc_class_loss,
             "gen_fake_y_disc_loss": gen_fake_y_disc_loss,
             "gen_fake_y_class_loss": gen_fake_y_class_loss,
             "gen_same_x_image_loss": same_x_image_loss,

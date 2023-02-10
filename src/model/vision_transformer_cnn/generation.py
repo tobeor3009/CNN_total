@@ -62,7 +62,6 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
         stride_size = patch_size
     elif stride_mode == "half":
         stride_size = np.array(patch_size) // 2
-
     input_size = input_tensor.shape.as_list()[1:]
     num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_size[0:2],
                                                             patch_size,
@@ -81,6 +80,7 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
                                           embed_dim)(X)
+    X = layers.Reshape((num_patch_x, num_patch_y, -1))(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -131,7 +131,7 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
     window_size = window_size[::-1]
 
     # upsampling begins at the deepest available tensor
-    X = tile_concat_1d(X_skip[0], class_tensor)
+    X = tile_concat_2d(X_skip[0], class_tensor)
     # other tensors are preserved for concatenation
     X_decode = X_skip[1:]
 
@@ -141,14 +141,13 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
         X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                               embed_dim=embed_dim,
                                               upsample_rate=2,
-                                              return_vector=True,
+                                              return_vector=False,
                                               swin_v2=swin_v2,
                                               name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
         num_patch_y = num_patch_y * 2
-
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
