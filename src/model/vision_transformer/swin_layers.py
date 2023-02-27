@@ -123,7 +123,7 @@ def window_reverse_3d(windows, window_size, Z, H, W, C):
 
 
 class Mlp(layers.Layer):
-    def __init__(self, filter_num, act="gelu", drop=0., name=''):
+    def __init__(self, filter_num, act="gelu", drop=0., name='', spectral=False):
 
         super().__init__()
 
