@@ -1234,8 +1234,8 @@ def get_swin_class_disc_3d(input_shape, last_channel_num,
     # The output section
     VALIDITY = DenseLayer(1, activation=last_act, use_sn=use_sn)(X)
     # The output section
-    CLASS = DenseLayer(
-        last_channel_num, activation='sigmoid', use_sn=use_sn)(X)
+    CLASS = DenseLayer(last_channel_num,
+                       activation='sigmoid', use_sn=use_sn)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
     return model
