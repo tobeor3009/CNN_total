@@ -115,6 +115,55 @@ class DenseLayer(layers.Layer):
         return cls(**config)
 
 
+class Conv1DLayer(layers.Layer):
+    def __init__(self, filters, kernel_size, strides=1, padding='valid', activation=None,
+                 use_sn=False, iteration=DEFAULT_SN_ITER, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.filters = filters
+        self.kernel_size = kernel_size
+        self.strides = strides
+        self.padding = padding
+        self.activation = activation
+        self.use_sn = use_sn
+        if "use_bias" in kwargs:
+            use_bias = kwargs["use_bias"]
+            del kwargs["use_bias"]
+        else:
+            use_bias = True
+        self.use_bias = False if use_sn else use_bias
+        self.iteration = iteration
+        self.conv1d = layers.Conv1D(self.filters, self.kernel_size,
+                                    strides=self.strides, padding=self.padding, use_bias=self.use_bias,
+                                    **kwargs)
+
+    def build(self, input_shape):
+        if self.use_sn:
+            self.conv1d_sn = SpectralNormalization(self.conv1d,
+                                                   iteration=self.iteration)
+        super().build(input_shape)
+
+    def call(self, inputs):
+        if self.use_sn:
+            outputs = self.conv1d_sn(inputs)
+        else:
+            outputs = self.conv1d(inputs)
+        outputs = self.activation(outputs)
+        return outputs
+
+    def compute_output_shape(self, input_shape):
+        return self.conv1d.compute_output_shape(input_shape)
+
+    def get_config(self):
+        config = {'filters': self.filters, 'kernel_size': self.kernel_size, 'strides': self.strides,
+                  'padding': self.padding, 'activation': self.activation, 'use_sn': self.use_sn, 'iteration': self.iteration}
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+
 class Conv2DLayer(layers.Layer):
     def __init__(self, filters, kernel_size, strides=(1, 1), padding='valid', activation=None,
                  use_sn=False, iteration=DEFAULT_SN_ITER, *args, **kwargs):

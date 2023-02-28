@@ -6,6 +6,7 @@ from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_2d, swin_context_transformer_stack_2d
 from .classfication import swin_classification_2d_base, swin_classification_3d_base, get_swin_classification_2d
 from ..inception_resnet_v2_unet_fix.base_model_as_class import InceptionResNetV2_progressive
+from .util_layers import DenseLayer, Conv1DLayer, Conv2DLayer
 BLOCK_MODE_NAME = "seg"
 
 
@@ -45,7 +46,7 @@ def tile_concat_2d(a_list, b_list=[]):
 
 def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
                               patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                              swin_v2=False, name='unet'):
+                              swin_v2=False, use_sn=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -80,7 +81,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                         stride_size)(X)
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
-                                          embed_dim)(X)
+                                          embed_dim, use_sn=use_sn)(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -93,6 +94,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down'.format(name))
     X_skip.append(X)
 
@@ -102,6 +104,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
                                             swin_v2=swin_v2,
+                                            use_sn=use_sn,
                                             name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -120,6 +123,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
                                       swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
         # Store tensors for concat
@@ -143,6 +147,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                               upsample_rate=2,
                                               return_vector=True,
                                               swin_v2=swin_v2,
+                                              use_sn=use_sn,
                                               name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
@@ -152,8 +157,8 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -166,12 +171,14 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_up{}'.format(name, i))
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
     if stride_mode == "half":
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
-                                            embed_dim=embed_dim,
+                                            embed_dim=embed_dim, use_sn=use_sn,
                                             name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
@@ -185,6 +192,8 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down_last'.format(name))
     X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                           embed_dim=embed_dim,
@@ -197,7 +206,7 @@ def swin_class_gen_2d_base_v1(input_tensor, class_tensor, filter_num_begin, dept
 
 def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
                               patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                              swin_v2=False, name='unet'):
+                              swin_v2=False, use_sn=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -232,7 +241,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                         stride_size)(X)
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
-                                          embed_dim)(X)
+                                          embed_dim, use_sn=use_sn)(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -245,6 +254,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down'.format(name))
     X_skip.append(X)
 
@@ -254,6 +264,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
                                             swin_v2=swin_v2,
+                                            use_sn=use_sn,
                                             name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -272,6 +283,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
                                       swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down{}'.format(name, i + 1))
         # Store tensors for concat
         X_skip.append(X)
@@ -292,6 +304,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                           shift_window=shift_window,
                                           mode=BLOCK_MODE_NAME,
                                           swin_v2=swin_v2,
+                                          use_sn=use_sn,
                                           name=f'{name}_swin_context')
     # other tensors are preserved for concatenation
     X_decode = X_skip[1:]
@@ -304,6 +317,7 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                               upsample_rate=2,
                                               return_vector=True,
                                               swin_v2=swin_v2,
+                                              use_sn=use_sn,
                                               name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
@@ -313,8 +327,8 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -327,6 +341,8 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_up{}'.format(name, i))
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
@@ -346,19 +362,22 @@ def swin_class_gen_2d_base_v2(input_tensor, class_tensor, filter_num_begin, dept
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down_last'.format(name))
     X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                           embed_dim=embed_dim,
                                           upsample_rate=patch_size[0],
                                           return_vector=False,
                                           swin_v2=swin_v2,
+                                          use_sn=use_sn,
                                           name=f'{name}_swin_expanding_last')(X)
     return X
 
 
 def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
                               patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                              swin_v2=False, name='unet'):
+                              swin_v2=False, use_sn=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -394,7 +413,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                         stride_size)(X)
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
-                                          embed_dim)(X)
+                                          embed_dim, use_sn=use_sn)(X)
     X = tile_concat_1d(X[..., :-num_class], out_class_tensor)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
@@ -408,6 +427,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down'.format(name))
     X_skip.append(X)
 
@@ -417,6 +437,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
                                             swin_v2=swin_v2,
+                                            use_sn=use_sn,
                                             name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -436,6 +457,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
                                       swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
         # Store tensors for concat
@@ -459,6 +481,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                   shift_window=shift_window,
                                   mode=BLOCK_MODE_NAME,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down{}'.format(name, i + 1))
     # other tensors are preserved for concatenation
     X_decode = X_skip[1:]
@@ -471,6 +494,7 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                               upsample_rate=2,
                                               return_vector=True,
                                               swin_v2=swin_v2,
+                                              use_sn=use_sn,
                                               name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
@@ -480,8 +504,8 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
                                       stack_num=stack_num_up,
@@ -494,12 +518,14 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_up{}'.format(name, i))
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
     if stride_mode == "half":
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
-                                            embed_dim=embed_dim,
+                                            embed_dim=embed_dim, use_sn=use_sn,
                                             name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
@@ -513,19 +539,22 @@ def swin_class_gen_2d_base_v3(input_tensor, out_class_tensor, filter_num_begin, 
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down_last'.format(name))
     X = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
                                           embed_dim=embed_dim,
                                           upsample_rate=patch_size[0],
                                           return_vector=False,
                                           swin_v2=swin_v2,
+                                          use_sn=use_sn,
                                           name=f'{name}_swin_expanding_last')(X)
     return X
 
 
 def swin_style_extractor_base(input_tensor, class_tensor, filter_num_begin, depth, stack_num_down,
                               patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                              swin_v2=False, name='unet'):
+                              swin_v2=False, use_sn=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -558,7 +587,7 @@ def swin_style_extractor_base(input_tensor, class_tensor, filter_num_begin, dept
                                         stride_size)(X)
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
-                                          embed_dim)(X)
+                                          embed_dim, use_sn=use_sn)(X)
     Y = tile_concat_1d(X[..., :-num_class], class_tensor)
     # The first Swin Transformer stack
     X = swin_context_transformer_stack_2d(X, Y,
@@ -572,6 +601,7 @@ def swin_style_extractor_base(input_tensor, class_tensor, filter_num_begin, dept
                                           mode=BLOCK_MODE_NAME,
                                           shift_window=shift_window,
                                           swin_v2=swin_v2,
+                                          use_sn=use_sn,
                                           name='{}_swin_down'.format(name))
     # Downsampling blocks
     for i in range(depth_ - 1):
@@ -579,6 +609,7 @@ def swin_style_extractor_base(input_tensor, class_tensor, filter_num_begin, dept
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
                                             swin_v2=swin_v2,
+                                            use_sn=use_sn,
                                             name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -599,13 +630,14 @@ def swin_style_extractor_base(input_tensor, class_tensor, filter_num_begin, dept
                                               shift_window=shift_window,
                                               mode=BLOCK_MODE_NAME,
                                               swin_v2=swin_v2,
+                                              use_sn=use_sn,
                                               name='{}_swin_down{}'.format(name, i + 1))
     return X
 
 
 def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stack_num_up,
                      patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                     swin_v2=False, name='unet'):
+                     swin_v2=False, use_sn=False, name='unet'):
     '''
     The base of Swin-UNET.
 
@@ -640,7 +672,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                         stride_size)(X)
     # Embed patches to tokens
     X = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
-                                          embed_dim)(X)
+                                          embed_dim, use_sn=use_sn)(X)
     # The first Swin Transformer stack
     X = swin_transformer_stack_2d(X,
                                   stack_num=stack_num_down,
@@ -653,6 +685,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                   mode=BLOCK_MODE_NAME,
                                   shift_window=shift_window,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down'.format(name))
     X_skip.append(X)
 
@@ -662,6 +695,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
                                             embed_dim=embed_dim,
                                             swin_v2=swin_v2,
+                                            use_sn=use_sn,
                                             name='down{}'.format(i))(X)
         # update token shape info
         embed_dim = embed_dim * 2
@@ -680,6 +714,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
                                       swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
         # Store tensors for concat
@@ -702,6 +737,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                   shift_window=shift_window,
                                   mode=BLOCK_MODE_NAME,
                                   swin_v2=swin_v2,
+                                  use_sn=use_sn,
                                   name='{}_swin_down{}'.format(name, i + 1))
     CLASS_FEATURE = X
     # other tensors are preserved for concatenation
@@ -715,6 +751,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                               upsample_rate=2,
                                               return_vector=True,
                                               swin_v2=swin_v2,
+                                              use_sn=use_sn,
                                               name=f'{name}_swin_expanding_{i}')(X)
         # update token shape info
         embed_dim = embed_dim // 2
@@ -724,8 +761,8 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -738,12 +775,14 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      swin_v2=swin_v2,
+                                      use_sn=use_sn,
                                       name='{}_swin_up{}'.format(name, i))
     # The last expanding layer; it produces full-size feature maps based on the patch size
     # !!! <--- "patch_size[0]" is used; it assumes patch_size = (size, size)
     if stride_mode == "half":
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
-                                            embed_dim=embed_dim,
+                                            embed_dim=embed_dim, use_sn=use_sn,
                                             name='down_last')(X)
         num_patch_x, num_patch_y = num_patch_x // 2, num_patch_y // 2
         embed_dim *= 2
@@ -757,6 +796,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                       act=act,
                                       shift_window=shift_window,
                                       mode=BLOCK_MODE_NAME,
+                                      use_sn=use_sn,
                                       name='{}_swin_down_last'.format(name))
     X = tf.reshape(X, (-1, input_size[0] // patch_size[0],
                        input_size[1] // patch_size[1], embed_dim))
@@ -837,21 +877,23 @@ def get_inception_resnet_v2_disc_2d(input_shape,
 def get_swin_disc_2d_2d(input_shape, last_channel_num,
                         filter_num_begin, depth, stack_num_per_depth,
                         patch_size, stride_mode, num_heads, window_size, num_mlp,
-                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
+                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
     X = layers.Reshape((h, w, -1))(X)
-    X = layers.Conv2D(filter_num_begin, kernel_size=3,
-                      activation=act, padding="same")(X)
+    X = Conv2DLayer(filter_num_begin, kernel_size=3,
+                    activation=act, use_sn=use_sn, padding="same")(X)
     # X = AdaptiveAveragePooling2D((h // 4, w // 4))(X)
     X = AdaptiveAveragePooling2D((8, 8))(X)
     # The output section
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
-                        activation=last_act, kernel_initializer="zeros", use_bias=False)(X)
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      activation=last_act, use_sn=use_sn,
+                      kernel_initializer="zeros", use_bias=False)(X)
     # Model configuration
     model = Model(inputs=IN, outputs=[OUT, ])
     return model
@@ -860,16 +902,17 @@ def get_swin_disc_2d_2d(input_shape, last_channel_num,
 def get_swin_disc_2d_1d(input_shape, class_num, last_channel_num,
                         filter_num_begin, depth, stack_num_per_depth,
                         patch_size, stride_mode, num_heads, window_size, num_mlp,
-                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
+                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False, use_sn=use_sn):
     H, W, _ = input_shape
     IN = layers.Input(input_shape)
     CLASS = layers.Input((class_num,))
     # Base architecture
     VALIDITY = swin_style_extractor_base(IN, CLASS, filter_num_begin, depth, stack_num_per_depth,
                                          patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                         shift_window=shift_window, swin_v2=swin_v2, name='unet')
-    VALIDITY = layers.Conv1D(last_channel_num, kernel_size=1,
-                             activation=last_act, kernel_initializer="zeros", use_bias=False)(VALIDITY)
+                                         shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
+    VALIDITY = Conv1DLayer(last_channel_num, kernel_size=1,
+                           activation=last_act, use_sn=use_sn,
+                           kernel_initializer="zeros", use_bias=False)(VALIDITY)
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[VALIDITY, ])
     return model
@@ -878,7 +921,7 @@ def get_swin_disc_2d_1d(input_shape, class_num, last_channel_num,
 def get_swin_disc_2d_1d_v1(input_shape, class_num, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
+                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
@@ -886,16 +929,18 @@ def get_swin_disc_2d_1d_v1(input_shape, class_num, last_channel_num,
     # Base architecture
     VALIDITY = swin_style_extractor_base(IN, CLASS, filter_num_begin, depth, stack_num_per_depth,
                                          patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                         shift_window=shift_window, swin_v2=swin_v2, name='unet')
-    VALIDITY = layers.Conv1D(last_channel_num, kernel_size=1,
-                             activation=last_act, kernel_initializer="zeros", use_bias=False)(VALIDITY)
+                                         shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
+    VALIDITY = Conv1DLayer(last_channel_num, kernel_size=1,
+                           activation=last_act, use_sn=use_sn,
+                           kernel_initializer="zeros", use_bias=False)(VALIDITY)
     LABEL = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                         patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                        act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                        act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                        name="classification")
     LABEL = AdaptiveAveragePooling1D((h * w // 16))(LABEL)
-    LABEL = layers.Dense(filter_num_begin, activation=act)(LABEL)
+    LABEL = DenseLayer(filter_num_begin, activation=act, use_sn=use_sn)(LABEL)
     LABEL = layers.Flatten()(LABEL)
-    LABEL = layers.Dense(class_num, activation='sigmoid')(LABEL)
+    LABEL = DenseLayer(class_num, activation='sigmoid', use_sn=use_sn)(LABEL)
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[VALIDITY, LABEL])
     return model
@@ -904,24 +949,26 @@ def get_swin_disc_2d_1d_v1(input_shape, class_num, last_channel_num,
 def get_swin_disc_2d_1d_v2(input_shape, class_num, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
+                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     # Base architecture
     VALIDITY = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                           act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                           act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                           name="classification")
     VALIDITY = AdaptiveAveragePooling1D((h * w // 16))(VALIDITY)
-    VALIDITY = layers.Dense(filter_num_begin, activation='sigmoid')(VALIDITY)
+    VALIDITY = DenseLayer(
+        filter_num_begin, activation=last_act, use_sn=use_sn)(VALIDITY)
 
     LABEL = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                         patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                        act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                        act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="classification")
     LABEL = AdaptiveAveragePooling1D((h * w // 16))(LABEL)
-    LABEL = layers.Dense(filter_num_begin, activation=act)(LABEL)
+    LABEL = DenseLayer(filter_num_begin, activation=act, use_sn=use_sn)(LABEL)
     LABEL = layers.Flatten()(LABEL)
-    LABEL = layers.Dense(class_num, activation='sigmoid')(LABEL)
+    LABEL = DenseLayer(class_num, activation='sigmoid', use_sn=use_sn)(LABEL)
     # Model configuration
     model = Model(inputs=[IN], outputs=[VALIDITY, LABEL])
     return model
@@ -930,21 +977,22 @@ def get_swin_disc_2d_1d_v2(input_shape, class_num, last_channel_num,
 def get_seg_swin_disc_2d_v1(input_shape, class_num,
                             filter_num_begin, depth, stack_num_down, stack_num_up,
                             patch_size, stride_mode, num_heads, window_size, num_mlp,
-                            act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                            act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     # Base architecture
     VALIDITY, LABEL = swin_seg_disc_v1(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                                        patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                       act=act, shift_window=shift_window, swin_v2=swin_v2, name="unet")
+                                       act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="unet")
     VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-    VALIDITY = layers.Dense(filter_num_begin, activation=last_act)(VALIDITY)
+    VALIDITY = DenseLayer(
+        filter_num_begin, activation=last_act, use_sn=use_sn)(VALIDITY)
 
     LABEL = AdaptiveAveragePooling1D((h * w // 16))(LABEL)
-    LABEL = layers.Dense(filter_num_begin, activation=act)(LABEL)
+    LABEL = DenseLayer(filter_num_begin, activation=act, use_sn=use_sn)(LABEL)
     LABEL = layers.Flatten()(LABEL)
-    LABEL = layers.Dense(class_num, activation='sigmoid')(LABEL)
+    LABEL = DenseLayer(class_num, activation='sigmoid', use_sn=use_sn)(LABEL)
     # Model configuration
     model = Model(inputs=[IN], outputs=[VALIDITY, LABEL])
     return model
@@ -953,16 +1001,17 @@ def get_seg_swin_disc_2d_v1(input_shape, class_num,
 def get_seg_swin_disc_2d_v2(input_shape,
                             filter_num_begin, depth, stack_num_down, stack_num_up,
                             patch_size, stride_mode, num_heads, window_size, num_mlp,
-                            act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                            act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     # Base architecture
     VALIDITY, _ = swin_seg_disc_v1(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                   act=act, shift_window=shift_window, swin_v2=swin_v2, name="unet")
+                                   act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="unet")
     VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-    VALIDITY = layers.Dense(filter_num_begin, activation=last_act)(VALIDITY)
+    VALIDITY = DenseLayer(
+        filter_num_begin, activation=last_act, use_sn=use_sn)(VALIDITY)
 
     model = Model(inputs=[IN], outputs=[VALIDITY])
     return model
@@ -973,8 +1022,7 @@ class SwinDiscriminator(Model):
         self, input_shape, classifier,
         filter_num_begin, depth, stack_num_down, stack_num_up,
         patch_size, stride_mode, num_heads, window_size, num_mlp,
-        act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False,
-
+        act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False
     ):
         super().__init__()
         H, W, _ = input_shape
@@ -982,10 +1030,10 @@ class SwinDiscriminator(Model):
         VALIDITY_IN = layers.Input(input_shape)
         VALIDITY, _ = swin_seg_disc_v1(VALIDITY_IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                                        patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                       act=act, shift_window=shift_window, swin_v2=swin_v2, name="unet")
+                                       act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="unet")
         VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-        VALIDITY = layers.Dense(
-            filter_num_begin, activation=last_act)(VALIDITY)
+        VALIDITY = DenseLayer(filter_num_begin,
+                              activation=last_act, use_sn=use_sn)(VALIDITY)
         self.validity_model = Model(inputs=[VALIDITY_IN], outputs=[VALIDITY])
         # Model configuration
         self.classifier_model = classifier
@@ -1004,7 +1052,7 @@ class SwinDiscriminator(Model):
 def get_swin_class_input_disc_2d(input_shape, class_num, last_channel_num,
                                  filter_num_begin, depth, stack_num_per_depth,
                                  patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                 act="gelu", last_act="softmax", shift_window=True, swin_v2=False):
+                                 act="gelu", last_act="softmax", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
@@ -1012,13 +1060,15 @@ def get_swin_class_input_disc_2d(input_shape, class_num, last_channel_num,
     X = tile_concat_2d(IN, CLASS)
     X = swin_classification_2d_base(X, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
     X = layers.Reshape((h, w, -1))(X)
     # X = AdaptiveAveragePooling2D((h // 4, w // 4))(X)
     X = AdaptiveAveragePooling2D((8, 8))(X)
     # The output section
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
-                        activation=last_act, kernel_initializer="zeros", use_bias=False)(X)
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      activation=last_act, use_sn=use_sn,
+                      kernel_initializer="zeros", use_bias=False)(X)
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[OUT, ])
     return model
@@ -1028,16 +1078,16 @@ def get_swin_class_gen_2d_v1(input_shape, class_num, last_channel_num,
                              filter_num_begin, depth,
                              stack_num_down, stack_num_up,
                              patch_size, stride_mode, num_heads, window_size, num_mlp,
-                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     IN = layers.Input(input_shape)
     CLASS = layers.Input(class_num)
     # Base architecture
     X = swin_class_gen_2d_base_v1(IN, CLASS, filter_num_begin, depth, stack_num_down, stack_num_up,
                                   patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                  shift_window=shift_window, swin_v2=swin_v2, name='unet')
+                                  shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
 
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
-                        use_bias=False, activation=last_act)(X)
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      use_bias=False, activation=last_act, use_sn=use_sn)(X)
 
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[OUT, ])
@@ -1048,7 +1098,7 @@ def get_swin_class_gen_2d_v2(input_shape, last_channel_num,
                              filter_num_begin, depth,
                              stack_num_down, stack_num_up,
                              patch_size, stride_mode, num_heads, window_size, num_mlp,
-                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     IN = layers.Input(input_shape)
     if stride_mode == "same":
         stride_size = patch_size
@@ -1064,9 +1114,9 @@ def get_swin_class_gen_2d_v2(input_shape, last_channel_num,
     # Base architecture
     X = swin_class_gen_2d_base_v2(IN, CLASS, filter_num_begin, depth, stack_num_down, stack_num_up,
                                   patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                  shift_window=shift_window, swin_v2=swin_v2, name='unet')
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
-                        use_bias=False, activation=last_act)(X)
+                                  shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      use_bias=False, activation=last_act, use_sn=use_sn)(X)
 
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[OUT, ])
@@ -1077,7 +1127,7 @@ def get_swin_class_gen_2d_v3(input_shape, class_num, last_channel_num,
                              filter_num_begin, depth,
                              stack_num_down, stack_num_up,
                              patch_size, stride_mode, num_heads, window_size, num_mlp,
-                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                             act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     IN = layers.Input(input_shape)
     if stride_mode == "same":
         stride_size = patch_size
@@ -1092,9 +1142,9 @@ def get_swin_class_gen_2d_v3(input_shape, class_num, last_channel_num,
     # Base architecture
     X = swin_class_gen_2d_base_v3(IN, OUT_CLASS, filter_num_begin, depth, stack_num_down, stack_num_up,
                                   patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                  shift_window=shift_window, swin_v2=swin_v2, name='unet')
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
-                        use_bias=False, activation=last_act)(X)
+                                  shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      use_bias=False, activation=last_act, use_sn=use_sn)(X)
 
     # Model configuration
     model = Model(inputs=[IN, OUT_CLASS], outputs=[OUT, ])
@@ -1104,13 +1154,13 @@ def get_swin_class_gen_2d_v3(input_shape, class_num, last_channel_num,
 def get_swin_style_encoder(input_shape, class_num,
                            filter_num_begin, depth, stack_num_down,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", shift_window=True, swin_v2=False):
+                           act="gelu", shift_window=True, swin_v2=False, use_sn=False):
     IN = layers.Input(input_shape)
     CLASS = layers.Input((class_num,))
     # Base architecture
     STYLE_LATENT = swin_style_extractor_base(IN, CLASS, filter_num_begin, depth, stack_num_down,
                                              patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
-                                             shift_window=shift_window, swin_v2=swin_v2, name='unet')
+                                             shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet')
     # Model configuration
     model = Model(inputs=[IN, CLASS], outputs=[STYLE_LATENT, ])
     return model
@@ -1119,23 +1169,27 @@ def get_swin_style_encoder(input_shape, class_num,
 def get_swin_class_disc_2d(input_shape, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
     VALIDITY = layers.Reshape((h, w, -1))(X)
-    VALIDITY = layers.Conv2D(filter_num_begin, kernel_size=3,
-                             activation=act, padding="same")(VALIDITY)
+    VALIDITY = Conv2DLayer(filter_num_begin, kernel_size=3,
+                           activation=act, padding="same", use_sn=use_sn)(VALIDITY)
     VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-    VALIDITY = layers.Conv2D(last_channel_num, kernel_size=1,
-                             activation=last_act, kernel_initializer="zeros", use_bias=False)(VALIDITY)
+    VALIDITY = Conv2DLayer(last_channel_num, kernel_size=1,
+                           activation=last_act, kernel_initializer="zeros",
+                           use_bias=False, use_sn=use_sn)(VALIDITY)
     CLASS = AdaptiveAveragePooling1D((h * w // 16))(X)
-    CLASS = layers.Dense(filter_num_begin, activation=act)(CLASS)
+    CLASS = DenseLayer(filter_num_begin,
+                       activation=act, use_sn=use_sn)(CLASS)
     CLASS = layers.Flatten()(CLASS)
-    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(CLASS)
+    CLASS = DenseLayer(last_channel_num,
+                       activation='sigmoid', use_sn=use_sn)(CLASS)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
     return model
@@ -1144,7 +1198,7 @@ def get_swin_class_disc_2d(input_shape, last_channel_num,
 def get_swin_class_patch_disc_2d(input_shape, last_channel_num,
                                  filter_num_begin, depth, stack_num_per_depth,
                                  patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                 act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                                 act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     down_ratio = 2 ** depth
     feature_shape = (input_shape[0] // down_ratio,
                      input_shape[1] // down_ratio,
@@ -1152,14 +1206,16 @@ def get_swin_class_patch_disc_2d(input_shape, last_channel_num,
     IN = layers.Input(input_shape)
     X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
     VALIDITY = layers.Reshape(feature_shape)(X)
     # The output section
-    VALIDITY = layers.Conv2D(1, kernel_size=3, strides=2,
-                             activation=last_act)(VALIDITY)
+    VALIDITY = Conv2DLayer(1, kernel_size=3, strides=2,
+                           activation=last_act, use_sn=use_sn)(VALIDITY)
     # The output section
     CLASS = layers.GlobalAveragePooling1D()(X)
-    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(CLASS)
+    CLASS = DenseLayer(last_channel_num,
+                       activation='sigmoid', use_sn=use_sn)(CLASS)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
     return model
@@ -1168,16 +1224,18 @@ def get_swin_class_patch_disc_2d(input_shape, last_channel_num,
 def get_swin_class_disc_3d(input_shape, last_channel_num,
                            filter_num_begin, depth, stack_num_per_depth,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
-                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False):
+                           act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
     IN = layers.Input(input_shape)
     X = swin_classification_3d_base(IN, filter_num_begin, depth, stack_num_per_depth,
                                     patch_size, stride_mode, num_heads, window_size, num_mlp,
-                                    act=act, shift_window=shift_window, swin_v2=swin_v2, name="classification")
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
     X = layers.GlobalAveragePooling1D()(X)
     # The output section
-    VALIDITY = layers.Dense(1, activation=last_act)(X)
+    VALIDITY = DenseLayer(1, activation=last_act, use_sn=use_sn)(X)
     # The output section
-    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(X)
+    CLASS = DenseLayer(
+        last_channel_num, activation='sigmoid', use_sn=use_sn)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
     return model

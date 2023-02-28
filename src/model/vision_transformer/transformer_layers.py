@@ -7,7 +7,7 @@ from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
 from tensorflow import extract_volume_patches
 from .util_layers import get_norm_layer
-from .util_layers import DenseLayer
+from .util_layers import DenseLayer, Conv2DLayer, Conv3DLayer
 
 
 class PatchExtract(layers.Layer):
@@ -311,7 +311,7 @@ class PatchMerging3D(layers.Layer):
 class PatchExpanding(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate,
-                 return_vector=True, norm="layer", swin_v2=False, name=''):
+                 return_vector=True, norm="layer", swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -323,16 +323,15 @@ class PatchExpanding(layers.Layer):
 
         self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
                                                   interpolation="bilinear")
-        self.upsample_linear_trans = layers.Conv2D(embed_dim // 2,
-                                                   kernel_size=1,
-                                                   use_bias=False,
-                                                   name='{}_upsample_linear_trans'.format(name))
-        self.pixel_shuffle_linear_trans = layers.Conv2D(upsample_rate * embed_dim,
-                                                        kernel_size=1,
-                                                        use_bias=False,
-                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
-        self.concat_linear_trans = layers.Conv2D(embed_dim // 2,
-                                                 kernel_size=1, use_bias=False, name='{}_concat_linear_trans'.format(name))
+        self.upsample_linear_trans = Conv2DLayer(embed_dim // 2,
+                                                 kernel_size=1, use_bias=False, use_sn=use_sn,
+                                                 name='{}_upsample_linear_trans'.format(name))
+        self.pixel_shuffle_linear_trans = Conv2DLayer(upsample_rate * embed_dim,
+                                                      kernel_size=1, use_bias=False, use_sn=use_sn,
+                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
+        self.concat_linear_trans = Conv2DLayer(embed_dim // 2,
+                                               kernel_size=1, use_bias=False, use_sn=use_sn,
+                                               name='{}_concat_linear_trans'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -370,7 +369,7 @@ class PatchExpanding(layers.Layer):
 class PatchExpandingSimple(layers.Layer):
 
     def __init__(self, num_patch, embed_dim, upsample_rate,
-                 return_vector=True, norm="layer", swin_v2=False, name=''):
+                 return_vector=True, norm="layer", swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -380,12 +379,12 @@ class PatchExpandingSimple(layers.Layer):
         self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
-        self.pixel_shuffle_linear_trans = layers.Conv2D(upsample_rate * embed_dim,
-                                                        kernel_size=1,
-                                                        use_bias=False,
-                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
-        self.linear_trans = layers.Conv2D(embed_dim // 2,
-                                          kernel_size=1, use_bias=False, name='{}_concat_linear_trans'.format(name))
+        self.pixel_shuffle_linear_trans = Conv2DLayer(upsample_rate * embed_dim,
+                                                      kernel_size=1, use_bias=False, use_sn=use_sn,
+                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
+        self.linear_trans = Conv2DLayer(embed_dim // 2,
+                                        kernel_size=1, use_bias=False, use_sn=use_sn,
+                                        name='{}_concat_linear_trans'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -451,7 +450,8 @@ class Pixelshuffle3D(layers.Layer):
 
 class PatchExpanding3D(layers.Layer):
 
-    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer", swin_v2=False, name=''):
+    def __init__(self, num_patch, embed_dim, upsample_rate, return_vector=True, norm="layer",
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -462,17 +462,16 @@ class PatchExpanding3D(layers.Layer):
         self.swin_v2 = swin_v2
 
         self.upsample_layer = layers.UpSampling3D(size=upsample_rate)
-        self.upsample_linear_trans = layers.Conv3D(embed_dim // 2,
-                                                   kernel_size=1, use_bias=False, name='{}_upsample_linear_trans'.format(name))
-        self.pixel_shuffle_linear_trans = layers.Conv3D((upsample_rate ** 2) * embed_dim,
-                                                        kernel_size=1,
-                                                        use_bias=False,
-                                                        name='{}_pixel_shuffle_linear_trans'.format(name))
+        self.upsample_linear_trans = Conv3DLayer(embed_dim // 2,
+                                                 kernel_size=1, use_bias=False, use_sn=use_sn,
+                                                 name='{}_upsample_linear_trans'.format(name))
+        self.pixel_shuffle_linear_trans = Conv3DLayer((upsample_rate ** 2) * embed_dim,
+                                                      kernel_size=1, use_bias=False, use_sn=use_sn,
+                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
         self.pixel_shuffle_3d = Pixelshuffle3D(kernel_size=upsample_rate)
-        self.concat_linear_trans = layers.Conv3D(embed_dim // 2,
-                                                 kernel_size=1,
-                                                 use_bias=False,
-                                                 name='{}_concat_linear_trans'.format(name))
+        self.concat_linear_trans = Conv3DLayer(embed_dim // 2,
+                                               kernel_size=1, use_bias=False, use_sn=use_sn,
+                                               name='{}_concat_linear_trans'.format(name))
 
         self.prefix = name
 
