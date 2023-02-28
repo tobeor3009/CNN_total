@@ -4,7 +4,7 @@ from . import swin_layers, transformer_layers, utils
 
 
 def swin_transformer_stack_2d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
-                              act, shift_window, mode, swin_v2=False, name=''):
+                              act, shift_window, mode, swin_v2=False, use_sn=False, name=''):
     '''
     Stacked Swin Transformers that share the same token size.
 

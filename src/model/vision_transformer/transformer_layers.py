@@ -7,6 +7,7 @@ from tensorflow.keras import layers, backend
 from tensorflow.image import extract_patches
 from tensorflow import extract_volume_patches
 from .util_layers import get_norm_layer
+from .util_layers import DenseLayer
 
 
 class PatchExtract(layers.Layer):
@@ -151,12 +152,12 @@ class PatchEmbedding(layers.Layer):
 
     '''
 
-    def __init__(self, num_patch, embed_dim):
+    def __init__(self, num_patch, embed_dim, use_sn=False):
         super(PatchEmbedding, self).__init__()
         self.num_patch = num_patch
-        self.proj = layers.Dense(embed_dim)
-        self.pos_embed = layers.Embedding(
-            input_dim=num_patch, output_dim=embed_dim)
+        self.proj = DenseLayer(embed_dim, use_sn=use_sn)
+        self.pos_embed = layers.Embedding(input_dim=num_patch,
+                                          output_dim=embed_dim)
 
     def call(self, patch):
         # patch.shape = [B num_patch C]
@@ -182,16 +183,17 @@ class PatchMerging(layers.Layer):
 
     '''
 
-    def __init__(self, num_patch, embed_dim, norm="layer", swin_v2=False, name=''):
+    def __init__(self, num_patch, embed_dim, norm="layer",
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
         self.embed_dim = embed_dim
         self.swin_v2 = swin_v2
         # A linear transform that doubles the channels
-        self.linear_trans = layers.Dense(2 * embed_dim,
-                                         use_bias=False,
-                                         name='{}_linear_trans'.format(name))
+        self.linear_trans = DenseLayer(2 * embed_dim,
+                                       use_bias=False, use_sn=use_sn,
+                                       name='{}_linear_trans'.format(name))
         self.norm = get_norm_layer(norm)
 
     def call(self, x):
@@ -243,7 +245,8 @@ class PatchMerging3D(layers.Layer):
 
     '''
 
-    def __init__(self, num_patch, embed_dim, include_3d=False, norm="layer", swin_v2=False, name=''):
+    def __init__(self, num_patch, embed_dim, include_3d=False, norm="layer",
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -252,9 +255,9 @@ class PatchMerging3D(layers.Layer):
         self.swin_v2 = swin_v2
 
         # A linear transform that doubles the channels
-        self.linear_trans = layers.Dense(2 * embed_dim,
-                                         use_bias=False,
-                                         name='{}_linear_trans'.format(name))
+        self.linear_trans = DenseLayer(2 * embed_dim,
+                                       use_bias=False, use_sn=use_sn,
+                                       name='{}_linear_trans'.format(name))
         self.norm = get_norm_layer(norm)
 
     def call(self, x):
@@ -505,9 +508,8 @@ class PatchExpanding3D(layers.Layer):
 
 
 class PatchExpanding_2D_3D(layers.Layer):
-
-    def __init__(self, num_patch, embed_dim, return_vector=True, preserve_dim=False,
-                 norm="layer", swin_v2=False, name=''):
+    def __init__(self, num_patch, embed_dim, return_vector=True, preserve_dim=False, norm="layer",
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.num_patch = num_patch
@@ -541,7 +543,8 @@ class PatchExpanding_2D_3D(layers.Layer):
                 if preserve_dim:
                     expand_dim *= 2
                     new_dim *= 2
-            expand_layer = layers.Dense(expand_dim, use_bias=False)
+            expand_layer = DenseLayer(expand_dim,
+                                      use_sn=use_sn, use_bias=False)
             norm_layer = get_norm_layer(norm)
             self.downsample_scale_list.append(down_scale)
             self.expand_list.append(expand_layer)

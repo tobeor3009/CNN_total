@@ -4,7 +4,7 @@ from tensorflow.keras import Model, layers
 from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_2d
 from .classfication import swin_classification_2d_base, swin_classification_3d_base
-
+from .util_layers import DenseLayer
 BLOCK_MODE_NAME = "seg"
 
 
@@ -132,8 +132,8 @@ def swin_class_gen_2d_base(input_tensor, class_tensor, filter_num_begin, depth, 
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -285,8 +285,8 @@ def swin_class_disc_2d_base(input_tensor, filter_num_begin, depth, stack_num_dow
         # Concatenation and linear projection
         X = layers.concatenate([X, X_decode[i]], axis=-1,
                                name='{}_concat_{}'.format(name, i))
-        X = layers.Dense(embed_dim, use_bias=False,
-                         name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        X = DenseLayer(embed_dim, use_bias=False,
+                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
@@ -353,9 +353,9 @@ def get_swin_class_disc_2d(input_shape, last_channel_num,
                                                    shift_window=shift_window, swin_v2=swin_v2, name='unet')
     ENCODED_X = layers.GlobalAveragePooling1D()(ENCODED_X)
     # The output section
-    VALIDITY = layers.Dense(1, activation=disc_act)(ENCODED_X)
+    VALIDITY = DenseLayer(1, activation=disc_act)(ENCODED_X)
     # The output section
-    CLASS = layers.Dense(last_channel_num, activation='sigmoid')(ENCODED_X)
+    CLASS = DenseLayer(last_channel_num, activation='sigmoid')(ENCODED_X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS, FEATRUE_X])
     return model

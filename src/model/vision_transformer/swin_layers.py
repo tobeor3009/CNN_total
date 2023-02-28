@@ -5,10 +5,11 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, initializers
 from tensorflow_addons.layers import SpectralNormalization
-from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.layers import Dropout
 from tensorflow.keras.activations import softmax
 
 from .util_layers import drop_path, get_norm_layer, get_act_layer
+from .util_layers import DenseLayer
 
 
 def get_len(x):
@@ -123,18 +124,15 @@ def window_reverse_3d(windows, window_size, Z, H, W, C):
 
 
 class Mlp(layers.Layer):
-    def __init__(self, filter_num, act="gelu", drop=0., name='', spectral=False):
+    def __init__(self, filter_num, act="gelu", drop=0., name='', use_sn=False):
 
         super().__init__()
-
-        # MLP layers
-        self.fc1 = Dense(filter_num[0], name='{}_mlp_0'.format(name))
-        self.fc2 = Dense(filter_num[1], name='{}_mlp_1'.format(name))
-
-        # Dropout layer
+        # Define Layer
+        self.fc1 = DenseLayer(filter_num[0], use_sn=use_sn,
+                              name='{}_mlp_0'.format(name))
+        self.fc2 = DenseLayer(filter_num[1], use_sn=use_sn,
+                              name='{}_mlp_1'.format(name))
         self.drop = Dropout(drop)
-
-        # default: GELU activation
         self.activation = get_act_layer(act)
 
     def call(self, x):
@@ -150,7 +148,8 @@ class Mlp(layers.Layer):
 
 
 class WindowAttention(layers.Layer):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., swin_v2=False, name=''):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0.,
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -159,13 +158,14 @@ class WindowAttention(layers.Layer):
         self.qkv_bias = not swin_v2 and qkv_bias
         self.qk_scale = qk_scale
         self.swin_v2 = swin_v2
+        self.use_sn = use_sn
         self.prefix = name
 
         # Layers
-        self.qkv = Dense(dim * 3, use_bias=self.qkv_bias,
-                         name='{}_attn_qkv'.format(self.prefix))
+        self.qkv = DenseLayer(dim * 3, use_bias=self.qkv_bias,
+                              name='{}_attn_qkv'.format(self.prefix))
         self.attn_drop = Dropout(attn_drop)
-        self.proj = Dense(dim, name='{}_attn_proj'.format(self.prefix))
+        self.proj = DenseLayer(dim, name='{}_attn_proj'.format(self.prefix))
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
@@ -180,13 +180,11 @@ class WindowAttention(layers.Layer):
                 initializer=initializers.Constant(np.log(10.)),
                 trainable=True,
                 dtype=self.dtype)
-            self.cpb0 = layers.Dense(512,
-                                     activation='relu',
-                                     name='cpb_mlp.0')
-            self.cpb1 = layers.Dense(self.num_heads,
-                                     activation='sigmoid', use_bias=False,
-                                     name='cpb_mlp.2')
-
+            self.cpb0 = DenseLayer(512, activation='relu',
+                                   use_sn=self.use_sn, name='cpb_mlp.0')
+            self.cpb1 = DenseLayer(self.num_heads, activation='sigmoid',
+                                   use_bias=False, use_sn=self.use_sn,
+                                   name='cpb_mlp.2')
             self.q_bias = None
             self.v_bias = None
             if self.qkv_bias:
@@ -327,7 +325,8 @@ class WindowAttention(layers.Layer):
 
 
 class ContextWindowAttention(layers.Layer):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., swin_v2=False, name=''):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0.,
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -336,15 +335,17 @@ class ContextWindowAttention(layers.Layer):
         self.qkv_bias = not swin_v2 and qkv_bias
         self.qk_scale = qk_scale
         self.swin_v2 = swin_v2
+        self.use_sn = use_sn
         self.prefix = name
 
         # Layers
-        self.dense_q = Dense(dim, use_bias=self.qkv_bias,
-                             name='{}_attn_q'.format(self.prefix))
-        self.dense_kv = Dense(dim * 2, use_bias=self.qkv_bias,
-                              name='{}_attn_kv'.format(self.prefix))
+        self.dense_q = DenseLayer(dim, use_bias=self.qkv_bias, use_sn=self.use_sn,
+                                  name='{}_attn_q'.format(self.prefix))
+        self.dense_kv = DenseLayer(dim * 2, use_bias=self.qkv_bias, use_sn=self.use_sn,
+                                   name='{}_attn_kv'.format(self.prefix))
         self.attn_drop = Dropout(attn_drop)
-        self.proj = Dense(dim, name='{}_attn_proj'.format(self.prefix))
+        self.proj = DenseLayer(dim, use_sn=self.use_sn,
+                               name='{}_attn_proj'.format(self.prefix))
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
@@ -359,12 +360,11 @@ class ContextWindowAttention(layers.Layer):
                 initializer=initializers.Constant(np.log(10.)),
                 trainable=True,
                 dtype=self.dtype)
-            self.cpb0 = layers.Dense(512,
-                                     activation='relu',
-                                     name='cpb_mlp.0')
-            self.cpb1 = layers.Dense(self.num_heads,
-                                     activation='sigmoid', use_bias=False,
-                                     name='cpb_mlp.2')
+            self.cpb0 = DenseLayer(512, activation='relu',
+                                   use_sn=self.use_sn, name='cpb_mlp.0')
+            self.cpb1 = DenseLayer(self.num_heads, activation='sigmoid',
+                                   use_bias=False, use_sn=self.use_sn,
+                                   name='cpb_mlp.2')
 
             self.q_bias = None
             self.v_bias = None
@@ -506,7 +506,8 @@ class ContextWindowAttention(layers.Layer):
 
 
 class WindowAttention3D(layers.Layer):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0., swin_v2=False, name=''):
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0, proj_drop=0.,
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -515,13 +516,15 @@ class WindowAttention3D(layers.Layer):
         self.qkv_bias = not swin_v2 and qkv_bias
         self.qk_scale = qk_scale
         self.swin_v2 = swin_v2
+        self.use_sn = use_sn
         self.prefix = name
 
         # Layers
-        self.qkv = Dense(dim * 3, use_bias=qkv_bias,
-                         name='{}_attn_qkv'.format(self.prefix))
+        self.qkv = DenseLayer(dim * 3, use_bias=qkv_bias, use_sn=self.use_sn,
+                              name='{}_attn_qkv'.format(self.prefix))
         self.attn_drop = Dropout(attn_drop)
-        self.proj = Dense(dim, name='{}_attn_proj'.format(self.prefix))
+        self.proj = DenseLayer(dim, use_sn=self.use_sn,
+                               name='{}_attn_proj'.format(self.prefix))
         self.proj_drop = Dropout(proj_drop)
 
     def build(self, input_shape):
@@ -540,12 +543,10 @@ class WindowAttention3D(layers.Layer):
                 initializer=initializers.Constant(np.log(10.)),
                 trainable=True,
                 dtype=self.dtype)
-            self.cpb0 = layers.Dense(512,
-                                     activation='relu',
-                                     name='cpb_mlp.0')
-            self.cpb1 = layers.Dense(self.num_heads,
-                                     activation='sigmoid', use_bias=False,
-                                     name='cpb_mlp.2')
+            self.cpb0 = DenseLayer(512, activation='relu',
+                                   use_sn=self.use_sn, name='cpb_mlp.0')
+            self.cpb1 = DenseLayer(self.num_heads, activation='sigmoid',
+                                   use_bias=False, use_sn=self.use_sn, name='cpb_mlp.2')
             self.q_bias = None
             self.v_bias = None
             if self.qkv_bias:
@@ -703,7 +704,8 @@ class WindowAttention3D(layers.Layer):
 
 class SwinTransformerBlock(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
-                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, swin_v2=False, name=''):
+                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0,
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -728,11 +730,11 @@ class SwinTransformerBlock(layers.Layer):
         self.attn = WindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
                                     qkv_bias=qkv_bias, qk_scale=qk_scale,
                                     attn_drop=attn_drop, proj_drop=proj_drop,
-                                    swin_v2=swin_v2, name=self.prefix)
+                                    swin_v2=swin_v2, use_sn=use_sn, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
         self.mlp = Mlp([num_mlp, dim], act=act,
-                       drop=mlp_drop, name=self.prefix)
+                       drop=mlp_drop, use_sn=use_sn, name=self.prefix)
 
         # Assertions
         for shift_size in self.shift_size:
@@ -856,7 +858,8 @@ class SwinTransformerBlock(layers.Layer):
 
 class ContextSwinTransformerBlock(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
-                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, swin_v2=False, name=''):
+                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0,
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -882,10 +885,10 @@ class ContextSwinTransformerBlock(layers.Layer):
         self.attn = ContextWindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
                                            qkv_bias=qkv_bias, qk_scale=qk_scale,
                                            attn_drop=attn_drop, proj_drop=proj_drop,
-                                           swin_v2=swin_v2, name=self.prefix)
+                                           swin_v2=swin_v2, use_sn=use_sn, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm3 = get_norm_layer(norm, name='{}_norm3'.format(self.prefix))
-        self.mlp = Mlp([num_mlp, dim], act=act,
+        self.mlp = Mlp([num_mlp, dim], act=act, use_sn=use_sn,
                        drop=mlp_drop, name=self.prefix)
 
         # Assertions
@@ -1017,7 +1020,8 @@ class ContextSwinTransformerBlock(layers.Layer):
 
 class SwinTransformerBlock3D(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
-                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0, swin_v2=False, name=''):
+                 qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0,
+                 swin_v2=False, use_sn=use_sn, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
@@ -1045,10 +1049,10 @@ class SwinTransformerBlock3D(layers.Layer):
         self.attn = WindowAttention3D(dim, window_size=self.window_size, num_heads=num_heads,
                                       qkv_bias=qkv_bias, qk_scale=qk_scale,
                                       attn_drop=attn_drop, proj_drop=proj_drop,
-                                      swin_v2=swin_v2, name=self.prefix)
+                                      swin_v2=swin_v2, use_sn=use_sn, name=self.prefix)
         self.drop_path = drop_path(drop_path_prob)
         self.norm2 = get_norm_layer(norm, name='{}_norm2'.format(self.prefix))
-        self.mlp = Mlp([num_mlp, dim], act=act,
+        self.mlp = Mlp([num_mlp, dim], act=act, use_sn=use_sn,
                        drop=mlp_drop, name=self.prefix)
 
         # Assertions

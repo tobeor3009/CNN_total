@@ -4,7 +4,7 @@ from tensorflow_addons.layers import AdaptiveAveragePooling2D
 from tensorflow.keras import layers
 from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_2d, swin_transformer_stack_3d
-
+from util_layers import DenseLayer
 BLOCK_MODE_NAME = "classification"
 
 
@@ -76,7 +76,7 @@ def get_swin_classification_2d(input_shape, last_channel_num,
     X = AdaptiveAveragePooling2D((h // 4, w // 4))(X)
     X = layers.Flatten()(X)
     # The output section
-    OUT = layers.Dense(last_channel_num, activation=last_act)(X)
+    OUT = DenseLayer(last_channel_num, activation=last_act)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
@@ -152,7 +152,7 @@ def get_swin_classification_3d(input_shape, last_channel_num,
     X = layers.GlobalAveragePooling1D()(X)
     print(f"GAP shape: {X.shape}")
     # The output section
-    OUT = layers.Dense(last_channel_num, activation=last_act)(X)
+    OUT = DenseLayer(last_channel_num, activation=last_act)(X)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
