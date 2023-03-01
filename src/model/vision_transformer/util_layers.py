@@ -123,9 +123,11 @@ class DenseLayer(layers.Layer):
                                                   iteration=self.iteration)
         super().build(input_shape)
 
+    @tf.function
     def call(self, inputs):
         if self.use_sn:
-            outputs = self.dense_sn(inputs)
+            with tf.init_scope():
+                outputs = self.dense_sn(inputs)
         else:
             outputs = self.dense(inputs)
         outputs = self.activation_layer(outputs)
@@ -174,9 +176,11 @@ class Conv1DLayer(layers.Layer):
             self.conv1d_sn = SpectralNormalization(self.conv1d,
                                                    iteration=self.iteration)
 
+    @tf.function
     def call(self, inputs):
         if self.use_sn:
-            outputs = self.conv1d_sn(inputs)
+            with tf.init_scope():
+                outputs = self.conv1d_sn(inputs)
         else:
             outputs = self.conv1d(inputs)
         outputs = self.activation_layer(outputs)
@@ -225,9 +229,11 @@ class Conv2DLayer(layers.Layer):
             self.conv2d_sn = SpectralNormalization(self.conv2d,
                                                    iteration=self.iteration)
 
+    @tf.function
     def call(self, inputs):
         if self.use_sn:
-            outputs = self.conv2d_sn(inputs)
+            with tf.init_scope():
+                outputs = self.conv2d_sn(inputs)
         else:
             outputs = self.conv2d(inputs)
         outputs = self.activation_layer(outputs)
@@ -277,9 +283,11 @@ class Conv3DLayer(layers.Layer):
             self.conv3d_sn = SpectralNormalization(self.conv3d,
                                                    iteration=self.iteration)
 
+    @tf.function
     def call(self, inputs):
         if self.use_sn:
-            outputs = self.conv3d_sn(inputs)
+            with tf.init_scope():
+                outputs = self.conv3d_sn(inputs)
         else:
             outputs = self.conv3d(inputs)
         outputs = self.activation_layer(outputs)
