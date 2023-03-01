@@ -60,6 +60,36 @@ def drop_path_(inputs, drop_prob, is_training):
     return output
 
 
+def spectral_norm(layer_kernel, u, iteration):
+    # u.shape = [1, out_channel]
+    kernel_shape = layer_kernel.shape.as_list()
+    # First: kernel_reshaped.shape => [N, out_channel]
+    # After: kernel_reshaped.shape => [1, out_channel]
+    kernel_reshaped = tf.reshape(layer_kernel, [-1, kernel_shape[-1]])
+    for _ in range(iteration):
+        # First: u_hat.shape => [N, out_channel] @ [out_channel, 1] => [N, 1]
+        # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
+        u_hat = tf.matmul(kernel_reshaped, u, transpose_b=True)
+        u_hat_norm = tf.norm(u_hat)
+        # First: v.shape => [N, 1]
+        # After: v.shape => [1, 1]
+        v = u_hat / u_hat_norm
+        # First: v_hat.shape => [out_channel, N] @ [N, 1] => [out_channel, 1]
+        # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
+        v_hat = tf.matmul(kernel_reshaped, v, transpose_a=True)
+        u = tf.transpose(v_hat)
+        # First: kernel_reshaped.shape => [1, N] @ [N, out_channel] => [1, out_channel]
+        # After: kernel_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
+        kernel_reshaped = tf.matmul(v, kernel_reshaped, transpose_a=True)
+    # kernel_norm.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
+    kernel_norm = tf.matmul(u, kernel_reshaped, transpose_b=True)
+    # kernel_norm.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
+    kernel_norm = tf.matmul(kernel_norm, u)
+    # kernel_norm.shape => [] (scalar)
+    kernel_norm = tf.reduce_sum(kernel_norm)
+    return kernel_norm, u
+
+
 class drop_path(layers.Layer):
     def __init__(self, drop_prob=None):
         super().__init__()
@@ -268,53 +298,28 @@ class Conv3DLayer(layers.Layer):
     def from_config(cls, config):
         return cls(**config)
 
-# in can wrap conv or dense layer
 
-
-class SpectralNormalization(layers.Layer):
-    def __init__(self, layer, iteration=1):
-        super(SpectralNormalization, self).__init__()
+class SpectralNormalization(layers.Wrapper):
+    def __init__(self, layer, iteration=1, **kwargs):
+        super(SpectralNormalization, self).__init__(layer, **kwargs)
         self.iteration = iteration
         self.layer = layer
 
     def build(self, input_shape):
-        # layers.kernel.shape => [kernel_w, kernel_h, in_channel, out_channel]
-        self.w = self.layer.kernel
-        self.w_shape = self.w.shape.as_list()
+        # super(SpectralNormalization, self).build(input_shape)
+        self.layer.build(input_shape)
+        kernel_shape = self.layer.kernel.shape.as_list()
         # u.shape = [1, out_channel]
-        self.u = self.add_weight(shape=(1, self.w_shape[-1]),
-                                 initializer='glorot_uniform',
-                                 trainable=False)
-        super(SpectralNormalization, self).build(input_shape)
+        self.u = self.add_weight(shape=(1, kernel_shape[-1]), initializer="glorot_uniform",
+                                 trainable=False, name="sn_u")
 
     def call(self, x):
         # N = kernel_w * kernel_h * in_channel
-        self.w = self.layer.kernel
-        # First: w_reshaped.shape => [N, out_channel]
-        # After: w_reshaped.shape => [1, out_channel]
-        w_reshaped = tf.reshape(self.w, [-1, self.w_shape[-1]])
-        for _ in range(self.iteration):
-            # First: u_hat.shape => [N, out_channel] @ [out_channel, 1] => [N, 1]
-            # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-            u_hat = tf.matmul(w_reshaped, self.u, transpose_b=True)
-            u_hat_norm = tf.norm(u_hat)
-            # First: v.shape => [N, 1]
-            # After: v.shape => [1, 1]
-            v = u_hat / u_hat_norm
-            # First: v_hat.shape => [out_channel, N] @ [N, 1] => [out_channel, 1]
-            # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
-            v_hat = tf.matmul(w_reshaped, v, transpose_a=True)
-            self.u.assign(v_hat)
-            # First: w_reshaped.shape => [1, N] @ [N, out_channel] => [1, out_channel]
-            # After: w_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-            w_reshaped = tf.matmul(v, w_reshaped, transpose_a=True)
-        # sigma.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-        sigma = tf.matmul(self.u, w_reshaped, transpose_b=True)
-        # sigma.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-        sigma = tf.matmul(sigma, self.u)
-        # sigma.shape => [] (scalar)
-        sigma = tf.reduce_sum(sigma)
-        self.layer.kernel = self.w / sigma
+        layer_kernel = self.layer.kernel
+        kernel_norm, u = spectral_norm(layer_kernel, self.u,
+                                       self.iteration)
+        self.u.assign(u)
+        self.layer.kernel = layer_kernel / kernel_norm
         return self.layer(x)
 
 
