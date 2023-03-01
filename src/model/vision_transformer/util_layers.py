@@ -60,34 +60,37 @@ def drop_path_(inputs, drop_prob, is_training):
     return output
 
 
-def spectral_norm(layer_kernel, u, iteration):
-    # u.shape = [1, out_channel]
-    kernel_shape = layer_kernel.shape.as_list()
-    # First: kernel_reshaped.shape => [N, out_channel]
-    # After: kernel_reshaped.shape => [1, out_channel]
-    kernel_reshaped = tf.reshape(layer_kernel, [-1, kernel_shape[-1]])
-    for _ in range(iteration):
-        # First: u_hat.shape => [N, out_channel] @ [out_channel, 1] => [N, 1]
-        # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-        u_hat = tf.matmul(kernel_reshaped, u, transpose_b=True)
-        u_hat_norm = tf.norm(u_hat)
-        # First: v.shape => [N, 1]
-        # After: v.shape => [1, 1]
-        v = u_hat / u_hat_norm
-        # First: v_hat.shape => [out_channel, N] @ [N, 1] => [out_channel, 1]
-        # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
-        v_hat = tf.matmul(kernel_reshaped, v, transpose_a=True)
-        u = tf.transpose(v_hat)
-        # First: kernel_reshaped.shape => [1, N] @ [N, out_channel] => [1, out_channel]
-        # After: kernel_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-        kernel_reshaped = tf.matmul(v, kernel_reshaped, transpose_a=True)
-    # kernel_norm.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-    kernel_norm = tf.matmul(u, kernel_reshaped, transpose_b=True)
-    # kernel_norm.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-    kernel_norm = tf.matmul(kernel_norm, u)
-    # kernel_norm.shape => [] (scalar)
-    kernel_norm = tf.reduce_sum(kernel_norm)
-    return kernel_norm, u
+@tf.function
+def spectral_norm(layer_kernel, kernel_shape, iteration):
+    with tf.init_scope():
+        # First: kernel_reshaped.shape => [N, out_channel]
+        # After: kernel_reshaped.shape => [1, out_channel]
+        print(layer_kernel, kernel_shape)
+        kernel_reshaped = tf.reshape(layer_kernel,
+                                     [-1, kernel_shape[-1]])
+        u = tf.ones([1, kernel_shape[-1]])
+        for _ in range(iteration):
+            # First: u_hat.shape => [N, out_channel] @ [out_channel, 1] => [N, 1]
+            # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
+            u_hat = tf.matmul(kernel_reshaped, u, transpose_b=True)
+            u_hat_norm = tf.norm(u_hat)
+            # First: v.shape => [N, 1]
+            # After: v.shape => [1, 1]
+            v = u_hat / u_hat_norm
+            # First: v_hat.shape => [out_channel, N] @ [N, 1] => [out_channel, 1]
+            # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
+            v_hat = tf.matmul(kernel_reshaped, v, transpose_a=True)
+            u = tf.transpose(v_hat)
+            # First: kernel_reshaped.shape => [1, N] @ [N, out_channel] => [1, out_channel]
+            # After: kernel_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
+            kernel_reshaped = tf.matmul(v, kernel_reshaped, transpose_a=True)
+        # kernel_norm.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
+        kernel_norm = tf.matmul(u, kernel_reshaped, transpose_b=True)
+        # kernel_norm.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
+        kernel_norm = tf.matmul(kernel_norm, u)
+        # kernel_norm.shape => [] (scalar)
+        kernel_norm = tf.reduce_sum(kernel_norm)
+        return kernel_norm
 
 
 class drop_path(layers.Layer):
@@ -115,19 +118,18 @@ class DenseLayer(layers.Layer):
         self.iteration = iteration
         # Define layer
         self.dense = layers.Dense(self.units, use_bias=self.use_bias, **kwargs)
+        if use_sn:
+            self.dense_sn = SpectralNormalization(self.dense,
+                                                  power_iterations=iteration)
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
-        if self.use_sn:
-            self.dense_sn = SpectralNormalization(self.dense,
-                                                  iteration=self.iteration)
         super().build(input_shape)
 
     @tf.function
     def call(self, inputs):
         if self.use_sn:
-            with tf.init_scope():
-                outputs = self.dense_sn(inputs)
+            outputs = self.dense_sn(inputs)
         else:
             outputs = self.dense(inputs)
         outputs = self.activation_layer(outputs)
@@ -135,16 +137,6 @@ class DenseLayer(layers.Layer):
 
     def compute_output_shape(self, input_shape):
         return self.dense.compute_output_shape(input_shape)
-
-    def get_config(self):
-        config = {'units': self.units, 'activation': self.activation,
-                  'use_sn': self.use_sn, 'iteration': self.iteration}
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
 
 
 class Conv1DLayer(layers.Layer):
@@ -168,36 +160,26 @@ class Conv1DLayer(layers.Layer):
         self.conv1d = layers.Conv1D(self.filters, kernel_size=self.kernel_size,
                                     strides=self.strides, padding=self.padding, use_bias=self.use_bias,
                                     **kwargs)
+        if use_sn:
+            self.conv1d_sn = SpectralNormalization(self.conv1d,
+                                                   power_iterations=iteration)
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
         super().build(input_shape)
-        if self.use_sn:
-            self.conv1d_sn = SpectralNormalization(self.conv1d,
-                                                   iteration=self.iteration)
 
     @tf.function
     def call(self, inputs):
         if self.use_sn:
-            with tf.init_scope():
-                outputs = self.conv1d_sn(inputs)
+            outputs = self.conv1d_sn(inputs)
         else:
             outputs = self.conv1d(inputs)
+
         outputs = self.activation_layer(outputs)
         return outputs
 
     def compute_output_shape(self, input_shape):
         return self.conv1d.compute_output_shape(input_shape)
-
-    def get_config(self):
-        config = {'filters': self.filters, 'kernel_size': self.kernel_size, 'strides': self.strides,
-                  'padding': self.padding, 'activation': self.activation, 'use_sn': self.use_sn, 'iteration': self.iteration}
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
 
 
 class Conv2DLayer(layers.Layer):
@@ -221,19 +203,18 @@ class Conv2DLayer(layers.Layer):
         self.conv2d = layers.Conv2D(self.filters, kernel_size=self.kernel_size,
                                     strides=self.strides, padding=self.padding, use_bias=self.use_bias,
                                     **kwargs)
+        if use_sn:
+            self.conv2d_sn = SpectralNormalization(self.conv2d,
+                                                   power_iterations=iteration)
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
         super().build(input_shape)
-        if self.use_sn:
-            self.conv2d_sn = SpectralNormalization(self.conv2d,
-                                                   iteration=self.iteration)
 
     @tf.function
     def call(self, inputs):
         if self.use_sn:
-            with tf.init_scope():
-                outputs = self.conv2d_sn(inputs)
+            outputs = self.conv2d_sn(inputs)
         else:
             outputs = self.conv2d(inputs)
         outputs = self.activation_layer(outputs)
@@ -241,16 +222,6 @@ class Conv2DLayer(layers.Layer):
 
     def compute_output_shape(self, input_shape):
         return self.conv2d.compute_output_shape(input_shape)
-
-    def get_config(self):
-        config = {'filters': self.filters, 'kernel_size': self.kernel_size, 'strides': self.strides,
-                  'padding': self.padding, 'activation': self.activation, 'use_sn': self.use_sn, 'iteration': self.iteration}
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
 
 
 class Conv3DLayer(layers.Layer):
@@ -275,19 +246,18 @@ class Conv3DLayer(layers.Layer):
         self.conv3d = layers.Conv3D(self.filters, kernel_size=self.kernel_size,
                                     strides=self.strides, padding=self.padding, use_bias=self.use_bias,
                                     **kwargs)
+        if use_sn:
+            self.conv3d_sn = SpectralNormalization(self.conv3d,
+                                                   power_iterations=iteration)
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
         super().build(input_shape)
-        if self.use_sn:
-            self.conv3d_sn = SpectralNormalization(self.conv3d,
-                                                   iteration=self.iteration)
 
     @tf.function
     def call(self, inputs):
         if self.use_sn:
-            with tf.init_scope():
-                outputs = self.conv3d_sn(inputs)
+            outputs = self.conv3d_sn(inputs)
         else:
             outputs = self.conv3d(inputs)
         outputs = self.activation_layer(outputs)
@@ -296,130 +266,26 @@ class Conv3DLayer(layers.Layer):
     def compute_output_shape(self, input_shape):
         return self.conv3d.compute_output_shape(input_shape)
 
-    def get_config(self):
-        config = {'filters': self.filters, 'kernel_size': self.kernel_size, 'strides': self.strides,
-                  'padding': self.padding, 'activation': self.activation, 'use_sn': self.use_sn, 'iteration': self.iteration}
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
 
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
+# class SpectralNormalization(layers.Wrapper):
+#     def __init__(self, layer, iteration=1, **kwargs):
+#         super(SpectralNormalization, self).__init__(layer, **kwargs)
+#         self.iteration = iteration
+#         self.layer = layer
 
+#     def build(self, input_shape):
+#         # super(SpectralNormalization, self).build(input_shape)
+#         self.layer.build(input_shape)
+#         kernel_shape = self.layer.kernel.shape.as_list()
+#         # u.shape = [1, out_channel]
+#         self.u = self.add_weight(shape=(1, kernel_shape[-1]), initializer="glorot_uniform",
+#                                  trainable=False, name="sn_u")
 
-class SpectralNormalization(layers.Wrapper):
-    def __init__(self, layer, iteration=1, **kwargs):
-        super(SpectralNormalization, self).__init__(layer, **kwargs)
-        self.iteration = iteration
-        self.layer = layer
-
-    def build(self, input_shape):
-        # super(SpectralNormalization, self).build(input_shape)
-        self.layer.build(input_shape)
-        kernel_shape = self.layer.kernel.shape.as_list()
-        # u.shape = [1, out_channel]
-        self.u = self.add_weight(shape=(1, kernel_shape[-1]), initializer="glorot_uniform",
-                                 trainable=False, name="sn_u")
-
-    def call(self, x):
-        # N = kernel_w * kernel_h * in_channel
-        layer_kernel = self.layer.kernel
-        kernel_norm, u = spectral_norm(layer_kernel, self.u,
-                                       self.iteration)
-        self.u.assign(u)
-        self.layer.kernel = layer_kernel / kernel_norm
-        return self.layer(x)
-
-
-class SpectralNormalizationConv(layers.Layer):
-    def __init__(self, layer, iteration=1):
-        super().__init__()
-        self.iteration = iteration
-        self.layer = layer
-
-    def build(self, input_shape):
-        # layers.kernel.shape => [kernel_w, kernel_h, in_channel, out_channel]
-        self.w = self.layer.kernel
-        self.w_shape = self.w.shape.as_list()
-        # u.shape = [1, out_channel]
-        self.u = self.add_weight(shape=(1, self.w_shape[-1]),
-                                 initializer='glorot_uniform',
-                                 trainable=False)
-        super().build(input_shape)
-
-    def call(self, x):
-        # N = kernel_w * kernel_h * in_channel
-        self.w = self.layer.kernel
-        # First: w_reshaped.shape => [N, out_channel]
-        # After: w_reshaped.shape => [1, out_channel]
-        w_reshaped = tf.reshape(self.w, [-1, self.w_shape[-1]])
-        for _ in range(self.iteration):
-            # First: u_hat.shape => [N, out_channel] @ [out_channel, 1] => [N, 1]
-            # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-            u_hat = tf.matmul(w_reshaped, self.u, transpose_b=True)
-            u_hat_norm = tf.norm(u_hat)
-            # First: v.shape => [N, 1]
-            # After: v.shape => [1, 1]
-            v = u_hat / u_hat_norm
-            # First: v_hat.shape => [out_channel, N] @ [N, 1] => [out_channel, 1]
-            # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
-            v_hat = tf.matmul(w_reshaped, v, transpose_a=True)
-            self.u.assign(v_hat)
-            # First: w_reshaped.shape => [1, N] @ [N, out_channel] => [1, out_channel]
-            # After: w_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-            w_reshaped = tf.matmul(v, w_reshaped, transpose_a=True)
-        # sigma.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-        sigma = tf.matmul(self.u, w_reshaped, transpose_b=True)
-        # sigma.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-        sigma = tf.matmul(sigma, self.u)
-        # sigma.shape => [] (scalar)
-        sigma = tf.reduce_sum(sigma)
-        self.layer.kernel = self.w / sigma
-        return self.layer(x)
-
-
-class SpectralNormalizationDense(layers.Layer):
-    def __init__(self, layer, iteration=1):
-        super().__init__()
-        self.iteration = iteration
-        self.layer = layer
-
-    def build(self, input_shape):
-        # layers.kernel.shape => [in_channel, out_channel]
-        self.w = self.layer.kernel
-        self.w_shape = self.w.shape.as_list()
-        # u.shape => [1, out_channel]
-        self.u = self.add_weight(shape=(1, self.w_shape[-1]),
-                                 initializer='glorot_uniform',
-                                 trainable=False)
-        super().build(input_shape)
-
-    def call(self, x):
-        self.w = self.layer.kernel
-        # First: w_reshaped.shape => [in_channel, out_channel]
-        # After: w_reshaped.shape => [1, out_channel]
-        w_reshaped = tf.reshape(self.w, [-1, self.w_shape[-1]])
-        for _ in range(self.iteration):
-            # First: u_hat.shape => [in_channel, out_channel] @ [out_channel, 1] => [in_channel, 1]
-            # After: u_hat.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-            u_hat = tf.matmul(w_reshaped, self.u, transpose_b=True)
-            u_hat_norm = tf.norm(u_hat)
-            # First: v.shape => [in_channel, 1]
-            # After: v.shape => [1, 1]
-            v = u_hat / u_hat_norm
-            # First: v_hat.shape => [out_channel, in_channel] @ [in_channel, 1] => [out_channel, 1]
-            # After: v_hat.shape => [out_channel, 1] @ [1, 1] => [out_channel, 1]
-            v_hat = tf.matmul(w_reshaped, v, transpose_a=True)
-            self.u.assign(v_hat)
-            # First: w_reshaped.shape => [1, in_channel] @ [in_channel, out_channel] => [1, out_channel]
-            # After: w_reshaped.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-            w_reshaped = tf.matmul(v, w_reshaped, transpose_a=True)
-
-        # sigma.shape => [1, out_channel] @ [out_channel, 1] => [1, 1]
-        sigma = tf.matmul(self.u, w_reshaped, transpose_b=True)
-        # sigma.shape => [1, 1] @ [1, out_channel] => [1, out_channel]
-        sigma = tf.matmul(sigma, self.u)
-        # sigma.shape => [] (scalar)
-        sigma = tf.reduce_sum(sigma)
-        self.layer.kernel = self.w / sigma
-        return self.layer(x)
+#     def call(self, x):
+#         # N = kernel_w * kernel_h * in_channel
+#         layer_kernel = self.layer.kernel
+#         kernel_norm, u = spectral_norm(layer_kernel, self.u,
+#                                        self.iteration)
+#         self.u.assign(u)
+#         self.layer.kernel = layer_kernel / kernel_norm
+#         return self.layer(x)
