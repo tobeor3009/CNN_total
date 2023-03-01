@@ -902,7 +902,7 @@ def get_swin_disc_2d_2d(input_shape, last_channel_num,
 def get_swin_disc_2d_1d(input_shape, class_num, last_channel_num,
                         filter_num_begin, depth, stack_num_per_depth,
                         patch_size, stride_mode, num_heads, window_size, num_mlp,
-                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False, use_sn=use_sn):
+                        act="gelu", last_act="softmax", shift_window=True, swin_v2=False, use_sn=False):
     H, W, _ = input_shape
     IN = layers.Input(input_shape)
     CLASS = layers.Input((class_num,))

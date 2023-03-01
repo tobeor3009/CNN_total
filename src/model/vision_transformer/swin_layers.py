@@ -1021,7 +1021,7 @@ class ContextSwinTransformerBlock(layers.Layer):
 class SwinTransformerBlock3D(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
                  qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0,
-                 swin_v2=False, use_sn=use_sn, name=''):
+                 swin_v2=False, use_sn=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions

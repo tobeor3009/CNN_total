@@ -125,7 +125,7 @@ def swin_context_transformer_stack_2d(X, Y, stack_num, embed_dim, num_patch, num
 
 
 def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
-                              act, shift_window, mode, swin_v2=False, use_sn=use_sn, name=''):
+                              act, shift_window, mode, swin_v2=False, use_sn=False, name=''):
     '''
     Stacked Swin Transformers that share the same token size.
 
