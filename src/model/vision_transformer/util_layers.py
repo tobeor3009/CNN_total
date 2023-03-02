@@ -116,11 +116,17 @@ class DenseLayer(layers.Layer):
             use_bias = True
         self.use_bias = False if use_sn else use_bias
         self.iteration = iteration
+
         # Define layer
-        self.dense = layers.Dense(self.units, use_bias=self.use_bias, **kwargs)
+        def get_dense_fn():
+            return layers.Dense(self.units,
+                                use_bias=self.use_bias,
+                                **kwargs)
         if use_sn:
-            self.dense_sn = SpectralNormalization(self.dense,
-                                                  power_iterations=iteration)
+            self.dense = SpectralNormalization(get_dense_fn(),
+                                               power_iterations=iteration)
+        else:
+            self.dense = get_dense_fn()
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
@@ -128,10 +134,7 @@ class DenseLayer(layers.Layer):
 
     @tf.function
     def call(self, inputs):
-        if self.use_sn:
-            outputs = self.dense_sn(inputs)
-        else:
-            outputs = self.dense(inputs)
+        outputs = self.dense(inputs)
         outputs = self.activation_layer(outputs)
         return outputs
 
@@ -157,12 +160,16 @@ class Conv1DLayer(layers.Layer):
         self.use_bias = False if use_sn else use_bias
         self.iteration = iteration
         # Define Layer
-        self.conv1d = layers.Conv1D(self.filters, kernel_size=self.kernel_size,
-                                    strides=self.strides, padding=self.padding, use_bias=self.use_bias,
-                                    **kwargs)
+
+        def get_conv1d_fn():
+            return layers.Conv1D(self.filters, kernel_size=self.kernel_size,
+                                 strides=self.strides, padding=self.padding, use_bias=self.use_bias,
+                                 **kwargs)
         if use_sn:
-            self.conv1d_sn = SpectralNormalization(self.conv1d,
-                                                   power_iterations=iteration)
+            self.conv1d = SpectralNormalization(get_conv1d_fn(),
+                                                power_iterations=iteration)
+        else:
+            self.conv1d = get_conv1d_fn()
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
@@ -170,11 +177,7 @@ class Conv1DLayer(layers.Layer):
 
     @tf.function
     def call(self, inputs):
-        if self.use_sn:
-            outputs = self.conv1d_sn(inputs)
-        else:
-            outputs = self.conv1d(inputs)
-
+        outputs = self.conv1d(inputs)
         outputs = self.activation_layer(outputs)
         return outputs
 
@@ -200,12 +203,16 @@ class Conv2DLayer(layers.Layer):
         self.use_bias = False if use_sn else use_bias
         self.iteration = iteration
         # Define Layer
-        self.conv2d = layers.Conv2D(self.filters, kernel_size=self.kernel_size,
-                                    strides=self.strides, padding=self.padding, use_bias=self.use_bias,
-                                    **kwargs)
+
+        def get_conv2d_fn():
+            return layers.Conv2D(self.filters, kernel_size=self.kernel_size,
+                                 strides=self.strides, padding=self.padding, use_bias=self.use_bias,
+                                 **kwargs)
         if use_sn:
-            self.conv2d_sn = SpectralNormalization(self.conv2d,
-                                                   power_iterations=iteration)
+            self.conv2d = SpectralNormalization(get_conv2d_fn(),
+                                                power_iterations=iteration)
+        else:
+            self.conv2d = get_conv2d_fn()
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
@@ -213,10 +220,7 @@ class Conv2DLayer(layers.Layer):
 
     @tf.function
     def call(self, inputs):
-        if self.use_sn:
-            outputs = self.conv2d_sn(inputs)
-        else:
-            outputs = self.conv2d(inputs)
+        outputs = self.conv2d(inputs)
         outputs = self.activation_layer(outputs)
         return outputs
 
@@ -243,12 +247,16 @@ class Conv3DLayer(layers.Layer):
 
         self.iteration = iteration
         # Define Layer
-        self.conv3d = layers.Conv3D(self.filters, kernel_size=self.kernel_size,
-                                    strides=self.strides, padding=self.padding, use_bias=self.use_bias,
-                                    **kwargs)
+
+        def get_conv3d_fn():
+            return layers.Conv3D(self.filters, kernel_size=self.kernel_size,
+                                 strides=self.strides, padding=self.padding, use_bias=self.use_bias,
+                                 **kwargs)
         if use_sn:
-            self.conv3d_sn = SpectralNormalization(self.conv3d,
-                                                   power_iterations=iteration)
+            self.conv3d = SpectralNormalization(get_conv3d_fn(),
+                                                power_iterations=iteration)
+        else:
+            self.conv3d = get_conv3d_fn()
         self.activation_layer = get_act_layer(activation)
 
     def build(self, input_shape):
@@ -256,10 +264,7 @@ class Conv3DLayer(layers.Layer):
 
     @tf.function
     def call(self, inputs):
-        if self.use_sn:
-            outputs = self.conv3d_sn(inputs)
-        else:
-            outputs = self.conv3d(inputs)
+        outputs = self.conv3d(inputs)
         outputs = self.activation_layer(outputs)
         return outputs
 
