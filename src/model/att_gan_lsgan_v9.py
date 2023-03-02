@@ -43,7 +43,7 @@ class ATTGan(Model):
         self.generator = generator
         self.discriminator = discriminator
         _, self.image_h, self.image_w, _ = self.generator.output.shape
-        _, self.feature_h, self.feature_w, _ = self.discriminator.validity_model.output.shape
+        _, self.feature_h, self.feature_w, _ = self.discriminator.output[0].shape
 
     def compile(
         self,

@@ -738,7 +738,7 @@ def swin_seg_disc_v1(input_tensor, filter_num_begin, depth, stack_num_down, stac
                                   mode=BLOCK_MODE_NAME,
                                   swin_v2=swin_v2,
                                   use_sn=use_sn,
-                                  name='{}_swin_down{}'.format(name, i + 1))
+                                  name='{}_swin_middle'.format(name))
     CLASS_FEATURE = X
     # other tensors are preserved for concatenation
     X_decode = X_skip[1:]
@@ -1010,10 +1010,37 @@ def get_seg_swin_disc_2d_v2(input_shape,
                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="unet")
     VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-    VALIDITY = DenseLayer(
-        filter_num_begin, activation=last_act, use_sn=use_sn)(VALIDITY)
+    VALIDITY = DenseLayer(filter_num_begin,
+                          activation=last_act, use_sn=use_sn)(VALIDITY)
 
     model = Model(inputs=[IN], outputs=[VALIDITY])
+    return model
+
+
+def get_seg_swin_disc_2d_v3(input_shape, class_num,
+                            filter_num_begin, depth, stack_num_down, stack_num_up,
+                            patch_size, stride_mode, num_heads, window_size, num_mlp,
+                            act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
+    H, W, _ = input_shape
+    h, w = H // (2 ** depth), W // (2 ** depth)
+    IN = layers.Input(input_shape)
+    # Base architecture
+    VALIDITY, _ = swin_seg_disc_v1(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
+                                   patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                   act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name="unet")
+    VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
+    VALIDITY = Conv2DLayer(1, 1,
+                          activation=last_act, use_sn=use_sn)(VALIDITY)
+    LABEL = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_down,
+                                        patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                        act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                        name="classification")
+    LABEL = AdaptiveAveragePooling1D((h * w // 16))(LABEL)
+    LABEL = DenseLayer(filter_num_begin, activation=act, use_sn=use_sn)(LABEL)
+    LABEL = layers.Flatten()(LABEL)
+    LABEL = DenseLayer(class_num, activation='sigmoid', use_sn=use_sn)(LABEL)
+
+    model = Model(inputs=[IN], outputs=[VALIDITY, LABEL])
     return model
 
 
