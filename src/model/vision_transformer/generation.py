@@ -1062,7 +1062,7 @@ def get_seg_swin_disc_2d_v4(input_shape,
     return model
 
 
-def get_swin_classifier(input_shape, class_num
+def get_swin_classifier(input_shape, class_num,
                         filter_num_begin, depth, stack_num_down,
                         patch_size, stride_mode, num_heads, window_size, num_mlp,
                         act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
