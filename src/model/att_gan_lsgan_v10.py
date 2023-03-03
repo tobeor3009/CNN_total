@@ -157,8 +157,8 @@ class ATTGan(Model):
             label_real_x_loss = backend.mean(self.class_loss_fn(label_x,
                                                                 label_real_x))
         # Get the gradients for the discriminators
-        classifier_grads = disc_tape.gradient(label_real_x_loss,
-                                              self.classifier.trainable_variables)
+        classifier_grads = classifier_tape.gradient(label_real_x_loss,
+                                                    self.classifier.trainable_variables)
         if self.active_gradient_clip is True:
             classifier_grads = adaptive_gradient_clipping(classifier_grads,
                                                           self.classifier.trainable_variables,
