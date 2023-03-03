@@ -128,7 +128,6 @@ class ATTGan(Model):
     # @tf.function
     def train_step(self, batch_data):
 
-
         # =================================================================================== #
         #                             1. Preprocess input data                                #
         # =================================================================================== #
@@ -159,11 +158,11 @@ class ATTGan(Model):
                                                                 label_real_x))
         # Get the gradients for the discriminators
         classifier_grads = disc_tape.gradient(label_real_x_loss,
-                                        self.classifier.trainable_variables)
+                                              self.classifier.trainable_variables)
         if self.active_gradient_clip is True:
             classifier_grads = adaptive_gradient_clipping(classifier_grads,
-                                                    self.classifier.trainable_variables,
-                                                    lambda_clip=self.lambda_clip)
+                                                          self.classifier.trainable_variables,
+                                                          lambda_clip=self.lambda_clip)
 
         # Update the weights of the discriminators
         self.classifier_optimizer.apply_gradients(
@@ -185,13 +184,13 @@ class ATTGan(Model):
             disc_real, label_real_x = self.discriminator(real_x,
                                                          training=True)
             disc_real_blend = self.discriminator(blend_real_image,
-                                                    training=True)
+                                                 training=True)
             disc_middle_blend = self.discriminator(blend_middle_image,
-                                                      training=True)
+                                                   training=True)
             disc_fake_blend = self.discriminator(blend_fake_image,
-                                                    training=True)
+                                                 training=True)
             disc_fake = self.discriminator(fake_y,
-                                              training=True)
+                                           training=True)
             disc_real_loss = backend.mean(self.disc_real_loss_fn(disc_real))
             disc_real_blend_loss = backend.mean(self.disc_loss_fn(feature_real_alpha,
                                                                   disc_real_blend))
