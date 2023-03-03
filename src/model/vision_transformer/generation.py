@@ -1066,6 +1066,8 @@ def get_swin_classifier(input_shape, class_num,
                         filter_num_begin, depth, stack_num_down,
                         patch_size, stride_mode, num_heads, window_size, num_mlp,
                         act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
+    H, W, _ = input_shape
+    h, w = H // (2 ** depth), W // (2 ** depth)
     IN = layers.Input(input_shape)
     LABEL = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_down,
                                         patch_size, stride_mode, num_heads, window_size, num_mlp,
