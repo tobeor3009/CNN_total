@@ -1,12 +1,14 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow.python.framework import tensor_shape
 from tensorflow.keras import Model, layers
 from tensorflow_addons.layers import AdaptiveAveragePooling1D, AdaptiveAveragePooling2D
 from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_3d, swin_context_transformer_stack_2d
 from .classfication import swin_classification_2d_base, swin_classification_3d_base, get_swin_classification_2d
-from .util_layers import DenseLayer, Conv1DLayer, Conv2DLayer, Conv3DLayer
+from .util_layers import DenseLayer, Conv1DLayer, Conv2DLayer, Conv3DLayer, get_act_layer
 from tensorflow.keras.models import clone_model
+from tensorflow_addons.layers import InstanceNormalization
 from copy import deepcopy
 from .generation import swin_class_gen_2d_base_v3
 from .base_layer import SwinTransformerStack2D
@@ -365,30 +367,37 @@ def swin_seg_disc_v3(input_tensor, filter_num_begin, depth, stack_num_down, stac
 
 
 class SwinClassGen2DBaseV3(layers.Layer):
-    def __init__(self, input_shape, class_num, filter_num, filter_num_begin, depth, stack_num_down, stack_num_up,
+    def __init__(self, input_shape, filter_num_begin, depth, stack_num_down, stack_num_up,
                  patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
-                 include_3d=True, swin_v2=False, use_sn=False, name='unet', add_class_info_position=["middle"]):
+                 swin_v2=False, use_sn=False, name='unet', return_vector=False, add_class_info_position=["middle"]):
+        super(SwinClassGen2DBaseV3, self).__init__()
+
         if stride_mode == "same":
             stride_size = patch_size
         elif stride_mode == "half":
             stride_size = np.array(patch_size) // 2
-        num_patch = utils.get_image_patch_num_2d(input_shape[:-1],
-                                                 patch_size,
-                                                 stride_size)
-        num_patch = np.array(num_patch)
+        self.input_row, self.input_col = input_shape[:-1]
+        self.filter_num_begin = filter_num_begin
+        self.depth = depth
+        self.add_class_info_position = add_class_info_position
+        num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_shape[:-1],
+                                                                patch_size,
+                                                                stride_size)
         # Number of Embedded dimensions
         embed_dim = filter_num_begin
 
         depth_ = depth
-        self.patch_extract_layer = transformer_layers.PatchExtract3D(patch_size,
-                                                                     stride_size)
-        self.patch_embedding_layer = transformer_layers.PatchEmbedding(num_patch.prod(),
+        self.patch_extract_layer = transformer_layers.PatchExtract(patch_size,
+                                                                   stride_size)
+        self.patch_embedding_layer = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
                                                                        embed_dim, use_sn=use_sn)
-        self.transformer_stack_1 = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
-                                                          num_patch=num_patch, num_heads=num_heads[
-                                                              0], window_size=window_size[0],
-                                                          num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
-                                                          swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down'.format(name))
+        self.first_stack_layer = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                        num_patch=(
+                                                            num_patch_x, num_patch_y),
+                                                        num_heads=num_heads[0],
+                                                        window_size=window_size[0],
+                                                        num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                        swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down'.format(name))
 
         self.encoder_merge_layer_list = []
         self.encoder_stack_layer_list = []
@@ -397,22 +406,98 @@ class SwinClassGen2DBaseV3(layers.Layer):
                                                                   embed_dim=embed_dim,
                                                                   swin_v2=swin_v2,
                                                                   use_sn=use_sn,
-                                                                  name='down{}'.format(i))(X)
+                                                                  name='down{}'.format(i))
             # update token shape info
-            embed_dim = embed_dim * 2
-            num_patch_x = num_patch_x // 2
-            num_patch_y = num_patch_y // 2
+            embed_dim *= 2
+            num_patch_x //= 2
+            num_patch_y //= 2
 
             # Swin Transformer stacks
-            encoder_stack_layer = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim, num_patch=num_patch, 
-                                                        num_heads=num_heads[i + 1], window_size=window_size[i + 1],
-                                                        num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
-                                                        swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down{}'.format(name, i + 1))
+            encoder_stack_layer = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                         num_patch=(num_patch_x,
+                                                                    num_patch_y),
+                                                         num_heads=num_heads[i + 1],
+                                                         window_size=window_size[i + 1],
+                                                         num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                         swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down{}'.format(name, i + 1))
             self.encoder_merge_layer_list.append(encoder_merge_layer)
             self.encoder_stack_layer_list.append(encoder_stack_layer)
-            
-    def __call__(self, x):
-        pass
+
+        num_heads = num_heads[::-1]
+        window_size = window_size[::-1]
+        self.skip_concat_layer = layers.Concatenate(axis=-1)
+        self.decoder_expand_layer_list = []
+        self.decoder_skip_dense_layer_list = []
+        self.decoder_stack_layer_list = []
+        for i in range(depth_ - 1):
+            decoder_expand_layer = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                                                     embed_dim=embed_dim,
+                                                                     upsample_rate=2,
+                                                                     return_vector=True,
+                                                                     swin_v2=swin_v2,
+                                                                     use_sn=use_sn,
+                                                                     name=f'{name}_swin_expanding_{i}')
+            embed_dim //= 2
+            num_patch_x *= 2
+            num_patch_y *= 2
+            decoder_skip_dense_layer = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
+                                                  name='{}_concat_linear_proj_{}'.format(name, i))
+            decoder_stack_layer = SwinTransformerStack2D(stack_num=stack_num_up, embed_dim=embed_dim,
+                                                         num_patch=(num_patch_x,
+                                                                    num_patch_y),
+                                                         num_heads=num_heads[i],
+                                                         window_size=window_size[i],
+                                                         num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                         swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down'.format(name))
+            self.decoder_expand_layer_list.append(decoder_expand_layer)
+            self.decoder_skip_dense_layer_list.append(decoder_skip_dense_layer)
+            self.decoder_stack_layer_list.append(decoder_stack_layer)
+        self.last_expand_layer = transformer_layers.PatchExpanding(num_patch=(num_patch_x, num_patch_y),
+                                                                   embed_dim=embed_dim,
+                                                                   upsample_rate=patch_size[0],
+                                                                   return_vector=return_vector,
+                                                                   swin_v2=swin_v2,
+                                                                   name=f'{name}_swin_expanding_last')
+
+    def call(self, input_list):
+        input_tensor, class_tensor = input_list
+        skip_x_list = []
+        x = self.patch_extract_layer(input_tensor)
+        x = self.patch_embedding_layer(x)
+        x = self.first_stack_layer(x)
+        skip_x_list.append(x)
+        for encoder_merge_layer, encoder_stack_layer in zip(self.encoder_merge_layer_list,
+                                                            self.encoder_stack_layer_list):
+            if "encoder" in self.add_class_info_position:
+                x = tile_concat_1d(x, class_tensor)
+            x = encoder_merge_layer(x)
+            x = encoder_stack_layer(x)
+            skip_x_list.append(x)
+        skip_x_list = skip_x_list[::-1]
+        x = skip_x_list.pop(0)
+        if "middle" in self.add_class_info_position:
+            x = tile_concat_1d(x, class_tensor)
+
+        for i, (decoder_expand_layer, decoder_skip_dense_layer, decoder_stack_layer) in enumerate(zip(self.decoder_expand_layer_list,
+                                                                                                      self.decoder_skip_dense_layer_list,
+                                                                                                      self.decoder_stack_layer_list)):
+            if "decode" in self.add_class_info_position and i > 0:
+                x = tile_concat_1d(x, class_tensor)
+            x = decoder_expand_layer(x)
+            x = self.skip_concat_layer([x, skip_x_list[i]])
+            x = decoder_skip_dense_layer(x)
+            x = decoder_stack_layer(x)
+        x = self.last_expand_layer(x)
+
+        return x
+
+    def compute_output_shape(self, input_shape_list):
+        image_input_shape, class_input_shape = input_shape_list
+        last_filter_num = self.filter_num_begin * (2 ** self.depth)
+        output_shape = tensor_shape.TensorShape(
+            image_input_shape[:-1] + [last_filter_num]
+        )
+        return output_shape
 
 
 def get_seg_swin_disc_3d_v5(input_shape, class_num,
@@ -480,28 +565,25 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
         stride_size = patch_size
     elif stride_mode == "half":
         stride_size = np.array(patch_size) // 2
+    input_shape = np.array(input_shape)
     feature_dim = filter_num_begin * (2 ** depth)
     model_input = layers.Input(input_shape)
     model_class_input = layers.Input(class_num)
-    base_model_2d_input = layers.Input(input_shape[1:])
-    base_model_2d_class_input = layers.Input(class_num)
-    base_feature_2d = swin_class_gen_2d_base_v3(base_model_2d_input, base_model_2d_class_input, filter_num_begin, depth, stack_num_down, stack_num_up,
-                                                patch_size[1:], stride_mode, num_heads, window_size, num_mlp, act=act,
-                                                shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet',
-                                                add_class_info_position=add_class_info_position)
-    base_model_2d = Model([base_model_2d_input, base_model_2d_class_input],
-                          base_feature_2d)
-
-    def get_feature_2d(input_list):
-        model_2d_input, model_2d_class_input = input_list
-        feature_2d = base_model_2d([model_2d_input, model_2d_class_input])
-        return feature_2d
-    feature_2d_layer = layers.Lambda(get_feature_2d)
-    feature_3d_by_2d = layers.TimeDistributed(get_feature_2d)([model_input,
-                                                               model_class_input[:, None]])
-    feature_3d = swin_transformer_stack_3d(feature_3d_by_2d,
+    feature_2d_layer = SwinClassGen2DBaseV3(input_shape[1:], filter_num_begin, depth, stack_num_down, stack_num_up,
+                                            patch_size[1:], stride_mode, num_heads, window_size, num_mlp, act, shift_window,
+                                            swin_v2, use_sn, name="feature_2d", return_vector=False,
+                                            add_class_info_position=add_class_info_position)
+    feature_3d_by_2d = layers.TimeDistributed(feature_2d_layer)([model_input,
+                                                                 model_class_input[:, None]])
+    feature_3d = Conv3DLayer(feature_dim // 4, kernel_size=4, padding="same",
+                             use_bias=False, activation=None, use_sn=use_sn)(feature_3d_by_2d)
+    feature_3d = InstanceNormalization(axis=-1)(feature_3d)
+    feature_3d = get_act_layer(act)(feature_3d)
+    feature_3d = layers.Reshape((input_shape[:-1].prod(),
+                                 feature_dim // 4))(feature_3d)
+    feature_3d = swin_transformer_stack_3d(feature_3d,
                                            stack_num=stack_num_down,
-                                           embed_dim=feature_dim,
+                                           embed_dim=feature_dim // 4,
                                            num_patch=input_shape[:-1],
                                            num_heads=num_heads[-1],
                                            window_size=window_size[-1],
@@ -512,6 +594,8 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
                                            swin_v2=swin_v2,
                                            use_sn=use_sn,
                                            name='{}_swin_down'.format("last"))
+    feature_3d = layers.Reshape((*input_shape[:-1],
+                                 feature_dim // 4))(feature_3d)
     output = Conv3DLayer(last_channel_num, kernel_size=1,
                          use_bias=False, activation=last_act, use_sn=use_sn)(feature_3d)
 

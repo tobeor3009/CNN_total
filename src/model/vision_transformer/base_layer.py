@@ -187,8 +187,9 @@ def swin_transformer_stack_3d(X, stack_num, embed_dim, num_patch, num_heads, win
 
 class SwinTransformerStack2D(layers.Layer):
     def __init__(self, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
-                 act, shift_window, mode, swin_v2=False, use_sn=False, name='')
-       if mode == "seg":
+                 act, shift_window, mode, swin_v2=False, use_sn=False, name=''):
+        super(SwinTransformerStack2D, self).__init__()
+        if mode == "seg":
             # Turn-off dropouts
             mlp_drop_rate = 0  # Droupout after each MLP layer
             attn_drop_rate = 0  # Dropout after Swin-Attention
@@ -221,26 +222,26 @@ class SwinTransformerStack2D(layers.Layer):
                 shift_size_temp = shift_size
 
             transformer_layer = swin_layers.SwinTransformerBlock(dim=embed_dim,
-                                                num_patch=num_patch,
-                                                num_heads=num_heads,
-                                                window_size=window_size,
-                                                shift_size=shift_size_temp,
-                                                num_mlp=num_mlp,
-                                                act=act,
-                                                qkv_bias=qkv_bias,
-                                                qk_scale=qk_scale,
-                                                mlp_drop=mlp_drop_rate,
-                                                attn_drop=attn_drop_rate,
-                                                proj_drop=proj_drop_rate,
-                                                drop_path_prob=drop_path_rate,
-                                                swin_v2=swin_v2,
-                                                use_sn=use_sn,
-                                                name=f'{name}{i}')
+                                                                 num_patch=num_patch,
+                                                                 num_heads=num_heads,
+                                                                 window_size=window_size,
+                                                                 shift_size=shift_size_temp,
+                                                                 num_mlp=num_mlp,
+                                                                 act=act,
+                                                                 qkv_bias=qkv_bias,
+                                                                 qk_scale=qk_scale,
+                                                                 mlp_drop=mlp_drop_rate,
+                                                                 attn_drop=attn_drop_rate,
+                                                                 proj_drop=proj_drop_rate,
+                                                                 drop_path_prob=drop_path_rate,
+                                                                 swin_v2=swin_v2,
+                                                                 use_sn=use_sn,
+                                                                 name=f'{name}{i}')
             self.transformer_block.append(transformer_layer)
         self.transformer_block = Sequential(self.transformer_block)
+
     def call(self, x):
         return self.transformer_block(x)
-
 
 
 def swin_transformer_stack_2d(X, stack_num, embed_dim, num_patch, num_heads, window_size, num_mlp,
