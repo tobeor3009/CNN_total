@@ -498,6 +498,129 @@ class SwinClassGen2DBaseV3(layers.Layer):
         return output_shape
 
 
+class SwinDisc2DBaseV3(layers.Layer):
+    def __init__(self, input_shape, filter_num_begin, depth, stack_num_down,
+                 patch_size, stride_mode, num_heads, window_size, num_mlp, act="gelu", shift_window=True,
+                 swin_v2=False, use_sn=False, name='unet'):
+        super(SwinDisc2DBaseV3, self).__init__()
+
+        if stride_mode == "same":
+            stride_size = patch_size
+        elif stride_mode == "half":
+            stride_size = np.array(patch_size) // 2
+        self.input_row, self.input_col = input_shape[:-1]
+        self.filter_num_begin = filter_num_begin
+        self.depth = depth
+        self.patch_size = patch_size
+        num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_shape[:-1],
+                                                                patch_size,
+                                                                stride_size)
+        # Number of Embedded dimensions
+        embed_dim = filter_num_begin
+
+        depth_ = depth
+        self.patch_extract_layer = transformer_layers.PatchExtract(patch_size,
+                                                                   stride_size)
+        self.patch_embedding_layer = transformer_layers.PatchEmbedding(num_patch_x * num_patch_y,
+                                                                       embed_dim, use_sn=use_sn)
+        self.stack_layer_1 = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                    num_patch=(num_patch_x,
+                                                               num_patch_y),
+                                                    num_heads=num_heads[0],
+                                                    window_size=window_size[0],
+                                                    num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                    swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down'.format(name))
+
+        i = 0
+        self.merge_layer_1 = transformer_layers.PatchMerging(num_patch=(num_patch_x,
+                                                                        num_patch_y),
+                                                             embed_dim=embed_dim,
+                                                             swin_v2=swin_v2,
+                                                             use_sn=use_sn,
+                                                             name='down{}'.format(i))
+        # update token shape info
+        embed_dim = embed_dim * 2
+        num_patch_x //= 2
+        num_patch_y //= 2
+
+        self.stack_layer_2 = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                    num_patch=(num_patch_x,
+                                                               num_patch_y),
+                                                    num_heads=num_heads[i + 1],
+                                                    window_size=window_size[i + 1],
+                                                    num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                    swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down{}'.format(name, i + 1))
+
+        self.validity_merge_layer_list = []
+        self.validity_stack_layer_list = []
+        self.label_merge_layer_list = []
+        self.label_stack_layer_list = []
+        for i in range(1, depth_ - 1):
+            validity_merge_layer = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                                                   embed_dim=embed_dim,
+                                                                   swin_v2=swin_v2,
+                                                                   use_sn=use_sn,
+                                                                   name='down_validity{}'.format(i + 1))
+            label_merge_layer = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
+                                                                embed_dim=embed_dim,
+                                                                swin_v2=swin_v2,
+                                                                use_sn=use_sn,
+                                                                name='down_label{}'.format(i + 1))
+
+            # update token shape info
+            embed_dim *= 2
+            num_patch_x //= 2
+            num_patch_y //= 2
+
+            # Swin Transformer stacks
+            validity_stack_layer = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                          num_patch=(num_patch_x,
+                                                                     num_patch_y),
+                                                          num_heads=num_heads[i + 1],
+                                                          window_size=window_size[i + 1],
+                                                          num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                          swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down_validity{}'.format(name, i + 1))
+            label_stack_layer = SwinTransformerStack2D(stack_num=stack_num_down, embed_dim=embed_dim,
+                                                       num_patch=(num_patch_x,
+                                                                  num_patch_y),
+                                                       num_heads=num_heads[i + 1],
+                                                       window_size=window_size[i + 1],
+                                                       num_mlp=num_mlp, act=act, shift_window=shift_window, mode=BLOCK_MODE_NAME,
+                                                       swin_v2=swin_v2, use_sn=use_sn, name='{}_swin_down_label{}'.format(name, i + 1))
+            self.validity_merge_layer_list.append(validity_merge_layer)
+            self.label_merge_layer_list.append(label_merge_layer)
+            self.validity_stack_layer_list.append(validity_stack_layer)
+            self.label_stack_layer_list.append(label_stack_layer)
+
+    def call(self, input_tensor):
+        x = self.patch_extract_layer(input_tensor)
+        x = self.patch_embedding_layer(x)
+        x = self.stack_layer_1(x)
+        x = self.merge_layer_1(x)
+        x = self.stack_layer_2(x)
+        validity = x
+        label = x
+        for validity_merge_layer, label_merge_layer, validity_stack_layer, label_stack_layer in zip(self.validity_merge_layer_list,
+                                                                                                    self.label_merge_layer_list,
+                                                                                                    self.validity_stack_layer_list,
+                                                                                                    self.label_stack_layer_list):
+            validity = validity_merge_layer(validity)
+            validity = validity_stack_layer(validity)
+            label = label_merge_layer(label)
+            label = label_stack_layer(label)
+        return validity, label
+
+    def compute_output_shape(self, input_shape):
+
+        row_num = self.input_row // (2 ** self.depth) // self.patch_size[0] * 2
+        col_num = self.input_col // (2 ** self.depth) // self.patch_size[1] * 2
+        last_filter_num = self.filter_num_begin * (2 ** (self.depth - 1))
+        output_shape = tensor_shape.TensorShape(
+            input_shape[0:1] + [row_num * col_num, last_filter_num]
+        )
+        return (output_shape, output_shape)
+
+
 def get_seg_swin_disc_3d_v5(input_shape, class_num,
                             filter_num_begin, depth, stack_num_down, stack_num_up,
                             patch_size, stride_mode, num_heads, window_size, num_mlp,
@@ -524,6 +647,42 @@ def get_seg_swin_disc_3d_v5(input_shape, class_num,
     LABEL = DenseLayer(filter_num_begin, activation=act, use_sn=use_sn)(LABEL)
     LABEL = layers.Flatten()(LABEL)
     LABEL = DenseLayer(class_num, activation='sigmoid', use_sn=use_sn)(LABEL)
+    model = Model(inputs=[IN], outputs=[VALIDITY, LABEL])
+    return model
+
+
+def get_seg_swin_disc_3d_by_2d_v5(input_shape, class_num,
+                                  filter_num_begin, depth, stack_num_down, stack_num_up,
+                                  patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                  act="gelu", last_act="sigmoid", shift_window=True, include_3d=True, swin_v2=False, use_sn=False):
+    Z, H, W, _ = input_shape
+    z = Z
+    h = H // (2 ** depth) // patch_size[1] * 2
+    w = W // (2 ** depth) // patch_size[2] * 2
+    feature_dim = filter_num_begin * (2 ** (depth - 1))
+    IN = layers.Input(input_shape)
+    # Base architecture
+    feature_2d_layer = SwinDisc2DBaseV3(input_shape[1:], filter_num_begin, depth, stack_num_down,
+                                        patch_size[1:], stride_mode, num_heads, window_size, num_mlp, act, shift_window,
+                                        swin_v2, use_sn, name="feature_2d")
+    VALIDITY, LABEL = layers.TimeDistributed(feature_2d_layer)(IN)
+    print(VALIDITY.shape)
+    VALIDITY = layers.Reshape((z, h, w, feature_dim))(VALIDITY)
+    print(VALIDITY.shape)
+    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same",
+                           activation=act, use_sn=use_sn, name="validity_conv_1")(VALIDITY)
+    VALIDITY = AdaptiveAveragePooling3D((8, 8, 8))(VALIDITY)
+    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same",
+                           activation=act, use_sn=use_sn, name="validity_conv_2")(VALIDITY)
+    VALIDITY = Conv3DLayer(1, 1,
+                           activation=last_act, use_sn=use_sn, name="validity_conv_3")(VALIDITY)
+    LABEL = layers.Flatten()(LABEL)
+    LABEL = AdaptiveAveragePooling1D(filter_num_begin * 4)(LABEL)
+    LABEL = DenseLayer(filter_num_begin, activation=act,
+                       use_sn=use_sn, name="label_dense_1")(LABEL)
+    LABEL = layers.Flatten()(LABEL)
+    LABEL = DenseLayer(class_num, activation='sigmoid',
+                       use_sn=use_sn, name="label_dense_1")(LABEL)
     model = Model(inputs=[IN], outputs=[VALIDITY, LABEL])
     return model
 
@@ -578,23 +737,23 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
                              use_bias=False, activation=None, use_sn=use_sn, name="conv3d_1")(feature_3d_by_2d)
     feature_3d = InstanceNormalization(axis=-1)(feature_3d)
     feature_3d = get_act_layer(act)(feature_3d)
-    feature_3d = layers.Reshape((input_shape[:-1].prod(),
-                                 filter_num_begin // 2))(feature_3d)
-    feature_3d = swin_transformer_stack_3d(feature_3d,
-                                           stack_num=stack_num_down,
-                                           embed_dim=filter_num_begin // 2,
-                                           num_patch=input_shape[:-1],
-                                           num_heads=num_heads[0],
-                                           window_size=window_size[-1],
-                                           num_mlp=num_mlp,
-                                           act=act,
-                                           mode=BLOCK_MODE_NAME,
-                                           shift_window=shift_window,
-                                           swin_v2=swin_v2,
-                                           use_sn=use_sn,
-                                           name='{}_swin_down'.format("last"))
-    feature_3d = layers.Reshape((*input_shape[:-1],
-                                 filter_num_begin // 2))(feature_3d)
+    # feature_3d = layers.Reshape((input_shape[:-1].prod(),
+    #                              filter_num_begin // 2))(feature_3d)
+    # feature_3d = swin_transformer_stack_3d(feature_3d,
+    #                                        stack_num=stack_num_down,
+    #                                        embed_dim=filter_num_begin // 2,
+    #                                        num_patch=input_shape[:-1],
+    #                                        num_heads=num_heads[0],
+    #                                        window_size=window_size[-1],
+    #                                        num_mlp=num_mlp,
+    #                                        act=act,
+    #                                        mode=BLOCK_MODE_NAME,
+    #                                        shift_window=shift_window,
+    #                                        swin_v2=swin_v2,
+    #                                        use_sn=use_sn,
+    #                                        name='{}_swin_down'.format("last"))
+    # feature_3d = layers.Reshape((*input_shape[:-1],
+    #                              filter_num_begin // 2))(feature_3d)
     output = Conv3DLayer(last_channel_num, kernel_size=1,
                          use_bias=False, activation=last_act, use_sn=use_sn, name="conv3d_2")(feature_3d)
 
