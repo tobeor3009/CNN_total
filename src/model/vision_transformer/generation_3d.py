@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.python.framework import tensor_shape
 from tensorflow.keras import Model, layers
-from tensorflow_addons.layers import AdaptiveAveragePooling1D, AdaptiveAveragePooling2D
+from tensorflow_addons.layers import AdaptiveAveragePooling1D, AdaptiveAveragePooling2D, AdaptiveAveragePooling3D
 from . import swin_layers, transformer_layers, utils
 from .base_layer import swin_transformer_stack_3d, swin_context_transformer_stack_2d
 from .classfication import swin_classification_2d_base, swin_classification_3d_base, get_swin_classification_2d
@@ -378,7 +378,6 @@ class SwinClassGen2DBaseV3(layers.Layer):
             stride_size = np.array(patch_size) // 2
         self.input_row, self.input_col = input_shape[:-1]
         self.filter_num_begin = filter_num_begin
-        self.depth = depth
         self.add_class_info_position = add_class_info_position
         num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_shape[:-1],
                                                                 patch_size,
@@ -493,9 +492,8 @@ class SwinClassGen2DBaseV3(layers.Layer):
 
     def compute_output_shape(self, input_shape_list):
         image_input_shape, class_input_shape = input_shape_list
-        last_filter_num = self.filter_num_begin * (2 ** self.depth)
         output_shape = tensor_shape.TensorShape(
-            image_input_shape[:-1] + [last_filter_num]
+            image_input_shape[:-1] + [self.filter_num_begin // 2]
         )
         return output_shape
 
@@ -514,12 +512,12 @@ def get_seg_swin_disc_3d_v5(input_shape, class_num,
                                        swin_v2=swin_v2, use_sn=use_sn, name="label")
 
     VALIDITY = layers.Reshape((z, h, w, -1))(VALIDITY)
-    VALIDITY = Conv2DLayer(filter_num_begin, 3, padding="same",
+    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same",
                            activation=act, use_sn=use_sn)(VALIDITY)
-    VALIDITY = AdaptiveAveragePooling2D((8, 8))(VALIDITY)
-    VALIDITY = Conv2DLayer(filter_num_begin, 3, padding="same",
+    VALIDITY = AdaptiveAveragePooling3D((8, 8, 8))(VALIDITY)
+    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same",
                            activation=act, use_sn=use_sn)(VALIDITY)
-    VALIDITY = Conv2DLayer(1, 1,
+    VALIDITY = Conv3DLayer(1, 1,
                            activation=last_act, use_sn=use_sn)(VALIDITY)
     LABEL = layers.Flatten()(LABEL)
     LABEL = AdaptiveAveragePooling1D(filter_num_begin * 4)(LABEL)
@@ -566,7 +564,7 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
     elif stride_mode == "half":
         stride_size = np.array(patch_size) // 2
     input_shape = np.array(input_shape)
-    feature_dim = filter_num_begin * (2 ** depth)
+    z_num = input_shape[0]
     model_input = layers.Input(input_shape)
     model_class_input = layers.Input(class_num)
     feature_2d_layer = SwinClassGen2DBaseV3(input_shape[1:], filter_num_begin, depth, stack_num_down, stack_num_up,
@@ -574,16 +572,17 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
                                             swin_v2, use_sn, name="feature_2d", return_vector=False,
                                             add_class_info_position=add_class_info_position)
     feature_3d_by_2d = layers.TimeDistributed(feature_2d_layer)([model_input,
-                                                                 model_class_input[:, None]])
-    feature_3d = Conv3DLayer(feature_dim // 4, kernel_size=4, padding="same",
-                             use_bias=False, activation=None, use_sn=use_sn)(feature_3d_by_2d)
+                                                                 tf.tile(model_class_input[:, None], [1, z_num, 1])])
+
+    feature_3d = Conv3DLayer(filter_num_begin // 2, kernel_size=4, padding="same",
+                             use_bias=False, activation=None, use_sn=use_sn, name="conv3d_1")(feature_3d_by_2d)
     feature_3d = InstanceNormalization(axis=-1)(feature_3d)
     feature_3d = get_act_layer(act)(feature_3d)
     feature_3d = layers.Reshape((input_shape[:-1].prod(),
-                                 feature_dim // 4))(feature_3d)
+                                 filter_num_begin // 2))(feature_3d)
     feature_3d = swin_transformer_stack_3d(feature_3d,
                                            stack_num=stack_num_down,
-                                           embed_dim=feature_dim // 4,
+                                           embed_dim=filter_num_begin // 2,
                                            num_patch=input_shape[:-1],
                                            num_heads=num_heads[-1],
                                            window_size=window_size[-1],
@@ -595,9 +594,9 @@ def get_swin_class_gen_3d_by_2d_v3(input_shape, class_num, last_channel_num,
                                            use_sn=use_sn,
                                            name='{}_swin_down'.format("last"))
     feature_3d = layers.Reshape((*input_shape[:-1],
-                                 feature_dim // 4))(feature_3d)
+                                 filter_num_begin // 2))(feature_3d)
     output = Conv3DLayer(last_channel_num, kernel_size=1,
-                         use_bias=False, activation=last_act, use_sn=use_sn)(feature_3d)
+                         use_bias=False, activation=last_act, use_sn=use_sn, name="conv3d_2")(feature_3d)
 
     # Model configuration
     model = Model(inputs=[model_input, model_class_input], outputs=[output, ])
