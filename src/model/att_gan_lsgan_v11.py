@@ -17,6 +17,20 @@ base_class_loss_fn = BinaryCrossentropy(label_smoothing=0.01)
 mean_layer = layers.Average()
 
 
+def sqrt_with_sign(x):
+    """
+    Compute square root of input tensor while preserving its sign.
+
+    Args:
+        x (tf.Tensor): Input tensor.
+
+    Returns:
+        tf.Tensor: Tensor of same shape as input with square root of its absolute
+                   values and original signs.
+    """
+    return tf.sign(x) * tf.sqrt(tf.abs(x))
+
+
 def tile_concat_2d(a, b, image_shape):
     b = b[:, None, None, :]
     b = tf.tile(b, [1, image_shape[0], image_shape[1], 1])
@@ -136,22 +150,15 @@ class ATTGan(Model):
         label_y = get_diff_label(label_x)
         same_label = label_x - label_x
         target_label = label_y - label_x
-        feature_real_alpha = tf.random.uniform((batch_size, self.feature_h, self.feature_w, 1),
-                                               0, 1)
-        feature_real_alpha = tf.cast(feature_real_alpha >= 0.75, tf.float32)
-        feature_middle_alpha = tf.random.uniform((batch_size, self.feature_h, self.feature_w, 1),
-                                                 0, 1)
-        feature_middle_alpha = tf.cast(feature_middle_alpha >= 0.5, tf.float32)
-        feature_fake_alpha = tf.random.uniform((batch_size, self.feature_h, self.feature_w, 1),
-                                               0, 1)
-        feature_fake_alpha = tf.cast(feature_fake_alpha >= 0.25, tf.float32)
+        feature_alpha = tf.random.uniform((batch_size, self.feature_h, self.feature_w, 1),
+                                          0, 1)
+        feature_threshold = tf.random.uniform((batch_size, 1, 1, 1),
+                                              0, 1)
+        feature_alpha = tf.cast(feature_alpha >= feature_threshold,
+                                tf.float32)
 
-        image_real_alpha = tf.image.resize(feature_real_alpha, (self.image_h, self.image_w),
-                                           method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-        image_middle_alpha = tf.image.resize(feature_middle_alpha, (self.image_h, self.image_w),
-                                             method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
-        image_fake_alpha = tf.image.resize(feature_fake_alpha, (self.image_h, self.image_w),
-                                           method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+        image_alpha = tf.image.resize(feature_alpha, (self.image_h, self.image_w),
+                                      method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
         with tf.GradientTape(persistent=False) as classifier_tape:
             label_real_x = self.classifier(real_x, training=True)
             label_real_x_loss = backend.mean(self.class_loss_fn(label_x,
@@ -175,35 +182,22 @@ class ATTGan(Model):
             # another domain mapping
             fake_y = self.generator([real_x, target_label])
             # Discriminator output
-            blend_real_image = (real_x * image_real_alpha +
-                                fake_y * (1 - image_real_alpha))
-            blend_middle_image = (real_x * image_middle_alpha +
-                                  fake_y * (1 - image_middle_alpha))
-            blend_fake_image = (real_x * image_fake_alpha +
-                                fake_y * (1 - image_fake_alpha))
+            blend_image = (real_x * image_alpha +
+                           fake_y * (1 - image_alpha))
             disc_real = self.discriminator(real_x,
                                            training=True)
-            disc_real_blend = self.discriminator(blend_real_image,
-                                                 training=True)
-            disc_middle_blend = self.discriminator(blend_middle_image,
-                                                   training=True)
-            disc_fake_blend = self.discriminator(blend_fake_image,
-                                                 training=True)
+            disc_blend = self.discriminator(blend_image,
+                                            training=True)
             disc_fake = self.discriminator(fake_y,
                                            training=True)
             disc_real_loss = backend.mean(self.disc_real_loss_fn(disc_real))
-            disc_real_blend_loss = backend.mean(self.disc_loss_fn(feature_real_alpha,
-                                                                  disc_real_blend))
-            disc_middle_blend_loss = backend.mean(self.disc_loss_fn(feature_middle_alpha,
-                                                                    disc_middle_blend))
-            disc_fake_blend_loss = backend.mean(self.disc_loss_fn(feature_fake_alpha,
-                                                                  disc_fake_blend))
+            disc_blend_loss = backend.mean(self.disc_loss_fn(feature_alpha,
+                                                             disc_blend))
             disc_fake_loss = backend.mean(self.disc_fake_loss_fn(disc_fake))
 
-            disc_loss = (disc_real_loss + disc_real_blend_loss +
-                         disc_middle_blend_loss + disc_fake_blend_loss + disc_fake_loss) / 5
-
-            disc_total_loss = disc_loss
+            product_loss = sqrt_with_sign(-disc_real_loss * disc_fake_loss)
+            sum_loss = disc_real_loss + disc_fake_loss
+            disc_total_loss = (product_loss + sum_loss + disc_blend_loss)
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_total_loss,
                                         self.discriminator.trainable_variables)
@@ -224,14 +218,14 @@ class ATTGan(Model):
             # another domain mapping
             fake_y = self.generator([real_x, target_label],
                                     training=True)
-            blend_middle_image = (real_x * image_middle_alpha +
-                                  fake_y * (1 - image_middle_alpha))
+            blend_image = (real_x * image_alpha +
+                           fake_y * (1 - image_alpha))
             recon_x = self.generator([real_x, same_label],
                                      training=True)
             # Discriminator output
             disc_fake_y = self.discriminator(fake_y)
-            disc_middle_blend = self.discriminator(blend_middle_image,
-                                                   training=True)
+            disc_blend = self.discriminator(blend_image,
+                                            training=True)
             label_fake_y = self.classifier(fake_y)
             label_fake_y_loss = backend.mean(self.class_loss_fn(label_y,
                                                                 label_fake_y))
@@ -240,11 +234,10 @@ class ATTGan(Model):
             # Generator adverserial loss
             gen_fake_y_disc_loss = backend.mean(
                 self.disc_real_loss_fn(disc_fake_y))
-            gen_middle_blend_disc_loss = backend.mean(self.disc_loss_fn(1 - feature_middle_alpha,
-                                                                        disc_middle_blend))
+            gen_blend_disc_loss = backend.mean(self.disc_loss_fn(1 - feature_alpha,
+                                                                 disc_blend))
 
-            gen_disc_loss = (gen_fake_y_disc_loss +
-                             gen_middle_blend_disc_loss) / 2
+            gen_disc_loss = gen_fake_y_disc_loss
             # Generator image loss
             recon_x_image_loss = self.recon_loss_fn(real_x,
                                                     recon_x)
@@ -267,14 +260,12 @@ class ATTGan(Model):
         return {
             "total_disc_loss": disc_total_loss,
             "disc_real_loss": disc_real_loss,
-            "disc_real_blend_loss": disc_real_blend_loss,
-            "disc_middle_blend_loss": disc_middle_blend_loss,
-            "disc_fake_blend_loss": disc_fake_blend_loss,
+            "disc_blend_loss": disc_blend_loss,
             "disc_fake_loss": disc_fake_loss,
             "label_real_x_loss": label_real_x_loss,
             "total_gen_loss": gen_total_loss,
             "gen_fake_y_disc_loss": gen_fake_y_disc_loss,
-            "gen_middle_blend_disc_loss": gen_middle_blend_disc_loss,
+            "gen_blend_disc_loss": gen_blend_disc_loss,
             "gen_class_loss": gen_label_loss,
             "recon_x_image_loss": recon_x_image_loss,
         }

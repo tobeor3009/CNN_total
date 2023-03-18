@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow_addons.layers import InstanceNormalization, SpectralNormalization
 from tensorflow.keras.activations import gelu
-DEFAULT_SN_ITER = 3
+DEFAULT_SN_ITER = 7
 
 
 def get_norm_layer(norm, axis=-1, name=None):
@@ -31,7 +31,7 @@ def get_act_layer(activation, name=None):
     elif activation == 'relu':
         act_layer = layers.Activation(tf.nn.relu6, name=name)
     elif activation == 'leakyrelu':
-        act_layer = layers.LeakyReLU(0.3, name=name)
+        act_layer = layers.LeakyReLU(0.2, name=name)
     elif activation == "gelu":
         act_layer = gelu
     else:

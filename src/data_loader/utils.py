@@ -5,14 +5,17 @@ import math
 import numpy as np
 from collections.abc import Mapping
 import SimpleITK as sitk
+import nibabel as nib
 
-
-def imread(img_path, channel=None):
+def imread(img_path, channel=None, policy=None):
     extension = os.path.splitext(img_path)[1]
-    if extension == ".npy":
+    
+    if policy is not None:
+        img_numpy_array = policy(img_path)
+    elif extension == ".npy":
         img_numpy_array = np.load(
             img_path, allow_pickle=True).astype("float32")
-    elif extension == ".gz":
+    elif extension in [".gz", ".nii"]:
         image_object = nib.load(img_path)
         img_numpy_array = image_object.get_fdata().astype("float32")
     elif extension == ".dcm":

@@ -1113,7 +1113,8 @@ class SwinTransformerBlock3D(layers.Layer):
         B, L, C = x.get_shape().as_list()
         num_window_elements = np.prod(self.window_size)
         # Checking num_path and tensor sizes
-        assert L == H * W * Z, 'Number of patches before and after Swin-MSA are mismatched.'
+        assert L == Z * H * W, \
+            f'Number of patches before and after Swin-MSA are mismatched. shape: {x.shape}, {(Z, H, W)}, {self.prefix}'
 
         # Skip connection I (start)
         x_skip = x
