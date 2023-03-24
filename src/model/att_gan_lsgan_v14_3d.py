@@ -40,8 +40,10 @@ def tile_concat_2d(a, b, image_shape):
 def get_random_label(label_tensor):
     label_shape = tf.shape(label_tensor)
     batch_size, num_class = label_shape[0], label_shape[1]
-    label_tensor = backend.random_uniform(shape=(batch_size, num_class))
-
+    age_label_tensor = backend.random_uniform(shape=(batch_size, 1),
+                                              minval=0.20, maxval=0.82)
+    gender_label_tensor = backend.random_uniform(shape=(batch_size, 1))
+    label_tensor = tf.concat([age_label_tensor, gender_label_tensor], axis=-1)
     # Update the values of label_tensor[:, 0] using a boolean mask
     mask = tf.range(num_class) == 0
     mask = tf.reshape(mask, [1, -1])
@@ -101,8 +103,10 @@ class ATTGan(Model):
         super(ATTGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
-        _, self.image_z, self.image_h, self.image_w, _ = self.generator.output.shape
-        _, self.feature_z, self.feature_h, self.feature_w, _ = self.discriminator.output[
+        # _, self.image_z, self.image_h, self.image_w, _ = self.generator.output.shape
+        _, self.image_h, self.image_w, _ = self.generator.output.shape
+        # _, self.feature_z, self.feature_h, self.feature_w, _ = self.discriminator.output[
+        _, self.feature_h, self.feature_w, _ = self.discriminator.output[
             0].shape
         self.mode = mode
 

@@ -13,6 +13,37 @@ base_image_loss_fn = MeanAbsoluteError()
 CHECK_SLICE_NUM = 8
 
 
+def interpolate(label_shape, real, fake, mode="2d"):
+    alpha = tf.random.normal([label_shape[0]], 0.0, 1.0)
+    if mode == "2d":
+        image_alpha = alpha[:, None, None, None]
+    elif mode == "3d":
+        image_alpha = alpha[:, None, None, None, None]
+    inter = real + image_alpha * (fake - real)
+    return inter
+
+
+@tf.function
+def gradient_penalty(disc, real, fake,
+                     mode="2d", smooth=1e-7):
+    label_shape = tf.shape(real)
+    inter = interpolate(label_shape, real, fake,
+                        mode=mode)
+    with tf.GradientTape() as gp_tape:
+        gp_tape.watch(inter)
+        # 1. Get the discriminator output for this interpolated image.
+        # disc.output = [validity, class]
+        pred = disc(inter, training=True)
+    # 2. Calculate the gradients w.r.t to this interpolated image.
+    grads = gp_tape.gradient(pred, [inter])[0]
+    # grads = tf.reshape(grads, [label_shape[0], -1])
+    norm = tf.sqrt(tf.reduce_sum(tf.square(grads + smooth), axis=[1, 2, 3]))
+    gp = (norm - 1.0) ** 2
+    # gp = tf.reduce_mean((norm - 1.0) ** 2)
+    # 3. Calculate the norm of the gradients.
+    return gp
+
+
 class Pix2PixGan(Model):
     def __init__(
         self,
@@ -111,10 +142,11 @@ class Pix2PixGan(Model):
             # discriminator loss
             disc_real_y = self.discriminator(real_y, training=True)
             disc_fake_y = self.discriminator(fake_y, training=True)
-
+            disc_gp = gradient_penalty(self.discriminator,
+                                       real_y, fake_y, "2d")
             disc_real_loss = self.to_real_loss(disc_real_y)
             disc_fake_loss = self.to_fake_loss(disc_fake_y)
-            disc_loss = disc_real_loss + disc_fake_loss
+            disc_loss = disc_real_loss + disc_fake_loss + disc_gp * 10
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_loss,
                                         self.discriminator.trainable_variables)
@@ -166,6 +198,7 @@ class Pix2PixGan(Model):
             "gen_disc_loss": gen_adverserial_loss,
             "disc_real_loss": disc_real_loss,
             "disc_fake_loss": disc_fake_loss,
+            "disc_gp": disc_gp,
             "disc_real_acc": disc_real_acc,
             "disc_fake_acc": disc_fake_acc,
             "gen_fake_acc": gen_fake_acc

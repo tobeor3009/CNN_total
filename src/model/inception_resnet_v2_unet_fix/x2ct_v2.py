@@ -296,7 +296,7 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
     # lat_output.shape: [B, 16, 16, 1536]
     _, H, W, C = backend.int_shape(base_model_output)
     down_channel = int(round(C // 3 * start_channel_ratio))
-    decoded = UpsampleBlock2D(C, strides=(2, 1),
+    decoded = UpsampleBlock2D(C, kernel_size=(2, 1),
                               norm=norm, activation=base_act)(base_model_output)
     decoded = SkipUpsample3D(C, norm=norm,
                              activation=base_act)(decoded, W)
@@ -319,7 +319,7 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
         if idx == 5 - num_downsample + 1:
             pass
         else:
-            skip_connect = UpsampleBlock2D(current_filter, strides=(2, 1),
+            skip_connect = UpsampleBlock2D(current_filter, kernel_size=(2, 1),
                                            norm=norm, activation=base_act)(skip_connect)
             skip_connect = SkipUpsample3D(current_filter,
                                           norm=norm, activation=base_act)(skip_connect, H)

@@ -1444,6 +1444,34 @@ def get_swin_class_gen_2d_v3(input_shape, class_num, last_channel_num,
     return model
 
 
+def get_swin_gen_2d_v3(input_shape, last_channel_num,
+                       filter_num_begin, depth,
+                       stack_num_down, stack_num_up,
+                       patch_size, stride_mode, num_heads, window_size, num_mlp,
+                       act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
+    IN = layers.Input(input_shape)
+    if stride_mode == "same":
+        stride_size = patch_size
+    elif stride_mode == "half":
+        stride_size = np.array(patch_size) // 2
+    num_patch_x, num_patch_y = utils.get_image_patch_num_2d(input_shape[0:2],
+                                                            patch_size,
+                                                            stride_size)
+    num_patch_x = num_patch_x // (2 ** (depth - 1))
+    num_patch_y = num_patch_y // (2 ** (depth - 1))
+    # Base architecture
+    X = swin_class_gen_2d_base_v3(IN, None, filter_num_begin, depth, stack_num_down, stack_num_up,
+                                  patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
+                                  shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn, name='unet',
+                                  add_class_info_position=[])
+    OUT = Conv2DLayer(last_channel_num, kernel_size=1,
+                      use_bias=False, activation=last_act, use_sn=use_sn)(X)
+
+    # Model configuration
+    model = Model(inputs=[IN], outputs=[OUT, ])
+    return model
+
+
 def get_swin_style_encoder(input_shape, class_num,
                            filter_num_begin, depth, stack_num_down,
                            patch_size, stride_mode, num_heads, window_size, num_mlp,
@@ -1485,6 +1513,35 @@ def get_swin_class_disc_2d(input_shape, last_channel_num,
                        activation='sigmoid', use_sn=use_sn)(CLASS)
     # Model configuration
     model = Model(inputs=[IN, ], outputs=[VALIDITY, CLASS])
+    return model
+
+
+def get_swin_disc_2d(input_shape, last_channel_num,
+                     filter_num_begin, depth, stack_num_per_depth,
+                     patch_size, stride_mode, num_heads, window_size, num_mlp,
+                     act="gelu", last_act="sigmoid", shift_window=True, swin_v2=False, use_sn=False):
+    H, W, _ = input_shape
+    h, w = H // (2 ** depth), W // (2 ** depth)
+    IN = layers.Input(input_shape)
+    X = swin_classification_2d_base(IN, filter_num_begin, depth, stack_num_per_depth,
+                                    patch_size, stride_mode, num_heads, window_size, num_mlp,
+                                    act=act, shift_window=shift_window, swin_v2=swin_v2, use_sn=use_sn,
+                                    name="classification")
+    print(X.shape)
+    VALIDITY_1 = layers.Reshape((h, w, -1))(X)
+    VALIDITY_1 = Conv2DLayer(filter_num_begin, kernel_size=3,
+                             activation=act, padding="same", use_sn=use_sn)(VALIDITY_1)
+    VALIDITY_1 = AdaptiveAveragePooling2D((8, 8))(VALIDITY_1)
+    VALIDITY_2 = layers.Reshape((h, w, -1))(X)
+    VALIDITY_2 = Conv2DLayer(filter_num_begin, kernel_size=3,
+                             activation=act, padding="same", use_sn=use_sn)(VALIDITY_1)
+    VALIDITY_2 = AdaptiveAveragePooling2D((8, 8))(VALIDITY_2)
+    VALIDITY = layers.Concatenate(axis=-1)([VALIDITY_1, VALIDITY_2])
+    VALIDITY = Conv2DLayer(last_channel_num, kernel_size=1,
+                           activation=last_act, kernel_initializer="zeros",
+                           use_bias=False, use_sn=use_sn)(VALIDITY)
+    # Model configuration
+    model = Model(inputs=[IN], outputs=[VALIDITY])
     return model
 
 

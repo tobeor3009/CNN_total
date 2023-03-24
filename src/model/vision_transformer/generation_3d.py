@@ -667,10 +667,9 @@ def get_seg_swin_disc_3d_by_2d_v5(input_shape, class_num,
                                         swin_v2, use_sn, name="feature_2d")
     VALIDITY, LABEL = layers.TimeDistributed(feature_2d_layer)(IN)
     VALIDITY = layers.Reshape((z, h, w, feature_dim))(VALIDITY)
-    VALIDITY = Conv3DLaye`r(filter_num_begin, 3, padding="same",
+    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same", strides=2,
                            activation=act, use_sn=use_sn, name="validity_conv_1")(VALIDITY)
-    VALIDITY = AdaptiveAveragePooling3D((8, 8, 8))(VALIDITY)
-    VALIDITY = Conv3DLayer(filter_num_begin, 3, padding="same",
+    VALIDITY = Conv3DLayer(filter_num_begin // 2, 3, padding="same", strides=2,
                            activation=act, use_sn=use_sn, name="validity_conv_2")(VALIDITY)
     VALIDITY = Conv3DLayer(1, 1,
                            activation=last_act, use_sn=use_sn, name="validity_conv_3")(VALIDITY)
