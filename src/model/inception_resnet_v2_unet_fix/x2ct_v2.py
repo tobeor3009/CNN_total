@@ -1031,14 +1031,14 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
         decoded = Conv3DBN(current_filter, 3,
                            norm=norm, activation=base_act)(decoded)
 
-        decoded_upsample = UpsampleBlock3D(current_filter,
-                                           strides=(2, 2, 2),
-                                           norm=norm, activation=base_act)(decoded)
-        decoded_pixelshffle = PixelShuffleBlock3D(current_filter,
-                                                  strides=(2, 2, 2),
-                                                  norm=norm, activation=base_act)(decoded)
-        decoded = layers.Concatenate()([decoded_upsample,
-                                        decoded_pixelshffle])
+        decoded = UpsampleBlock3D(current_filter,
+                                  strides=(2, 2, 2),
+                                  norm=norm, activation=base_act)(decoded)
+        # decoded_pixelshffle = PixelShuffleBlock3D(current_filter,
+        #                                           strides=(2, 2, 2),
+        #                                           norm=norm, activation=base_act)(decoded)
+        # decoded = layers.Concatenate()([decoded_upsample,
+        #                                 decoded_pixelshffle])
         if idx == 5 - num_downsample + 1:
             pass
         else:

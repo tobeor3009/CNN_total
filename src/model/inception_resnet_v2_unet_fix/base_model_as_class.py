@@ -645,7 +645,7 @@ def InceptionResNetV2_Small(target_shape=None,
 
 
 def get_block_1(input_tensor, block_size, groups,
-                norm, activation, num_downsample, name_prefix):
+                norm, activation, num_downsample, name_prefix, small=False):
     if num_downsample == 5:
         output_filter = block_size * 2
     elif num_downsample == 4:
@@ -930,7 +930,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 128
+            up_channel = block_size * 96
         elif block_type == 'block8':
             branch_0 = Conv2DBN(block_size * 12, 1,
                                 groups=groups, norm=norm, activation=activation)
@@ -944,7 +944,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 192
+            up_channel = block_size * 160
         else:
             raise ValueError('Unknown Inception-ResNet block type. '
                              'Expects "block35", "block17" or "block8", '
