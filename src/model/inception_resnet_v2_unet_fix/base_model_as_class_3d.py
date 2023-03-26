@@ -144,7 +144,8 @@ def InceptionResNetV2_3D_Progressive(target_shape=None,
                                      name_prefix="",
                                      num_downsample=5,
                                      use_attention=True,
-                                     skip_connect_names=False):
+                                     skip_connect_names=False,
+                                     small=False):
     if name_prefix == "":
         pass
     else:
@@ -174,12 +175,12 @@ def InceptionResNetV2_3D_Progressive(target_shape=None,
                         groups, norm, base_act, name_prefix)
     if num_downsample >= 2:
         x = get_block_4(x, block_size, padding, groups,
-                        use_attention, norm, base_act, name_prefix)
+                        use_attention, norm, base_act, name_prefix, small)
     if num_downsample >= 1:
         x = get_block_5(x, block_size, padding, groups,
-                        use_attention, norm, base_act, name_prefix)
-    x = get_output_block(x, block_size, groups,
-                         use_attention, norm, base_act, last_act, name_prefix)(x)
+                        use_attention, norm, base_act, name_prefix, small)
+    x = get_output_block(x, block_size, padding, groups,
+                         use_attention, norm, base_act, last_act, name_prefix, small)
 
     model = Model(input_tensor, x,
                   name=f'{name_prefix}inception_resnet_v2')
@@ -241,7 +242,7 @@ def get_block_3(input_tensor, block_size, padding,
 
 
 def get_block_4(input_tensor, block_size, padding, groups,
-                use_attention, norm, activation, name_prefix):
+                use_attention, norm, activation, name_prefix, small=False):
     branch_0 = Conv3DBN(block_size * 6, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
     branch_1 = Conv3DBN(block_size * 3, 1, groups=groups,
@@ -258,79 +259,99 @@ def get_block_4(input_tensor, block_size, padding, groups,
                                           padding='same')(input_tensor)
     branch_pool = Conv3DBN(block_size * 4, 1, groups=groups,
                            norm=norm, activation=activation)(branch_pool)
-    branches_1 = [branch_0, branch_1, branch_2, branch_pool]
+    branches_out = [branch_0, branch_1, branch_2, branch_pool]
 
-    branches_1 = layers.Concatenate(axis=CHANNEL_AXIS)(branches_1)
-
-    for idx in range(1, 11):
-        branches_1 = InceptionResnetBlock(scale=0.17,
-                                          block_type='block35', block_size=block_size,
-                                          groups=groups, norm=norm, activation=activation,
-                                          use_attention=use_attention,
-                                          name=f'{name_prefix}block_35_{idx}')(branches_1)
-    branch_0 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
-                        groups=groups, norm=norm, activation=activation)(branches_1)
-    branch_1 = Conv3DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
-    branch_1 = Conv3DBN(block_size * 16, 3, groups=groups,
-                        norm=norm, activation=activation)(branch_1)
-    branch_1 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
-                        groups=groups, norm=norm, activation=activation)(branch_1)
-    branch_pool = layers.AveragePooling3D(3, strides=2,
-                                          padding=padding)(branches_1)
-    branches_2 = [branch_0, branch_1, branch_pool]
-    branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
-                                    name=f"{name_prefix}down_block_4")(branches_2)
-
-    return branches_2
+    branches_out = layers.Concatenate(axis=CHANNEL_AXIS)(branches_out)
+    if small:
+        block_num = 3
+    else:
+        block_num = 10
+    for idx in range(1, block_num + 1):
+        branches_out = InceptionResnetBlock(scale=0.17,
+                                            block_type='block35', block_size=block_size,
+                                            groups=groups, norm=norm, activation=activation,
+                                            use_attention=use_attention,
+                                            name=f'{name_prefix}block_35_{idx}')(branches_out)
+    return branches_out
 
 
 def get_block_5(input_tensor, block_size, padding, groups,
-                use_attention, norm, activation, name_prefix):
-    branches_1 = input_tensor
-    for idx in range(1, 21):
-        branches_1 = InceptionResnetBlock(scale=0.11,
-                                          block_type='block17', block_size=block_size,
-                                          groups=groups, activation=activation,
-                                          use_attention=use_attention,
-                                          name=f'{name_prefix}block_17_{idx}')(branches_1)
-    branch_0 = Conv3DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
-    branch_0 = Conv3DBN(block_size * 24, 3, strides=2, padding=padding,
-                        groups=groups, norm=norm, activation=activation)(branch_0)
-    branch_1 = Conv3DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
-    branch_1 = Conv3DBN(block_size * 18, 3, strides=2, padding=padding,
+                use_attention, norm, activation, name_prefix, small=False):
+    if small:
+        base_block_size = block_size * 2
+    else:
+        base_block_size = block_size * 8
+    branch_0 = Conv3DBN(base_block_size * 3, 3, strides=2, padding=padding,
+                        norm=norm, groups=groups, activation=activation)(input_tensor)
+    branch_1 = Conv3DBN(base_block_size * 2, 1, groups=groups,
+                        norm=norm, activation=activation)(input_tensor)
+    branch_1 = Conv3DBN(base_block_size * 2, 3, groups=groups,
+                        norm=norm, activation=activation)(branch_1)
+    branch_1 = Conv3DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_1)
-    branch_2 = Conv3DBN(block_size * 16, 1, groups=groups,
-                        norm=norm, activation=activation)(branches_1)
-    branch_2 = Conv3DBN(block_size * 18, 3, groups=groups,
+    branch_pool = layers.AveragePooling3D(3, strides=2,
+                                          padding=padding)(input_tensor)
+    branches_output = [branch_0, branch_1, branch_pool]
+    branches_output = layers.Concatenate(axis=CHANNEL_AXIS)(branches_output)
+
+    if small:
+        block_num = 5
+    else:
+        block_num = 10
+    for idx in range(1, block_num + 1):
+        if idx == block_num:
+            block_name = f"{name_prefix}block_5"
+        else:
+            block_name = f'{name_prefix}block_17_{idx}'
+        branches_output = InceptionResnetBlock(scale=0.11,
+                                               block_type='block17', block_size=block_size,
+                                               groups=groups, norm=norm, activation=activation,
+                                               use_attention=use_attention,
+                                               name=block_name,
+                                               small=small)(branches_output)
+    return branches_output
+
+
+def get_output_block(input_tensor, block_size, padding, groups, use_attention,
+                     norm, activation, last_activation, name_prefix, small):
+
+    if small:
+        base_block_size = block_size * 2
+    else:
+        base_block_size = block_size * 8
+
+    branch_0 = Conv3DBN(base_block_size * 2, 1, groups=groups,
+                        norm=norm, activation=activation)(input_tensor)
+    branch_0 = Conv3DBN(base_block_size * 3, 3, strides=2, padding=padding,
+                        norm=norm, groups=groups, activation=activation)(branch_0)
+    branch_1 = Conv3DBN(base_block_size * 2, 1, groups=groups,
+                        norm=norm, activation=activation)(input_tensor)
+    branch_1 = Conv3DBN(base_block_size * 2, 3, strides=2, padding=padding,
+                        norm=norm, groups=groups, activation=activation)(branch_1)
+    branch_2 = Conv3DBN(base_block_size * 2, 1, groups=groups,
+                        norm=norm, activation=activation)(input_tensor)
+    branch_2 = Conv3DBN(base_block_size * 2, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
-    branch_2 = Conv3DBN(block_size * 20, 3, strides=2, padding=padding,
+    branch_2 = Conv3DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_2)
     branch_pool = layers.MaxPooling3D(3, strides=2,
-                                      padding=padding)(branches_1)
-    branches_2 = [branch_0, branch_1, branch_2, branch_pool]
-    branches_2 = layers.Concatenate(axis=CHANNEL_AXIS,
-                                    name=f"{name_prefix}down_block_5")(branches_2)
-    return branches_2
-
-
-def get_output_block(input_tensor, block_size, groups, use_attention,
-                     norm, activation, last_activation, name_prefix):
-
-    model_input = layers.Input(input_tensor.shape[1:])
-    branches = model_input
-    for idx in range(1, 11):
-        branches = InceptionResnetBlock(scale=0.2,
-                                        block_type='block8', block_size=block_size,
-                                        groups=groups, norm=norm, activation=activation,
-                                        use_attention=use_attention,
-                                        name=f'{name_prefix}block_8_{idx}')(branches)
-    branches = Conv3DBN(block_size * 96, 1, groups=groups,
-                        norm=norm, activation=last_activation)(branches)
-    return Model(model_input, branches,
-                 name=f"{name_prefix}output_block")
+                                      padding=padding)(input_tensor)
+    branches_output = [branch_0, branch_1, branch_2, branch_pool]
+    branches_output = layers.Concatenate(axis=CHANNEL_AXIS)(branches_output)
+    if small:
+        block_num = 3
+    else:
+        block_num = 10
+    for idx in range(1, block_num + 1):
+        branches_output = InceptionResnetBlock(scale=0.2,
+                                               block_type='block8', block_size=block_size,
+                                               groups=groups, norm=norm, activation=activation,
+                                               use_attention=use_attention,
+                                               name=f'{name_prefix}block_8_{idx}',
+                                               small=small)(branches_output)
+    branches_output = Conv3DBN(base_block_size * 12, 1, groups=groups,
+                               norm=norm, activation=last_activation)(branches_output)
+    return branches_output
 
 
 class Conv3DBN(layers.Layer):
@@ -463,9 +484,11 @@ class InceptionResnetBlock(layers.Layer):
     def __init__(self, scale, block_type,
                  block_size=16, groups=1,
                  norm="batch", activation='relu',
-                 use_attention=True, name=None):
+                 use_attention=True, name=None, small=False):
         super().__init__(name=name)
         self.use_attention = use_attention
+        if small:
+            block_size = block_size // 4
         if block_type == 'block35':
             branch_0 = Conv3DBN(block_size * 2, 1, groups=groups,
                                 norm=norm, activation=activation)
@@ -520,7 +543,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_3,
                                    branch_1_4])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 130
+            up_channel = block_size * 132
         else:
             raise ValueError('Unknown Inception-ResNet block type. '
                              'Expects "block35", "block17" or "block8", '

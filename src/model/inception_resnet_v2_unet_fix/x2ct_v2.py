@@ -832,7 +832,8 @@ def get_inception_resnet_v2_disc_3d(input_shape,
                                                   last_act=last_act,
                                                   name_prefix="validity",
                                                   num_downsample=num_downsample,
-                                                  use_attention=True)
+                                                  use_attention=True,
+                                                  small=True)
 
     base_input = base_model.input
     base_output = base_model.output
@@ -1001,7 +1002,7 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
                     xray_shape[2])
 
     decoder_filter_list = [
-        None, block_size * 4, block_size * 12, block_size * 20, block_size * 68
+        None, block_size * 4, block_size * 12, block_size * 20, block_size * 17
     ]
 
     base_model = InceptionResNetV2_progressive(target_shape=target_shape,
@@ -1013,7 +1014,8 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
                                                last_act=base_act,
                                                name_prefix="xray",
                                                num_downsample=num_downsample,
-                                               use_attention=True)
+                                               use_attention=True,
+                                               small=True)
     base_model_input = base_model.input
     base_model_output = base_model.output
     _, H, W, C = backend.int_shape(base_model_output)

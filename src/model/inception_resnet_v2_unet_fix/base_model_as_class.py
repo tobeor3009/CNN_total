@@ -544,7 +544,8 @@ def InceptionResNetV2_progressive(target_shape=None,
                                   num_downsample=5,
                                   use_attention=True,
                                   skip_connect_tensor=False,
-                                  skip_connect_names=False):
+                                  skip_connect_names=False,
+                                  small=False):
     if name_prefix == "":
         pass
     else:
@@ -572,21 +573,21 @@ def InceptionResNetV2_progressive(target_shape=None,
         skip_connect_tensor_list.append(x)
     if num_downsample >= 3:
         x = get_block_4(x, block_size, padding, pooling, groups,
-                        use_attention, norm, base_act, name_prefix)
+                        use_attention, norm, base_act, name_prefix, small)
         skip_connect_tensor_list.append(x)
     if num_downsample >= 2:
         x = get_block_5(x, block_size, padding, groups,
-                        use_attention, norm, base_act, name_prefix)
+                        use_attention, norm, base_act, name_prefix, small)
         skip_connect_tensor_list.append(x)
     if num_downsample >= 1:
         x = get_output_block(x, block_size, padding, groups,
-                             use_attention, norm, base_act, last_act, name_prefix)
+                             use_attention, norm, base_act, last_act, name_prefix, small)
     if skip_connect_tensor:
         model = Model(input_tensor, [x, skip_connect_tensor_list],
-                    name=f'{name_prefix}inception_resnet_v2')
+                      name=f'{name_prefix}inception_resnet_v2')
     else:
         model = Model(input_tensor, x,
-                    name=f'{name_prefix}inception_resnet_v2')
+                      name=f'{name_prefix}inception_resnet_v2')
     if skip_connect_names:
         skip_connect_name_list = [f"{name_prefix}block_1"] + \
             [f"{name_prefix}block_{idx}"
@@ -736,13 +737,19 @@ def get_block_4(input_tensor, block_size, padding, pooling,
 
 def get_block_5(input_tensor, block_size, padding, groups,
                 use_attention, norm, activation, name_prefix, small=False):
-    branch_0 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
+
+    if small:
+        base_block_size = block_size * 2
+    else:
+        base_block_size = block_size * 8
+
+    branch_0 = Conv2DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         norm=norm, groups=groups, activation=activation)(input_tensor)
-    branch_1 = Conv2DBN(block_size * 16, 1, groups=groups,
+    branch_1 = Conv2DBN(base_block_size * 2, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
-    branch_1 = Conv2DBN(block_size * 16, 3, groups=groups,
+    branch_1 = Conv2DBN(base_block_size * 2, 3, groups=groups,
                         norm=norm, activation=activation)(branch_1)
-    branch_1 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
+    branch_1 = Conv2DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_1)
     branch_pool = layers.AveragePooling2D(3, strides=2,
                                           padding=padding)(input_tensor)
@@ -762,25 +769,32 @@ def get_block_5(input_tensor, block_size, padding, groups,
                                                block_type='block17', block_size=block_size,
                                                groups=groups, norm=norm, activation=activation,
                                                use_attention=use_attention,
-                                               name=block_name)(branches_output)
+                                               name=block_name,
+                                               small=small)(branches_output)
     return branches_output
 
 
 def get_output_block(input_tensor, block_size, padding, groups, use_attention,
                      norm, activation, last_activation, name_prefix, small=False):
-    branch_0 = Conv2DBN(block_size * 16, 1, groups=groups,
+
+    if small:
+        base_block_size = block_size * 2
+    else:
+        base_block_size = block_size * 8
+
+    branch_0 = Conv2DBN(base_block_size * 2, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
-    branch_0 = Conv2DBN(block_size * 24, 3, strides=2, padding=padding,
+    branch_0 = Conv2DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         norm=norm, groups=groups, activation=activation)(branch_0)
-    branch_1 = Conv2DBN(block_size * 16, 1, groups=groups,
+    branch_1 = Conv2DBN(base_block_size * 2, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
-    branch_1 = Conv2DBN(block_size * 18, 3, strides=2, padding=padding,
+    branch_1 = Conv2DBN(base_block_size * 2, 3, strides=2, padding=padding,
                         norm=norm, groups=groups, activation=activation)(branch_1)
-    branch_2 = Conv2DBN(block_size * 16, 1, groups=groups,
+    branch_2 = Conv2DBN(base_block_size * 2, 1, groups=groups,
                         norm=norm, activation=activation)(input_tensor)
-    branch_2 = Conv2DBN(block_size * 18, 3, groups=groups,
+    branch_2 = Conv2DBN(base_block_size * 2, 3, groups=groups,
                         norm=norm, activation=activation)(branch_2)
-    branch_2 = Conv2DBN(block_size * 20, 3, strides=2, padding=padding,
+    branch_2 = Conv2DBN(base_block_size * 3, 3, strides=2, padding=padding,
                         groups=groups, norm=norm, activation=activation)(branch_2)
     branch_pool = layers.MaxPooling2D(3, strides=2,
                                       padding=padding)(input_tensor)
@@ -795,8 +809,9 @@ def get_output_block(input_tensor, block_size, padding, groups, use_attention,
                                                block_type='block8', block_size=block_size,
                                                groups=groups, norm=norm, activation=activation,
                                                use_attention=use_attention,
-                                               name=f'{name_prefix}block_8_{idx}')(branches_output)
-    branches_output = Conv2DBN(block_size * 96, 1, groups=groups,
+                                               name=f'{name_prefix}block_8_{idx}',
+                                               small=small)(branches_output)
+    branches_output = Conv2DBN(base_block_size * 12, 1, groups=groups,
                                norm=norm, activation=last_activation)(branches_output)
     return branches_output
 
@@ -877,9 +892,11 @@ class InceptionResnetBlock(layers.Layer):
     def __init__(self, scale, block_type,
                  block_size=16, groups=1,
                  norm="batch", activation='relu',
-                 use_attention=True, name=None):
+                 use_attention=True, name=None, small=False):
         super().__init__(name=name)
         self.use_attention = use_attention
+        if small:
+            block_size = block_size // 4
         if block_type == 'block35':
             branch_0 = Conv2DBN(block_size * 2, 1,
                                 groups=groups, norm=norm, activation=activation)
@@ -913,7 +930,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 68
+            up_channel = block_size * 128
         elif block_type == 'block8':
             branch_0 = Conv2DBN(block_size * 12, 1,
                                 groups=groups, norm=norm, activation=activation)
@@ -927,7 +944,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 130
+            up_channel = block_size * 192
         else:
             raise ValueError('Unknown Inception-ResNet block type. '
                              'Expects "block35", "block17" or "block8", '
