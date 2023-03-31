@@ -182,6 +182,7 @@ def get_inceptionv3_classification_model(input_shape, num_class,
 
 def get_inceptionv3_classification_model_transformer(input_shape, num_class,
                                                      activation="binary_sigmoid",
+                                                     feature_size=784,
                                                      attn_dim_list=[
                                                          64, 64, 64, 64, 64, 64],
                                                      num_head_list=[
@@ -225,8 +226,8 @@ def get_inceptionv3_classification_model_transformer(input_shape, num_class,
     # (Batch_Size, 14, 14, 2048) => (Batch_Size, 28, 28, 512)
     x = tf.nn.depth_to_space(x, block_size=2)
     # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 512)
-    x = layers.Reshape((784, 512))(x)
-    x = AddPositionEmbs(input_shape=(784, 512))(x)
+    x = layers.Reshape((feature_size, 512))(x)
+    x = AddPositionEmbs(input_shape=(feature_size, 512))(x)
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
     # let's add a fully-connected layer
@@ -302,8 +303,8 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     # (Batch_Size, 14, 14, 2048) => (Batch_Size, 28, 28, 512)
     x = tf.nn.depth_to_space(x, block_size=2)
     # (Batch_Size, 28, 28, 512) => (Batch_Size, 784, 512)
-    x = layers.Reshape((784, 384))(x)
-    x = AddPositionEmbs(input_shape=(784, 384))(x)
+    x = layers.Reshape((3600, 384))(x)
+    x = AddPositionEmbs(input_shape=(3600, 384))(x)
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
     # let's add a fully-connected layer

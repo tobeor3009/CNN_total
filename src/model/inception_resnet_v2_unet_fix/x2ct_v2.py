@@ -278,6 +278,9 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
     target_shape = (xray_shape[0] * (2 ** (5 - num_downsample)),
                     xray_shape[1] * (2 ** (5 - num_downsample)),
                     xray_shape[2])
+    decoder_filter_list = [
+        None, block_size * 4, block_size * 12, block_size * 15, block_size * 17
+    ]
     base_model = InceptionResNetV2_progressive(target_shape=target_shape,
                                                block_size=block_size,
                                                padding="same",
@@ -287,7 +290,8 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
                                                last_act=base_act,
                                                name_prefix="xray",
                                                num_downsample=num_downsample,
-                                               use_attention=True)
+                                               use_attention=False,
+                                               small=True)
 
     base_model_input = base_model.input
     base_model_output = base_model.output
@@ -296,13 +300,10 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
     # lat_output.shape: [B, 16, 16, 1536]
     _, H, W, C = backend.int_shape(base_model_output)
     down_channel = int(round(C // 3 * start_channel_ratio))
-    decoded = UpsampleBlock2D(C, kernel_size=(2, 1),
-                              norm=norm, activation=base_act)(base_model_output)
     decoded = SkipUpsample3D(C, norm=norm,
-                             activation=base_act)(decoded, W)
+                             activation=base_act)(base_model_output, H)
     for idx in range(5, 5 - num_downsample, -1):
-        skip_connect = base_model.get_layer(f"xray_block_{idx}").output
-        _, H, W, current_filter = skip_connect.shape
+        current_filter = decoder_filter_list[idx - 1]
         current_filter = int(round(current_filter * decoder_filter_ratio))
         decoded = Conv3DBN(current_filter, 3,
                            norm=norm, activation=base_act)(decoded)
@@ -319,15 +320,15 @@ def get_x2ct_model_ap_lat_v9(xray_shape, ct_series_shape,
         if idx == 5 - num_downsample + 1:
             pass
         else:
-            skip_connect = UpsampleBlock2D(current_filter, kernel_size=(2, 1),
-                                           norm=norm, activation=base_act)(skip_connect)
+            skip_connect = base_model.get_layer(f"xray_block_{idx}").output
+            _, H, W, _ = skip_connect.shape
             skip_connect = SkipUpsample3D(current_filter,
                                           norm=norm, activation=base_act)(skip_connect, H)
             decoded = layers.Concatenate()([decoded,
                                             skip_connect])
-    output_tensor = Conv3DBN(current_filter, 3, strides=(2, 1, 1),
-                             norm=norm, activation=None)(decoded)
-    output_tensor = SimpleOutputLayer2D(last_channel_num=1,
+    output_tensor = Conv3DBN(current_filter, 4, strides=(1, 1, 1),
+                             norm=norm, activation=base_act)(decoded)
+    output_tensor = SimpleOutputLayer3D(last_channel_num=1,
                                         act=last_act)(output_tensor)
     return Model(base_model_input, output_tensor)
 
@@ -832,7 +833,7 @@ def get_inception_resnet_v2_disc_3d(input_shape,
                                                   last_act=last_act,
                                                   name_prefix="validity",
                                                   num_downsample=num_downsample,
-                                                  use_attention=True,
+                                                  use_attention=False,
                                                   small=True)
 
     base_input = base_model.input
@@ -1002,7 +1003,7 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
                     xray_shape[2])
 
     decoder_filter_list = [
-        None, block_size * 4, block_size * 12, block_size * 20, block_size * 17
+        None, block_size * 4, block_size * 12, block_size * 15, block_size * 17
     ]
 
     base_model = InceptionResNetV2_progressive(target_shape=target_shape,
@@ -1014,7 +1015,7 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
                                                last_act=base_act,
                                                name_prefix="xray",
                                                num_downsample=num_downsample,
-                                               use_attention=True,
+                                               use_attention=False,
                                                small=True)
     base_model_input = base_model.input
     base_model_output = base_model.output
@@ -1044,7 +1045,7 @@ def get_x2ct_model_ap_lat_v16(xray_shape, ct_series_shape,
         else:
             decode_filter = max(H * 3, current_filter)
             skip_connect = base_model.get_layer(f"xray_block_{idx}").output
-            _, H, W, current_filter = skip_connect.shape
+            _, H, W, _ = skip_connect.shape
             skip_connect = SkipUpsample3D(current_filter,
                                           norm=norm, activation=base_act)(skip_connect, H)
             decoded = layers.Concatenate()([decoded,

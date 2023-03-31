@@ -140,7 +140,8 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                                 embed_dim=embed_dim,
                                                 upsample_rate=2,
                                                 swin_v2=swin_v2,
-                                                return_vector=True)(X)
+                                                return_vector=True,
+                                                name=f"3d_expand_{i}")(X)
         skip_connect = skip_connect_expanding(X, X_decode[i])
 
         print(f"depth {i} expanding X shape: {X.shape}")
@@ -179,11 +180,12 @@ def swin_x2ct_base(input_tensor, filter_num_begin, depth, stack_num_down, stack_
                                             embed_dim=embed_dim,
                                             upsample_rate=int(stride_size[0]),
                                             swin_v2=swin_v2,
-                                            return_vector=False)(X)
+                                            return_vector=False,
+                                            name="last_expand")(X)
     return X
 
 
-def get_swin_x2ct(input_shape, last_channel_num,
+def get_swin_x2ct(input_shape,
                   filter_num_begin, depth,
                   stack_num_down, stack_num_up,
                   patch_size, stride_mode, num_heads, window_size, num_mlp,
@@ -193,7 +195,7 @@ def get_swin_x2ct(input_shape, last_channel_num,
     X = swin_x2ct_base(IN, filter_num_begin, depth, stack_num_down, stack_num_up,
                        patch_size, stride_mode, num_heads, window_size, num_mlp, act=act,
                        shift_window=shift_window, swin_v2=swin_v2, name="swin_x2ct")
-    OUT = layers.Conv2D(last_channel_num, kernel_size=1,
+    OUT = layers.Conv3D(1, kernel_size=1,
                         use_bias=False, activation=last_act)(X)
     model = Model(inputs=[IN, ], outputs=[OUT, ])
     return model
