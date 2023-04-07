@@ -26,22 +26,22 @@ positional_transform = A.OneOf([
 ], p=1)
 
 noise_transform = A.OneOf([
-    A.CLAHE(always_apply=False, p=0.5,
+    A.CLAHE(always_apply=False, p=1,
             clip_limit=(1, 15), tile_grid_size=(8, 8)),
     A.GaussNoise(var_limit=(0.01, 5), p=1),
-    A.Downscale(always_apply=False, p=0.5,
+    A.Downscale(always_apply=False, p=1,
                 scale_min=0.699999988079071, scale_max=0.9900000095367432,
                 interpolation=2),
-    A.Equalize(always_apply=False, p=0.5,
+    A.Equalize(always_apply=False, p=1,
                mode='cv', by_channels=False),
-    A.HueSaturationValue(p=0.1)
+    A.HueSaturationValue(p=1)
 ], p=1)
 
-elastic_tranform = A.OneOf([A.ElasticTransform(always_apply=False, p=0.5,
+elastic_tranform = A.OneOf([A.ElasticTransform(always_apply=False, p=1,
                                                alpha=0.20000000298023224, sigma=3.359999895095825,
                                                alpha_affine=2.009999990463257, interpolation=1, border_mode=1,
                                                value=(0, 0, 0), mask_value=None, approximate=False),
-                            A.GridDistortion(always_apply=False, p=0.5, num_steps=1,
+                            A.GridDistortion(always_apply=False, p=1, num_steps=1,
                                              distort_limit=(-0.029999999329447746,
                                                             0.05000000074505806),
                                              interpolation=2, border_mode=0, value=(0, 0, 0), mask_value=None)
@@ -56,11 +56,9 @@ brightness_contrast_transform = A.OneOf([
 ], p=1)
 
 color_transform = A.OneOf([
-    A.ISONoise(always_apply=False, p=0.5,
+    A.ISONoise(always_apply=False, p=1,
                intensity=(0.05000000074505806, 0.12999999523162842),
                color_shift=(0.009999999776482582, 0.26999998092651367))
-    # A.ToGray(p=1),
-    # A.ToSepia(p=1),
 ], p=1)
 
 to_jpeg_transform = A.ImageCompression(quality_lower=10,

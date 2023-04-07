@@ -23,7 +23,6 @@ from scipy.ndimage import distance_transform_edt as distance
 #####################################################################
 # https://github.com/LIVIAETS/boundary-loss/blob/master/keras_loss.py
 
-
 def calc_dist_map(seg):
     res = np.zeros_like(seg)
     posmask = seg.astype(np.bool)
@@ -51,6 +50,17 @@ def boundary_loss(y_true, y_pred):
 #####################################################################
 
 
+def binary_crossentropy_loss(y_true, y_pred, per_image=False, smooth=SMOOTH):
+    y_pred = K.clip(y_pred, smooth, 1 - smooth)
+    negative_term = -(1 - y_true) * K.log(1 - y_pred)
+    positive_term = -y_true * K.log(y_pred)
+    bce_per_image = K.mean(negative_term + positive_term, axis=AXIS)
+    if per_image:
+        return bce_per_image
+    else:
+        return K.mean(bce_per_image)
+
+
 def dice_loss(y_true, y_pred, per_image=False, smooth=SMOOTH):
 
     tp = K.sum(y_true * y_pred, axis=AXIS)
@@ -58,7 +68,8 @@ def dice_loss(y_true, y_pred, per_image=False, smooth=SMOOTH):
     fn = K.sum(y_true, axis=AXIS) - tp
 
     dice_score_per_image = (2 * tp + smooth) / (2 * tp + fp + fn + smooth)
-    dice_score_per_image = -1 * tf.math.log(dice_score_per_image)
+    dice_score_per_image = 1 - dice_score_per_image
+    # dice_score_per_image = -1 * tf.math.log(dice_score_per_image)
     if per_image:
         return dice_score_per_image
     else:
@@ -82,7 +93,8 @@ def tversky_loss(y_true, y_pred, per_image=False, beta=0.7, smooth=SMOOTH):
 
     fn_and_fp = alpha * fn + beta * fp
     tversky_loss_per_image = (tp + smooth) / (tp + fn_and_fp + smooth)
-    tversky_loss_per_image = -1 * tf.math.log(tversky_loss_per_image)
+    tversky_loss_per_image = 1 - tversky_loss_per_image
+    # tversky_loss_per_image = -1 * tf.math.log(tversky_loss_per_image)
     if per_image:
         return tversky_loss_per_image
     else:
@@ -224,6 +236,17 @@ class ChannelWiseFocalLoss(Loss):
         return loss
 
 
+class BCELoss(Loss):
+    def __init__(self, per_image=False, smooth=SMOOTH):
+        super().__init__(name='dice_loss')
+        self.loss_fn = lambda y_true, y_pred: \
+            binary_crossentropy_loss(y_true, y_pred,
+                                     per_image=per_image, smooth=smooth)
+
+    def __call__(self, y_true, y_pred):
+        return self.loss_fn(y_true, y_pred)
+
+
 class BaseDiceLoss(Loss):
     def __init__(self, per_image=False, smooth=SMOOTH):
         super().__init__(name='dice_loss')
@@ -237,12 +260,14 @@ class BaseDiceLoss(Loss):
 class DiceLoss(Loss):
     def __init__(self, per_image=False, smooth=SMOOTH,
                  alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
-                 include_focal=False, include_boundary=False):
+                 include_focal=False, include_bce=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
         self.loss_fn = BaseDiceLoss(per_image=per_image, smooth=smooth)
         if include_focal is True:
             self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+        if include_bce is True:
+            self.loss_fn += BCELoss(per_image=per_image, smooth=smooth)
         if include_boundary is True:
             self.loss_fn += BoundaryLoss()
 
@@ -265,13 +290,15 @@ class BaseTverskyLoss(Loss):
 class TverskyLoss(Loss):
     def __init__(self, beta=TVERSKY_BETA, per_image=False, smooth=SMOOTH,
                  alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
-                 include_focal=False, include_boundary=False):
+                 include_focal=False, include_bce=False, include_boundary=False):
         super().__init__(name='tversky_loss')
 
         self.loss_fn = \
             BaseTverskyLoss(beta=beta, per_image=per_image, smooth=smooth)
         if include_focal is True:
             self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
+        if include_bce is True:
+            self.loss_fn += BCELoss(per_image=per_image, smooth=smooth)
         if include_boundary is True:
             self.loss_fn += BoundaryLoss()
 
@@ -298,7 +325,7 @@ class BasePropotionalDiceLoss(Loss):
 class PropotionalDiceLoss(Loss):
     def __init__(self, beta=TVERSKY_BETA, per_image=False, smooth=SMOOTH,
                  alpha=FOCAL_ALPHA, gamma=FOCAL_BETA,
-                 include_focal=False, include_boundary=False,
+                 include_focal=False, include_bce=False, include_boundary=False,
                  channel_weight=None):
         super().__init__(name='propotional_dice_loss')
 
@@ -312,7 +339,8 @@ class PropotionalDiceLoss(Loss):
                     alpha=alpha, gamma=gamma, channel_weight=channel_weight)
             else:
                 self.loss_fn += BinaryFocalLoss(alpha=alpha, gamma=gamma)
-
+        if include_bce is True:
+            self.loss_fn += BCELoss(per_image=per_image, smooth=smooth)
         if include_boundary is True:
             self.loss_fn += BoundaryLoss()
 

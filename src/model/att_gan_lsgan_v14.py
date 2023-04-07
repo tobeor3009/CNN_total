@@ -91,6 +91,7 @@ class ATTGan(Model):
         _, self.image_h, self.image_w, _ = self.generator.output.shape
         _, self.feature_h, self.feature_w, _ = self.discriminator.output[0].shape
         self.mode = mode
+
     def compile(
         self,
         batch_size,
@@ -128,6 +129,7 @@ class ATTGan(Model):
         self.disc_class_loss_coef = disc_class_loss_coef
         self.use_rel_gan = use_rel_gan
     # not in use. it just exist for keras Model's child must implement "call" method
+
     def call(self, x):
         return x
 
@@ -196,7 +198,7 @@ class ATTGan(Model):
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as disc_tape:
             # another domain mapping
-            fake_y = self.generator([real_x, target_label], 
+            fake_y = self.generator([real_x, target_label],
                                     training=True)
             # Discriminator output
             # blend_image = (real_x * image_alpha +
@@ -204,17 +206,17 @@ class ATTGan(Model):
             # disc_blend, _ = self.discriminator(blend_image,
             #                                 training=True)
             disc_real, label_real_x = self.discriminator(real_x,
-                                           training=True)
+                                                         training=True)
             disc_fake, _ = self.discriminator(fake_y,
-                                           training=True)
+                                              training=True)
             label_real_x_loss = backend.mean(self.class_loss_fn(label_x,
                                                                 label_real_x))
             # disc_blend_loss = backend.mean(self.disc_loss_fn(feature_alpha,
             #                                                  disc_blend))
             disc_real_loss = backend.mean(self.disc_real_loss_fn(disc_real))
             disc_fake_loss = backend.mean(self.disc_fake_loss_fn(disc_fake))
-            
-            disc_total_loss = (disc_real_loss + disc_fake_loss + 
+
+            disc_total_loss = (disc_real_loss + disc_fake_loss +
                                label_real_x_loss * self.disc_class_loss_coef)
         # Get the gradients for the discriminators
         disc_grads = disc_tape.gradient(disc_total_loss,
@@ -243,8 +245,8 @@ class ATTGan(Model):
             # Discriminator output
             # disc_blend, _ = self.discriminator(blend_image,
             # training=True)
-            disc_fake_y, label_fake_y = self.discriminator(fake_y, 
-            training=True)
+            disc_fake_y, label_fake_y = self.discriminator(fake_y,
+                                                           training=True)
             label_fake_y_loss = backend.mean(self.class_loss_fn(label_y,
                                                                 label_fake_y))
             gen_label_loss = label_fake_y_loss

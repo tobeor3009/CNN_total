@@ -3,6 +3,7 @@ import math
 from copy import deepcopy
 # external module
 import numpy as np
+from tensorflow.keras.utils import Sequence
 
 # this library module
 from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
@@ -167,6 +168,74 @@ class ClassifyDataloader(BaseIterDataLoader):
                                               collate_fn=classification_collate_fn,
                                               shuffle=self.shuffle
                                               )
+        self.print_data_info()
+        self.on_epoch_end()
+
+    def __iter__(self):
+        return lazy_cycle(self.data_pool)
+
+    def __next__(self):
+        return next(self.data_pool)
+
+    def __len__(self):
+        return math.ceil(self.data_num / self.batch_size)
+
+    def __getitem__(self, i):
+        start = i * self.batch_size
+        end = min(start + self.batch_size, self.data_num)
+
+        batch_image_array = []
+        batch_label_array = []
+        for total_index in range(start, end):
+            single_data_dict = self.data_getter[total_index]
+
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_label_array.append(single_data_dict["label"])
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_label_array = np.stack(batch_label_array, axis=0)
+
+        return batch_image_array, batch_label_array
+
+    def print_data_info(self):
+        data_num = len(self.data_getter)
+        print(f"Total data num {data_num}")
+
+
+class ClassifyDataSequence(Sequence):
+
+    def __init__(self,
+                 image_path_list=None,
+                 imread_policy=None,
+                 label_policy=None,
+                 batch_size=None,
+                 on_memory=False,
+                 augmentation_proba=False,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
+                 image_channel_dict={"image": "rgb"},
+                 preprocess_dict={"image": "-1~1"},
+                 target_size=None,
+                 interpolation="bilinear",
+                 shuffle=True,
+                 class_mode="binary",
+                 dtype="float32"
+                 ):
+        self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
+                                              imread_policy=imread_policy,
+                                              label_policy=label_policy,
+                                              on_memory=on_memory,
+                                              augmentation_proba=augmentation_proba,
+                                              augmentation_policy_dict=augmentation_policy_dict,
+                                              image_channel_dict=image_channel_dict,
+                                              preprocess_dict=preprocess_dict,
+                                              target_size=target_size,
+                                              interpolation=interpolation,
+                                              class_mode=class_mode,
+                                              dtype=dtype
+                                              )
+        self.data_num = len(self.data_getter)
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.dtype = dtype
         self.print_data_info()
         self.on_epoch_end()
 
