@@ -33,8 +33,7 @@ noise_transform = A.OneOf([
                 scale_min=0.699999988079071, scale_max=0.9900000095367432,
                 interpolation=2),
     A.Equalize(always_apply=False, p=1,
-               mode='cv', by_channels=False),
-    A.HueSaturationValue(p=1)
+               mode='cv', by_channels=False)
 ], p=1)
 
 elastic_tranform = A.OneOf([A.ElasticTransform(always_apply=False, p=1,
@@ -58,7 +57,8 @@ brightness_contrast_transform = A.OneOf([
 color_transform = A.OneOf([
     A.ISONoise(always_apply=False, p=1,
                intensity=(0.05000000074505806, 0.12999999523162842),
-               color_shift=(0.009999999776482582, 0.26999998092651367))
+               color_shift=(0.009999999776482582, 0.26999998092651367)),
+    A.HueSaturationValue(p=1)
 ], p=1)
 
 to_jpeg_transform = A.ImageCompression(quality_lower=10,

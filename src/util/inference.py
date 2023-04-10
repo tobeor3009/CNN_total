@@ -40,7 +40,7 @@ def remove_small_objects_single_channel(img, threshold, remove_region_area):
     return filtered_binary
 
 
-def remove_small_objects(image_array, threshold=0.5, remove_region_ratio=0.01):
+def remove_small_objects(image_array, threshold=0.5, remove_region_ratio=0.001):
     mask_area = np.prod(image_array.shape[1:3])
     remove_region_area = mask_area * remove_region_ratio
 
@@ -155,15 +155,14 @@ def find_epoch_from_folder(folder_path, epoch, pad_digit=2):
     return weight_path[0]
 
 
-def get_score(y_true, y_pred, threshold=0.5, axis=[1, 2, 3], remove_orange_peel=False):
+def get_score(y_true, y_pred, threshold=0.5, axis=[1, 2, 3], use_remove_small_objects=False):
     epsilon = keras_backend.epsilon()
 
     y_true = tf.cast(y_true >= threshold, dtype=tf.float32)
     y_pred = tf.cast(y_pred >= threshold, dtype=tf.float32)
-    if remove_orange_peel:
-        y_pred = remove_orange_peel(y_pred)
+    if use_remove_small_objects:
+        y_pred = remove_small_objects(y_pred)
     tp = keras_backend.sum(y_true * y_pred, axis=axis)
-    #tn = keras_backend.sum((1 - y_true) * (1 - y_pred), axis=axis)
     fp = keras_backend.sum(y_pred, axis=axis) - tp
     fn = keras_backend.sum(y_true, axis=axis) - tp
     dice_score = (2 * tp + epsilon) / (2 * tp + fp + fn + epsilon)
