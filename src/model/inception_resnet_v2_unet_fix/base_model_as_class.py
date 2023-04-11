@@ -930,7 +930,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 128
+            up_channel = block_size * 68
         elif block_type == 'block8':
             branch_0 = Conv2DBN(block_size * 12, 1,
                                 groups=groups, norm=norm, activation=activation)
@@ -944,7 +944,7 @@ class InceptionResnetBlock(layers.Layer):
                                    branch_1_2,
                                    branch_1_3])
             branches = [branch_0, branch_1]
-            up_channel = block_size * 192
+            up_channel = block_size * 132
         else:
             raise ValueError('Unknown Inception-ResNet block type. '
                              'Expects "block35", "block17" or "block8", '

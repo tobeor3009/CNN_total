@@ -374,15 +374,9 @@ def get_x2ct_model_ap_lat_v10(xray_shape, ct_series_shape,
         decoded = Conv3DBN(current_filter, 3,
                            norm=norm, activation=base_act)(decoded)
 
-        decoded_upsample = UpsampleBlock3D(current_filter,
+        decoded = UpsampleBlock3D(current_filter,
                                            strides=(2, 2, 2),
                                            norm=norm, activation=base_act)(decoded)
-
-        decoded_pixel_shuffle = PixelShuffleBlock3D(current_filter,
-                                                    strides=(2, 2, 2),
-                                                    norm=norm, activation=base_act)(decoded)
-        decoded = layers.Concatenate()([decoded_upsample,
-                                        decoded_pixel_shuffle])
         if use_skipconnect:
             if idx == 5 - num_downsample + 1:
                 pass
@@ -442,14 +436,9 @@ def get_x2ct_model_ap_lat_v11(xray_shape, ct_series_shape,
         decoded = Conv3DBN(current_filter, 3,
                            norm=norm, activation=base_act)(decoded)
 
-        decoded_upsample = UpsampleBlock3D(current_filter,
+        decoded = UpsampleBlock3D(current_filter,
                                            strides=(2, 2, 2),
                                            norm=norm, activation=base_act)(decoded)
-        decoded_pixelshffle = PixelShuffleBlock3D(current_filter,
-                                                  strides=(2, 2, 2),
-                                                  norm=norm, activation=base_act)(decoded)
-        decoded = layers.Concatenate()([decoded_upsample,
-                                        decoded_pixelshffle])
         if idx == 5 - num_downsample + 1:
             pass
         else:

@@ -26,6 +26,7 @@ from tensorflow.python.keras import backend
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from .layers import TransformerEncoder2D
+from .layers import get_norm_layer
 from .transformer_layers import AddPositionEmbs
 from .cbam_attention_module import attach_attention_module
 

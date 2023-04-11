@@ -30,6 +30,7 @@ from tensorflow.keras.layers import Concatenate
 from tensorflow.keras.layers import Add
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import BatchNormalization
+from tensorflow_addons.layers import InstanceNormalization
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import ZeroPadding2D
@@ -528,11 +529,11 @@ def Deeplabv3Classification(input_tensor=None, input_shape=(512, 512, 3), classe
 
         x = Conv2D(32, (3, 3), strides=(2, 2),
                    name='entry_flow_conv1_1', use_bias=False, padding='same')(img_input)
-        x = BatchNormalization(name='entry_flow_conv1_1_BN')(x)
+        x = InstanceNormalization(name='entry_flow_conv1_1_BN')(x)
         x = Activation(tf.nn.relu)(x)
 
         x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
-        x = BatchNormalization(name='entry_flow_conv1_2_BN')(x)
+        x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
         x = Activation(tf.nn.relu)(x)
 
         x = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
@@ -564,7 +565,7 @@ def Deeplabv3Classification(input_tensor=None, input_shape=(512, 512, 3), classe
                    kernel_size=3,
                    strides=(2, 2), padding='same', use_bias=False,
                    name='Conv' if input_shape[2] == 3 else 'Conv_')(img_input)
-        x = BatchNormalization(
+        x = InstanceNormalization(
             epsilon=1e-3, momentum=0.999, name='Conv_BN')(x)
         x = Activation(tf.nn.relu6, name='Conv_Relu6')(x)
 
@@ -618,7 +619,7 @@ def Deeplabv3Classification(input_tensor=None, input_shape=(512, 512, 3), classe
     b4 = Reshape((1, 1, b4_shape[1]))(b4)
     b4 = Conv2D(256, (1, 1), padding='same',
                 use_bias=False, name='image_pooling')(b4)
-    b4 = BatchNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
+    b4 = InstanceNormalization(name='image_pooling_BN', epsilon=1e-5)(b4)
     b4 = Activation(tf.nn.relu)(b4)
     # upsample. have to use compat because of the option align_corners
     size_before = tf.keras.backend.int_shape(x)
@@ -627,7 +628,7 @@ def Deeplabv3Classification(input_tensor=None, input_shape=(512, 512, 3), classe
     )(b4)
     # simple 1x1
     b0 = Conv2D(256, (1, 1), padding='same', use_bias=False, name='aspp0')(x)
-    b0 = BatchNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
+    b0 = InstanceNormalization(name='aspp0_BN', epsilon=1e-5)(b0)
     b0 = Activation(tf.nn.relu, name='aspp0_activation')(b0)
 
     # there are only 2 branches in mobilenetV2. not sure why
@@ -649,7 +650,7 @@ def Deeplabv3Classification(input_tensor=None, input_shape=(512, 512, 3), classe
 
     x = Conv2D(256, (1, 1), padding='same',
                use_bias=False, name='concat_projection')(x)
-    x = BatchNormalization(name='concat_projection_BN', epsilon=1e-5)(x)
+    x = InstanceNormalization(name='concat_projection_BN', epsilon=1e-5)(x)
     x = Activation(tf.nn.relu)(x)
     x = Dropout(0.1)(x)
     x = layers.GlobalAveragePooling2D()(x)

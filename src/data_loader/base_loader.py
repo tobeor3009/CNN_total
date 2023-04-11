@@ -29,9 +29,6 @@ noise_transform = A.OneOf([
     A.CLAHE(always_apply=False, p=1,
             clip_limit=(1, 15), tile_grid_size=(8, 8)),
     A.GaussNoise(var_limit=(0.01, 5), p=1),
-    A.Downscale(always_apply=False, p=1,
-                scale_min=0.699999988079071, scale_max=0.9900000095367432,
-                interpolation=2),
     A.Equalize(always_apply=False, p=1,
                mode='cv', by_channels=False)
 ], p=1)
