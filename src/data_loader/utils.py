@@ -26,17 +26,17 @@ def imread(img_path, channel=None, policy=None):
         img_byte_array = bytearray(img_byte_stream.read())
         img_numpy_array = np.asarray(img_byte_array, dtype=np.uint8)
         if channel == "rgb":
-            img_numpy_array = cv2.imdecode(
-                img_numpy_array, cv2.IMREAD_UNCHANGED)
-            img_numpy_array = cv2.cvtColor(
-                img_numpy_array, cv2.COLOR_BGR2RGB)
+            img_numpy_array = cv2.imdecode(img_numpy_array, 
+                                           cv2.IMREAD_UNCHANGED)
+            img_numpy_array = cv2.cvtColor(img_numpy_array, 
+                                           cv2.COLOR_BGR2RGB)
         elif channel == "grayscale":
-            img_numpy_array = cv2.imdecode(
-                img_numpy_array, cv2.IMREAD_GRAYSCALE)
+            img_numpy_array = cv2.imdecode(img_numpy_array, 
+                                           cv2.IMREAD_GRAYSCALE)
             img_numpy_array = np.expand_dims(img_numpy_array, axis=-1)
         else:
-            img_numpy_array = cv2.imdecode(
-                img_numpy_array, cv2.IMREAD_UNCHANGED)
+            img_numpy_array = cv2.imdecode(img_numpy_array, 
+                                           cv2.IMREAD_UNCHANGED)
 
     return img_numpy_array
 
