@@ -10,7 +10,7 @@ xyz_from_rgb = np.array([[0.412453, 0.357580, 0.180423],
 xyz_ref_white = np.array((0.950456, 1., 1.088754))
 
 
-def RGB_to_LAB(image_array, use_gpu=False):
+def RGB_to_LAB(image_array, use_gpu=False, uint8=False):
     global np, cp
     if use_gpu:
         compat_cp = cp
@@ -48,7 +48,11 @@ def RGB_to_LAB(image_array, use_gpu=False):
     a = 500 * (x_converted - y_converted) + 128
     b = 200 * (y_converted - z_converted) + 128
 
-    return compat_cp.round(compat_cp.stack([L, a, b], axis=-1)).astype("uint8")
+    lab_space = compat_cp.stack([L, a, b], axis=-1)
+    lab_space = compat_cp.round(lab_space)
+    if uint8:
+        lab_space = lab_space.astype("uint8")
+    return lab_space
 
 
 def get_tissue_mask(I, luminosity_threshold=0.7, use_gpu=False):
