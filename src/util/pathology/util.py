@@ -16,7 +16,7 @@ def RGB_to_LAB(image_array, use_gpu=False):
         compat_cp = cp
     else:
         compat_cp = np
-    arr = image_array[:, :, ::-1]
+    arr = image_array[..., ::-1]
     arr = arr / 255
     mask = arr > 0.04045
     arr[mask] = compat_cp.power((arr[mask] + 0.055) / 1.055, 2.4)
@@ -34,8 +34,9 @@ def RGB_to_LAB(image_array, use_gpu=False):
     arr_converted[mask] = compat_cp.cbrt(arr[mask])
     arr_converted[~mask] = 7.787 * arr[~mask] + (16 / 116)
 
-    x_converted, y_converted, z_converted = arr_converted[...,
-                                                          0], arr_converted[..., 1], arr_converted[..., 2]
+    x_converted = arr_converted[..., 0]
+    y_converted = arr_converted[..., 1]
+    z_converted = arr_converted[..., 2]
 
     L = compat_cp.zeros_like(y)
 
@@ -50,9 +51,10 @@ def RGB_to_LAB(image_array, use_gpu=False):
     return compat_cp.round(compat_cp.stack([L, a, b], axis=-1)).astype("uint8")
 
 
-def get_tissue_mask(I, luminosity_threshold=0.8, use_gpu=False):
-    #     I_LAB = RGB_to_LAB(I, use_gpu=use_gpu)
-    L = cv2.cvtColor(I, cv2.COLOR_BGR2LAB)[:, :, 0].astype("float16")
+def get_tissue_mask(I, luminosity_threshold=0.7, use_gpu=False):
+    I_LAB = RGB_to_LAB(I, use_gpu=use_gpu)
+    L = I_LAB[..., 0]
+    # L = cv2.cvtColor(I, cv2.COLOR_BGR2LAB)[:, :, 0].astype("float16")
     L = L / 255.0  # Convert to range [0,1].
     mask = L < luminosity_threshold
 
@@ -78,7 +80,10 @@ def RGB_to_OD(I, use_gpu=False):
     :return: Optical denisty RGB image.
     """
     I[I == 0] = 1
-    return -1 * compat_cp.log(I / 255)
+    OD = -1 * compat_cp.log(I / 255)
+    if OD.ndim == 1:
+        OD = OD[..., None]
+    return OD
 
 
 def OD_to_RGB(OD, use_gpu=False):
@@ -187,7 +192,7 @@ def coordinate_descent_lasso(H, W, Y, lamda=0.1, num_iters=100, use_gpu=False):
 def get_basis_concentraion_matrix(img_array, tissue_mask,
                                   input_channel_num, converted_channel_num,
                                   stop_ratio=0.9999, max_iter=200,
-                                  h_lambda=0.1, use_gpu=False):
+                                  h_lambda=0.1, use_gpu=False, verbose=0):
     if use_gpu:
         cp.cuda.runtime.setDevice(0)
         compat_cp = cp
@@ -225,33 +230,32 @@ def get_basis_concentraion_matrix(img_array, tissue_mask,
             h = h * (w.T @ img_array) / (w.T @ w @ h + 1e-16)
 
         current_error = compat_cp.linalg.norm(img_array - w @ h)
-        print(f"iter {total_index}: {current_error}")
+        if verbose:
+            print(f"iter {total_index}: {current_error}")
 
         if stop_ratio is not None:
             if current_error / previous_error > stop_ratio:
                 return previous_w, previous_h
-                break
         previous_w, previous_h = w, h
         previous_error = current_error
 
     # order H and E.
     # H on first row.
-#     if w[0, 0] < w[0, 1]:
-#         w = w[:, [1, 0]]
+    if w[0, 0] < w[0, 1]:
+        w = w[:, [1, 0]]
 
     return w, h
 
 
-def get_concentraion_matrix(img_array, w,
+def get_concentraion_matrix(img_array, w, input_channel_num,
                             stop_ratio=0.9999, max_iter=200,
-                            h_lambda=0.1, use_gpu=False):
+                            use_gpu=False, verbose=0):
     if use_gpu:
-        cp.cuda.runtime.setDevice(0)
         compat_cp = cp
     else:
         compat_cp = np
 
-    img_array = RGB_to_OD(img_array).reshape(-1, 3)
+    img_array = RGB_to_OD(img_array).reshape(-1, input_channel_num)
     img_array = compat_cp.array(img_array, dtype="float32")
     img_array = compat_cp.rollaxis(img_array, 1, 0)
     img_shape = img_array.shape
@@ -271,13 +275,38 @@ def get_concentraion_matrix(img_array, w,
         h = h * (w.T @ img_array) / (w.T @ w @ h + 1e-16)
 
         current_error = compat_cp.linalg.norm(img_array - w @ h)
-        print(f"stage2_iter {total_index}: {current_error}")
+        if verbose:
+            print(f"stage2_iter {total_index}: {current_error}")
 
         if stop_ratio is not None:
             if current_error / previos_error > stop_ratio:
                 break
         previos_error = current_error
     return h
+
+
+def get_seperated_image(image_array, input_channel_num, converted_channel_num, use_gpu, verbose=0):
+
+    tissue_mask = get_tissue_mask(image_array)
+    source_w, tissue_h = get_basis_concentraion_matrix(image_array, tissue_mask,
+                                                       input_channel_num, converted_channel_num,
+                                                       stop_ratio=0.9999, max_iter=200,
+                                                       h_lambda=1e-1, use_gpu=use_gpu,
+                                                       verbose=verbose)
+    image_h = get_concentraion_matrix(image_array, source_w, input_channel_num,
+                                      stop_ratio=0.9999, max_iter=200,
+                                      use_gpu=use_gpu, verbose=verbose)
+
+    convert_image_list = []
+    for idx in range(converted_channel_num):
+        convert_image = source_w[:, idx:idx + 1] @ image_h[idx:idx + 1]
+        convert_image = convert_image.transpose(
+            1, 0).reshape(*image_array.shape)
+        convert_image = OD_to_RGB(convert_image, use_gpu)
+        if use_gpu:
+            convert_image = convert_image.get()
+        convert_image_list.append(convert_image)
+    return convert_image_list
 
 
 def get_random_index_permutation_range(image_shape, patch_stride):

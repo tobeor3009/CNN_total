@@ -446,12 +446,8 @@ def get_label_inject_classification_model_transformer(base_model, inject_num_cla
 
     x = tf.nn.depth_to_space(x, block_size=2)
     _, H, W, C = x.shape
-    inject_label_channel = C // 8
+    
     x = layers.Reshape((H * W, C))(x)
-    inject_label = layers.Dense(inject_label_channel)(inject_label_input)
-    inject_label = layers.Reshape((1, inject_label_channel))(inject_label)
-    inject_label = tf.tile(inject_label, (1, H * W, 1))
-    x = layers.Concatenate(axis=-1)([x, inject_label])
     x = layers.Dense(feature_size)(x)
     x = get_act_layer("gelu")(x)
     x = AddPositionEmbs(input_shape=(H * W, feature_size))(x)
@@ -466,6 +462,9 @@ def get_label_inject_classification_model_transformer(base_model, inject_num_cla
     attn_sequence = Sequential(attn_layer_list)
     x = attn_sequence(x)
     x = keras_backend.mean(x, axis=1)
+    inject_label_channel = feature_size // 8
+    inject_label = layers.Dense(inject_label_channel)(inject_label_input)
+    x = layers.Concatenate(axis=-1)([x, inject_label])
     # let's add a fully-connected layer
     # (Batch_Size,1)
     x = layers.Dense(feature_size, activation='relu')(x)

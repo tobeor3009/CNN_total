@@ -212,6 +212,7 @@ class SegDataloader(BaseIterDataLoader):
         if self.shuffle:
             self.data_getter.shuffle()
 
+
 class SegDataSequence(Sequence):
 
     def __init__(self,
@@ -227,6 +228,7 @@ class SegDataSequence(Sequence):
                  interpolation="bilinear",
                  shuffle=True,
                  dtype="float32"):
+        super().__init__()
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
                                          on_memory=on_memory,

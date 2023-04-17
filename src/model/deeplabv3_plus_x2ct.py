@@ -225,21 +225,22 @@ def SepConv_BN_3D_2D(x, filters, prefix, stride=1, kernel_size=3, rate=1, depth_
         pad_end = pad_total - pad_beg
         x = ZeroPadding3D((pad_beg, pad_end))(x)
         depth_padding = 'valid'
-    _, H, W, C = tf.keras.backend.int_shape(x)
-    x = layers.Reshape((1, H, W, C))(x)
-    x = tf.tile(x, (1, H, 1, 1, 1))
+    _, Z, H, W, C = tf.keras.backend.int_shape(x)
+    x = layers.Permute((2, 3, 4, 1))(x)
+    x = layers.Reshape((H, W, C * Z))(x)
+    x = conv2d_bn(x, filters, (3, 3), (1, 1),
+                  activation=BASE_ACT, use_bias=False)
     if not depth_activation:
         x = get_act_layer(BASE_ACT)(x)
-    x = Conv3D(filters, (kernel_size, kernel_size, kernel_size),
-               strides=(stride, stride, stride), dilation_rate=(
-                   rate, rate, rate),
+    x = Conv2D(filters, (kernel_size, kernel_size),
+               strides=(stride, stride), dilation_rate=(rate, rate),
                padding=depth_padding, use_bias=False, groups=filters,
                name=prefix + '_depthwise')(x)
     x = InstanceNormalization(name=prefix + '_depthwise_BN',
                               epsilon=epsilon)(x)
     if depth_activation:
         x = get_act_layer(BASE_ACT)(x)
-    x = Conv3D(filters, (1, 1, 1), padding='same',
+    x = Conv2D(filters, (1, 1), padding='same',
                use_bias=False, name=prefix + '_pointwise')(x)
     x = InstanceNormalization(name=prefix + '_pointwise_BN',
                               epsilon=epsilon)(x)
@@ -394,7 +395,7 @@ def _xception_block_3d(inputs, depth_list, prefix, skip_connection_type, stride,
 
 
 def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
-                   base_act="gelu", last_act=None):
+                   block_size=16, base_act="gelu", last_act=None):
     if input_tensor is None:
         img_input = Input(shape=input_shape)
     else:
@@ -405,39 +406,40 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     exit_block_rates = (1, 2)
     atrous_rates = (1, 2, 4)
     # img_input.shape = [B, 512, 512, 3]
-    x = conv2d_bn(img_input, 32, (3, 3), (2, 2),
+    x = conv2d_bn(img_input, block_size * 2, (3, 3), (2, 2),
                   padding="same", activation=base_act,
                   use_bias=False, name='entry_flow_conv1_1')
     # x.shape = [B, 256, 256, 32]
-    x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
+    x = _conv2d_same(x, block_size * 4, 'entry_flow_conv1_2',
+                     kernel_size=3, stride=1)
     x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
     x = get_act_layer(base_act)(x)
     # x.shape = [B, 256, 256, 64]
-    x = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
+    x = _xception_block(x, [block_size * 8 for _ in range(3)], 'entry_flow_block1',
                         skip_connection_type='conv', stride=2,
                         depth_activation=False)
     # x.shape = [B, 128, 128, 128]
-    x, skip1 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
+    x, skip1 = _xception_block(x, [block_size * 16 for _ in range(3)], 'entry_flow_block2',
                                skip_connection_type='conv', stride=2,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 64, 64, 256]
     # skip1.shape = [B, 128, 128, 256]
-    x = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
+    x = _xception_block(x, [block_size * 45 for _ in range(3)], 'entry_flow_block3',
                         skip_connection_type='conv', stride=entry_block3_stride,
                         depth_activation=False)
     # x.shape = [B, 32, 32, 728]
     for i in range(16):
-        x = _xception_block(x, [728, 728, 728], 'middle_flow_unit_{}'.format(i + 1),
+        x = _xception_block(x, [block_size * 45 for _ in range(3)], 'middle_flow_unit_{}'.format(i + 1),
                             skip_connection_type='sum', stride=1, rate=middle_block_rate,
                             depth_activation=False)
     # x.shape = [B, 32, 32, 728]
-    x = _xception_block(x, [728, 1024, 1024], 'exit_flow_block1',
-                        skip_connection_type='conv', stride=1, rate=exit_block_rates[0],
-                        depth_activation=False)
+    x = _xception_block(x, [block_size * 45, block_size * 64, block_size * 64],
+                        'exit_flow_block1', skip_connection_type='conv',
+                        stride=1, rate=exit_block_rates[0], depth_activation=False)
     # x.shape = [B, 32, 32, 1024]
-    x = _xception_block(x, [1536, 1536, 2048], 'exit_flow_block2',
-                        skip_connection_type='none', stride=1, rate=exit_block_rates[1],
-                        depth_activation=True)
+    x = _xception_block(x, [block_size * 96, block_size * 96, block_size * 128],
+                        'exit_flow_block2', skip_connection_type='none',
+                        stride=1, rate=exit_block_rates[1], depth_activation=True)
     # x.shape = [B, 32, 32, 2048]
     # end of feature extractor
 
@@ -446,14 +448,14 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     # Image Feature branch
     b4 = GlobalAveragePooling2D()(x)
     # b4.shape = [B, 2048]
-    x = SepConv_BN_2D_3D(x, 1024, 'block_2d_3d',
+    x = SepConv_BN_2D_3D(x, block_size * 64, 'block_2d_3d',
                          rate=1, depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 32, 32, 32, 1024]
     b4_shape = tf.keras.backend.int_shape(b4)
     # from (b_size, channels)->(b_size, 1, 1, 1, channels)
     b4 = Reshape((1, 1, 1, b4_shape[1]))(b4)
     # b4.shape = [B, 1, 1, 1, 2048]
-    b4 = conv3d_bn(b4, 256, (1, 1, 1), (1, 1, 1),
+    b4 = conv3d_bn(b4, block_size * 16, (1, 1, 1), (1, 1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='image_pooling')
     # b4.shape = [B, 1, 1, 1, 256]
@@ -462,26 +464,26 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     b4 = tf.tile(b4, (1, *size_before[1:4], 1))
     # b4.shape = [B, 32, 32, 32, 256]
     # simple 1x1
-    b0 = conv3d_bn(x, 256, (1, 1, 1), (1, 1, 1),
+    b0 = conv3d_bn(x, block_size * 16, (1, 1, 1), (1, 1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='aspp0')
     # b0.shape = [B, 32, 32, 32, 256]
     # rate = 6 (12)
-    b1 = SepConv_BN_3D(x, 256, 'aspp1',
+    b1 = SepConv_BN_3D(x, block_size * 16, 'aspp1',
                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
     # b1.shape = [B, 32, 32, 32, 256]
     # rate = 12 (24)
-    b2 = SepConv_BN_3D(x, 256, 'aspp2',
+    b2 = SepConv_BN_3D(x, block_size * 16, 'aspp2',
                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
     # b2.shape = [B, 32, 32, 32, 256]
     # rate = 18 (36)
-    b3 = SepConv_BN_3D(x, 256, 'aspp3',
+    b3 = SepConv_BN_3D(x, block_size * 16, 'aspp3',
                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
     # b3.shape = [B, 32, 32, 32, 256]
     # concatenate ASPP branches & project
     x = Concatenate()([b4, b0, b1, b2, b3])
     # x.shape = [B, 32, 32, 32, 1280]
-    x = conv3d_bn(x, 256, (1, 1, 1), (1, 1, 1),
+    x = conv3d_bn(x, block_size * 16, (1, 1, 1), (1, 1, 1),
                   padding="same", activation=base_act,
                   use_bias=False, name='concat_projection')
     # x.shape = [B, 32, 32, 32, 256]
@@ -493,19 +495,19 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     # skip1.shape = [B, 128, 128, 256]
     x = UpSampling3D(size=(4, 4, 4))(x)
     # x.shape = [B, 128, 128, 128, 256]
-    dec_skip1 = SepConv_BN_2D_3D(skip1, 256, 'block_skip_2d_3d',
+    dec_skip1 = SepConv_BN_2D_3D(skip1, block_size * 16, 'block_skip_2d_3d',
                                  rate=1, depth_activation=True, epsilon=1e-5)
     # dec_skip1.shape = [B, 128, 128, 128, 256]
-    dec_skip1 = conv3d_bn(dec_skip1, 48, (1, 1, 1), (1, 1, 1),
+    dec_skip1 = conv3d_bn(dec_skip1, block_size * 3, (1, 1, 1), (1, 1, 1),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection0')
     # dec_skip1.shape = [B, 128, 128, 128, 48]
     x = Concatenate()([x, dec_skip1])
     # x.shape = [B, 128, 128, 128, 304]
-    x = SepConv_BN_3D(x, 256, 'decoder_conv0',
+    x = SepConv_BN_3D(x, block_size * 16, 'decoder_conv0',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 128, 128, 128, 256]
-    x = SepConv_BN_3D(x, 256, 'decoder_conv1',
+    x = SepConv_BN_3D(x, block_size * 16, 'decoder_conv1',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 128, 128, 128, 256]
 
@@ -513,10 +515,10 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     # x4 (x2) block
     x = UpSampling3D(size=(2, 2, 2))(x)
     # x.shape = [B, 256, 256, 256, 256]
-    x = SepConv_BN_3D(x, 128, 'decoder_conv2',
+    x = SepConv_BN_3D(x, block_size * 8, 'decoder_conv2',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 256, 256, 256, 128]
-    x = SepConv_BN_3D(x, 128, 'decoder_conv3',
+    x = SepConv_BN_3D(x, block_size * 8, 'decoder_conv3',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 256, 256, 256, 128]
 
@@ -524,10 +526,10 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
     # x4 (x2) block
     x = UpSampling3D(size=(2, 2, 2))(x)
     # x.shape = [B, 512, 512, 512, 128]
-    x = SepConv_BN_3D(x, 64, 'decoder_conv4',
+    x = SepConv_BN_3D(x, block_size * 4, 'decoder_conv4',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 512, 512, 512, 64]
-    x = SepConv_BN_3D(x, 64, 'decoder_conv5',
+    x = SepConv_BN_3D(x, block_size * 4, 'decoder_conv5',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 512, 512, 512, 64]
 
@@ -548,7 +550,7 @@ def Deeplabv3_X2CT(input_tensor=None, input_shape=(256, 256, 4),
 
 
 def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_channel_num=4,
-                   base_act="gelu", last_act=None):
+                   block_size=16, base_act="gelu", last_act=None):
     if input_tensor is None:
         img_input = Input(shape=input_shape)
     else:
@@ -559,39 +561,40 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     exit_block_rates = (1, 2)
     atrous_rates = (1, 2, 4)
     # img_input.shape = [B, 256, 256, 256, 1]
-    x = conv3d_bn(img_input, 32, (3, 3, 3), (2, 2, 2),
+    x = conv3d_bn(img_input, block_size * 2, (3, 3, 3), (2, 2, 2),
                   padding="same", activation=base_act,
                   use_bias=False, name='entry_flow_conv1_1')
     # x.shape = [B, 128, 128, 128, 32]
-    x = _conv3d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
+    x = _conv3d_same(x, block_size * 4, 'entry_flow_conv1_2',
+                     kernel_size=3, stride=1)
     x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
     x = get_act_layer(base_act)(x)
     # x.shape = [B, 128, 128, 128, 64]
-    x = _xception_block_3d(x, [64, 64, 64], 'entry_flow_block1',
+    x = _xception_block_3d(x, [block_size * 4 for _ in range(3)], 'entry_flow_block1',
                            skip_connection_type='conv', stride=2,
                            depth_activation=False)
     # x.shape = [B, 64, 64, 64, 64]
-    x, skip1 = _xception_block_3d(x, [128, 128, 128], 'entry_flow_block2',
+    x, skip1 = _xception_block_3d(x, [block_size * 8 for _ in range(3)], 'entry_flow_block2',
                                   skip_connection_type='conv', stride=2,
                                   depth_activation=False, return_skip=True)
     # x.shape = [B, 32, 32, 32, 128]
     # skip1.shape = [B, 64, 64, 64, 128]
-    x = _xception_block_3d(x, [256, 256, 256], 'entry_flow_block3',
+    x = _xception_block_3d(x, [block_size * 16 for _ in range(3)], 'entry_flow_block3',
                            skip_connection_type='conv', stride=entry_block3_stride,
                            depth_activation=False)
     # x.shape = [B, 16, 16, 16, 256]
     for i in range(8):
-        x = _xception_block_3d(x, [256, 256, 256], 'middle_flow_unit_{}'.format(i + 1),
+        x = _xception_block_3d(x, [block_size * 16 for _ in range(3)], 'middle_flow_unit_{}'.format(i + 1),
                                skip_connection_type='sum', stride=1, rate=middle_block_rate,
                                depth_activation=False)
     # x.shape = [B, 16, 16, 16, 256]
-    x = _xception_block_3d(x, [256, 512, 512], 'exit_flow_block1',
-                           skip_connection_type='conv', stride=1, rate=exit_block_rates[0],
-                           depth_activation=False)
+    x = _xception_block_3d(x, [block_size * 16, block_size * 32, block_size * 32],
+                           'exit_flow_block1', skip_connection_type='conv',
+                           stride=1, rate=exit_block_rates[0], depth_activation=False)
     # x.shape = [B, 16, 16, 16, 1024]
-    x = _xception_block_3d(x, [768, 768, 1024], 'exit_flow_block2',
-                           skip_connection_type='none', stride=1, rate=exit_block_rates[1],
-                           depth_activation=True)
+    x = _xception_block_3d(x, [block_size * 48, block_size * 48, block_size * 64],
+                           'exit_flow_block2', skip_connection_type='none',
+                           stride=1, rate=exit_block_rates[1], depth_activation=True)
     # x.shape = [B, 16, 16, 16, 1024]
     # end of feature extractor
 
@@ -599,7 +602,7 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
 
     # Image Feature branch
     b4 = GlobalAveragePooling3D()(x)
-    x = SepConv_BN_3D_2D(x, 1024, 'block_3d_2d',
+    x = SepConv_BN_3D_2D(x, block_size * 64, 'block_3d_2d',
                          rate=1, depth_activation=True, epsilon=1e-5)
     # b4.shape = [B, 2048]
     # x.shape = [B, 16, 16, 1024]
@@ -607,7 +610,7 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     # from (b_size, channels)->(b_size, 1, 1, 1, channels)
     b4 = Reshape((1, 1, b4_shape[1]))(b4)
     # b4.shape = [B, 1, 1, 2048]
-    b4 = conv2d_bn(b4, 256, (1, 1), (1, 1),
+    b4 = conv2d_bn(b4, block_size * 16, (1, 1), (1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='image_pooling')
     # b4.shape = [B, 1, 1, 256]
@@ -616,26 +619,26 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     b4 = tf.tile(b4, (1, *size_before[1:3], 1))
     # b4.shape = [B, 16, 16, 256]
     # simple 1x1
-    b0 = conv2d_bn(x, 256, (1, 1), (1, 1),
+    b0 = conv2d_bn(x, block_size * 16, (1, 1), (1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='aspp0')
     # b0.shape = [B, 16, 16, 256]
     # rate = 6 (12)
-    b1 = SepConv_BN(x, 256, 'aspp1',
+    b1 = SepConv_BN(x, block_size * 16, 'aspp1',
                     rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
     # b1.shape = [B, 16, 16, 256]
     # rate = 12 (24)
-    b2 = SepConv_BN(x, 256, 'aspp2',
+    b2 = SepConv_BN(x, block_size * 16, 'aspp2',
                     rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
     # b2.shape = [B, 16, 16, 256]
     # rate = 18 (36)
-    b3 = SepConv_BN(x, 256, 'aspp3',
+    b3 = SepConv_BN(x, block_size * 16, 'aspp3',
                     rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
     # b3.shape = [B, 16, 16, 256]
     # concatenate ASPP branches & project
     x = Concatenate()([b4, b0, b1, b2, b3])
     # x.shape = [B, 16, 16, 1280]
-    x = conv2d_bn(x, 256, (1, 1), (1, 1),
+    x = conv2d_bn(x, block_size * 16, (1, 1), (1, 1),
                   padding="same", activation=base_act,
                   use_bias=False, name='concat_projection')
     # x.shape = [B, 16, 16, 256]
@@ -647,19 +650,19 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     # skip1.shape = [B, 64, 64, 256]
     x = UpSampling2D(size=(4, 4))(x)
     # x.shape = [B, 64, 64, 256]
-    dec_skip1 = SepConv_BN_3D_2D(skip1, 256, 'block_skip_2d_3d',
+    dec_skip1 = SepConv_BN_3D_2D(skip1, block_size * 16, 'block_skip_2d_3d',
                                  rate=1, depth_activation=True, epsilon=1e-5)
     # dec_skip1.shape = [B, 64, 64, 256]
-    dec_skip1 = conv3d_bn(dec_skip1, 48, (1, 1, 1), (1, 1, 1),
+    dec_skip1 = conv2d_bn(dec_skip1, block_size * 3, (1, 1), (1, 1),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection0')
     # dec_skip1.shape = [B, 64, 64, 48]
     x = Concatenate()([x, dec_skip1])
     # x.shape = [B, 64, 64, 304]
-    x = SepConv_BN(x, 256, 'decoder_conv0',
+    x = SepConv_BN(x, block_size * 16, 'decoder_conv0',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 256]
-    x = SepConv_BN(x, 256, 'decoder_conv1',
+    x = SepConv_BN(x, block_size * 16, 'decoder_conv1',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 256]
 
@@ -667,10 +670,10 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     # x4 (x2) block
     x = UpSampling2D(size=(2, 2))(x)
     # x.shape = [B, 64, 64, 256]
-    x = SepConv_BN(x, 128, 'decoder_conv2',
+    x = SepConv_BN(x, block_size * 8, 'decoder_conv2',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 128]
-    x = SepConv_BN(x, 128, 'decoder_conv3',
+    x = SepConv_BN(x, block_size * 8, 'decoder_conv3',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 128]
 
@@ -678,10 +681,10 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     # x4 (x2) block
     x = UpSampling3D(size=(2, 2, 2))(x)
     # x.shape = [B, 64, 64, 128]
-    x = SepConv_BN(x, 64, 'decoder_conv4',
+    x = SepConv_BN(x, block_size * 4, 'decoder_conv4',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 64]
-    x = SepConv_BN(x, 64, 'decoder_conv5',
+    x = SepConv_BN(x, block_size * 4, 'decoder_conv5',
                    depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 64, 64, 64]
 
@@ -702,8 +705,8 @@ def Deeplabv3_CT2X(input_tensor=None, input_shape=(256, 256, 256, 1), last_chann
     return model
 
 
-def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
-                   base_act="gelu", last_act=None):
+def Deeplabv3_DISC_3D(input_tensor=None, input_shape=(256, 256, 256, 1),
+                      block_size=16, base_act="gelu", last_act=None):
     if input_tensor is None:
         img_input = Input(shape=input_shape)
     else:
@@ -714,39 +717,40 @@ def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
     exit_block_rates = (1, 2)
     atrous_rates = (1, 2, 4)
     # img_input.shape = [B, 256, 256, 256, 1]
-    x = conv3d_bn(img_input, 32, (3, 3, 3), (2, 2, 2),
+    x = conv3d_bn(img_input, block_size * 2, (3, 3, 3), (2, 2, 2),
                   padding="same", activation=base_act,
                   use_bias=False, name='entry_flow_conv1_1')
     # x.shape = [B, 128, 128, 128, 32]
-    x = _conv3d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
+    x = _conv3d_same(x, block_size * 4, 'entry_flow_conv1_2',
+                     kernel_size=3, stride=1)
     x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
     x = get_act_layer(base_act)(x)
     # x.shape = [B, 128, 128, 128, 64]
-    x = _xception_block_3d(x, [64, 64, 64], 'entry_flow_block1',
+    x = _xception_block_3d(x, [block_size * 4 for _ in range(3)], 'entry_flow_block1',
                            skip_connection_type='conv', stride=2,
                            depth_activation=False)
     # x.shape = [B, 64, 64, 64, 64]
-    x, skip1 = _xception_block_3d(x, [128, 128, 128], 'entry_flow_block2',
+    x, skip1 = _xception_block_3d(x, [block_size * 8 for _ in range(3)], 'entry_flow_block2',
                                   skip_connection_type='conv', stride=2,
                                   depth_activation=False, return_skip=True)
     # x.shape = [B, 32, 32, 32, 128]
     # skip1.shape = [B, 64, 64, 64, 128]
-    x = _xception_block_3d(x, [256, 256, 256], 'entry_flow_block3',
+    x = _xception_block_3d(x, [block_size * 16 for _ in range(3)], 'entry_flow_block3',
                            skip_connection_type='conv', stride=entry_block3_stride,
                            depth_activation=False)
     # x.shape = [B, 16, 16, 16, 256]
     for i in range(8):
-        x = _xception_block_3d(x, [256, 256, 256], 'middle_flow_unit_{}'.format(i + 1),
+        x = _xception_block_3d(x, [block_size * 16 for _ in range(3)], f'middle_flow_unit_{i + 1}',
                                skip_connection_type='sum', stride=1, rate=middle_block_rate,
                                depth_activation=False)
     # x.shape = [B, 16, 16, 16, 256]
-    x = _xception_block_3d(x, [256, 512, 512], 'exit_flow_block1',
-                           skip_connection_type='conv', stride=1, rate=exit_block_rates[0],
-                           depth_activation=False)
+    x = _xception_block_3d(x, [block_size * 16, block_size * 32, block_size * 32],
+                           'exit_flow_block1', skip_connection_type='conv',
+                           stride=1, rate=exit_block_rates[0], depth_activation=False)
     # x.shape = [B, 16, 16, 16, 1024]
-    x = _xception_block_3d(x, [768, 768, 1024], 'exit_flow_block2',
-                           skip_connection_type='none', stride=1, rate=exit_block_rates[1],
-                           depth_activation=True)
+    x = _xception_block_3d(x, [block_size * 48, block_size * 48, block_size * 64],
+                           'exit_flow_block2', skip_connection_type='none',
+                           stride=1, rate=exit_block_rates[1], depth_activation=True)
     # x.shape = [B, 16, 16, 16, 1024]
     # end of feature extractor
 
@@ -760,7 +764,7 @@ def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
     # from (b_size, channels)->(b_size, 1, 1, 1, channels)
     b4 = Reshape((1, 1, 1, b4_shape[1]))(b4)
     # b4.shape = [B, 1, 1, 1, 2048]
-    b4 = conv3d_bn(b4, 256, (1, 1, 1), (1, 1, 1),
+    b4 = conv3d_bn(b4, block_size * 16, (1, 1, 1), (1, 1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='image_pooling')
     # b4.shape = [B, 1, 1, 1, 256]
@@ -769,26 +773,26 @@ def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
     b4 = tf.tile(b4, (1, *size_before[1:4], 1))
     # b4.shape = [B, 16, 16, 16, 256]
     # simple 1x1
-    b0 = conv3d_bn(x, 256, (1, 1, 1), (1, 1, 1),
+    b0 = conv3d_bn(x, block_size * 16, (1, 1, 1), (1, 1, 1),
                    padding="same", activation=base_act,
                    use_bias=False, name='aspp0')
     # b0.shape = [B, 16, 16, 16, 256]
     # rate = 6 (12)
-    b1 = SepConv_BN_3D(x, 256, 'aspp1',
+    b1 = SepConv_BN_3D(x, block_size * 16, 'aspp1',
                        rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
     # b1.shape = [B, 16, 16, 16, 256]
     # rate = 12 (24)
-    b2 = SepConv_BN_3D(x, 256, 'aspp2',
+    b2 = SepConv_BN_3D(x, block_size * 16, 'aspp2',
                        rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
     # b2.shape = [B, 16, 16, 16, 256]
     # rate = 18 (36)
-    b3 = SepConv_BN_3D(x, 256, 'aspp3',
+    b3 = SepConv_BN_3D(x, block_size * 16, 'aspp3',
                        rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
     # b3.shape = [B, 16, 16, 16, 256]
     # concatenate ASPP branches & project
     x = Concatenate()([b4, b0, b1, b2, b3])
     # x.shape = [B, 16, 16, 16, 1280]
-    x = conv3d_bn(x, 256, (1, 1, 1), (1, 1, 1),
+    x = conv3d_bn(x, block_size * 16, (1, 1, 1), (1, 1, 1),
                   padding="same", activation=base_act,
                   use_bias=False, name='concat_projection')
     # x.shape = [B, 16, 16, 16, 256]
@@ -798,20 +802,20 @@ def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
     # Feature projection 1
     # x4 (x2) block
     # skip1.shape = [B, 64, 64, 256]
-    dec_skip1 = conv3d_bn(skip1, 128, (3, 3, 3), (2, 2, 2),
+    dec_skip1 = conv3d_bn(skip1, block_size * 8, (3, 3, 3), (2, 2, 2),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection0')
     # dec_skip1.shape = [B, 32, 32, 32, 128]
-    dec_skip1 = conv3d_bn(dec_skip1, 48, (3, 3, 3), (2, 2, 2),
+    dec_skip1 = conv3d_bn(dec_skip1, block_size * 3, (3, 3, 3), (2, 2, 2),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection1')
     # dec_skip1.shape = [B, 16, 16, 16, 48]
     x = Concatenate()([x, dec_skip1])
     # x.shape = [B, 16, 16, 16, 304]
-    x = SepConv_BN_3D(x, 256, 'decoder_conv0',
+    x = SepConv_BN_3D(x, block_size * 16, 'decoder_conv0',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 16, 16, 16, 256]
-    x = SepConv_BN_3D(x, 256, 'decoder_conv1',
+    x = SepConv_BN_3D(x, block_size * 16, 'decoder_conv1',
                       depth_activation=True, epsilon=1e-5)
     # x.shape = [B, 16, 16, 16, 256]
 
@@ -827,5 +831,135 @@ def Deeplabv3_DISC(input_tensor=None, input_shape=(256, 256, 256, 1),
         inputs = img_input
 
     x = get_act_layer(last_act)(x)
-    model = Model(inputs, x, name='deeplabv3plus_x2ct')
+    model = Model(inputs, x, name='deeplabv3plus_disc_3d')
+    return model
+
+
+def Deeplabv3_DISC_2D(input_tensor=None, input_shape=(256, 256, 1),
+                      block_size=16, base_act="gelu", last_act=None):
+
+    if input_tensor is None:
+        img_input = Input(shape=input_shape)
+    else:
+        img_input = input_tensor
+
+    entry_block3_stride = 2
+    middle_block_rate = 1
+    exit_block_rates = (1, 2)
+    atrous_rates = (6, 12, 18)
+    # img_input.shape = [B, 512, 512, 3]
+    x = conv2d_bn(img_input, block_size * 2, (3, 3), (2, 2),
+                  padding="same", activation=base_act,
+                  use_bias=False, name='entry_flow_conv1_1')
+    # x.shape = [B, 256, 256, 32]
+    x = _conv2d_same(x, block_size * 4, 'entry_flow_conv1_2',
+                     kernel_size=3, stride=1)
+    x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
+    x = get_act_layer(base_act)(x)
+    # x.shape = [B, 256, 256, 64]
+    x = _xception_block(x, [block_size * 8 for _ in range(3)], 'entry_flow_block1',
+                        skip_connection_type='conv', stride=2,
+                        depth_activation=False)
+    # x.shape = [B, 128, 128, 128]
+    x, skip1 = _xception_block(x, [block_size * 16 for _ in range(3)], 'entry_flow_block2',
+                               skip_connection_type='conv', stride=2,
+                               depth_activation=False, return_skip=True)
+    # x.shape = [B, 64, 64, 256]
+    # skip1.shape = [B, 128, 128, 256]
+    x = _xception_block(x, [block_size * 45 for _ in range(3)], 'entry_flow_block3',
+                        skip_connection_type='conv', stride=entry_block3_stride,
+                        depth_activation=False)
+    # x.shape = [B, 32, 32, 728]
+    for i in range(16):
+        x = _xception_block(x, [block_size * 45 for _ in range(3)], 'middle_flow_unit_{}'.format(i + 1),
+                            skip_connection_type='sum', stride=1, rate=middle_block_rate,
+                            depth_activation=False)
+    # x.shape = [B, 32, 32, 728]
+    x = _xception_block(x, [block_size * 45, block_size * 64, block_size * 64],
+                        'exit_flow_block1', skip_connection_type='conv',
+                        stride=1, rate=exit_block_rates[0], depth_activation=False)
+    # x.shape = [B, 32, 32, 1024]
+    x = _xception_block(x, [block_size * 96, block_size * 96, block_size * 128],
+                        'exit_flow_block2', skip_connection_type='none',
+                        stride=1, rate=exit_block_rates[1], depth_activation=True)
+    # x.shape = [B, 32, 32, 2048]
+    # end of feature extractor
+
+    # branching for Atrous Spatial Pyramid Pooling
+
+    # Image Feature branch
+    b4 = GlobalAveragePooling2D()(x)
+    # b4.shape = [B, 2048]
+    b4_shape = tf.keras.backend.int_shape(b4)
+    # from (b_size, channels)->(b_size, 1, 1, channels)
+    b4 = Reshape((1, 1, b4_shape[1]))(b4)
+    # b4.shape = [B, 1, 1, 2048]
+    b4 = conv2d_bn(b4, block_size * 16, (1, 1), (1, 1),
+                   padding="same", activation=base_act,
+                   use_bias=False, name='image_pooling')
+    # b4.shape = [B, 1, 1, 256]
+    # upsample. have to use compat because of the option align_corners
+    size_before = tf.keras.backend.int_shape(x)
+    b4 = tf.tile(b4, (1, *size_before[1:3], 1))
+    # b4.shape = [B, 32, 32, 256]
+    # simple 1x1
+    b0 = conv2d_bn(x, block_size * 16, (1, 1), (1, 1),
+                   padding="same", activation=base_act,
+                   use_bias=False, name='aspp0')
+    # b0.shape = [B, 32, 32, 256]
+    # rate = 6 (12)
+    b1 = SepConv_BN(x, block_size * 16, 'aspp1',
+                    rate=atrous_rates[0], depth_activation=True, epsilon=1e-5)
+    # b1.shape = [B, 32, 32, 256]
+    # rate = 12 (24)
+    b2 = SepConv_BN(x, block_size * 16, 'aspp2',
+                    rate=atrous_rates[1], depth_activation=True, epsilon=1e-5)
+    # b2.shape = [B, 32, 32, 256]
+    # rate = 18 (36)
+    b3 = SepConv_BN(x, block_size * 16, 'aspp3',
+                    rate=atrous_rates[2], depth_activation=True, epsilon=1e-5)
+    # b3.shape = [B, 32, 32, 256]
+    # concatenate ASPP branches & project
+    x = Concatenate()([b4, b0, b1, b2, b3])
+    # x.shape = [B, 32, 32, 1280]
+    x = conv2d_bn(x, block_size * 16, (1, 1), (1, 1),
+                  padding="same", activation=base_act,
+                  use_bias=False, name='concat_projection')
+    # x.shape = [B, 32, 32, 256]
+    x = Dropout(0.1)(x)
+    # DeepLab v.3+ decoder
+
+    # Feature projection
+    # x4 (x2) block
+    # skip1.shape = [B, 128, 128, 256]
+    skip_size = tf.keras.backend.int_shape(skip1)
+    dec_skip1 = conv2d_bn(skip1, block_size * 8, (3, 3), (2, 2),
+                          padding="same", activation=base_act,
+                          use_bias=False, name='feature_projection0')
+    dec_skip1 = conv2d_bn(dec_skip1, block_size * 3, (3, 3), (2, 2),
+                          padding="same", activation=base_act,
+                          use_bias=False, name='feature_projection1')
+
+    # dec_skip1.shape = [B, 128, 128, 48]
+    x = Concatenate()([x, dec_skip1])
+    # x.shape = [B, 128, 128, 304]
+    x = SepConv_BN(x, block_size * 16, 'decoder_conv0',
+                   depth_activation=True, epsilon=1e-5)
+    # x.shape = [B, 128, 128, 256]
+    x = SepConv_BN(x, block_size * 16, 'decoder_conv1',
+                   depth_activation=True, epsilon=1e-5)
+    # x.shape = [B, 128, 128, 256]
+    last_layer_name = 'logits_semantic'
+
+    x = Conv2D(1, (1, 1), padding='same', name=last_layer_name)(x)
+    # x.shape = [B, 128, 128, classes]
+    # img_input.shape = [B, 512, 512, 3]
+    # any potential predecessors of `input_tensor`.
+    if input_tensor is not None:
+        inputs = get_source_inputs(input_tensor)
+    else:
+        inputs = img_input
+
+    x = get_act_layer(last_act)(x)
+    model = Model(inputs, x, name='deeplabv3plus_disc_2d')
     return model
