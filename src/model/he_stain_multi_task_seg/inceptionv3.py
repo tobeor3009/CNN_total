@@ -21,15 +21,13 @@ Reference:
 """
 import os
 
-from tensorflow.keras import Model
 import tensorflow as tf
-from tensorflow.python.keras import backend
-from tensorflow.python.keras import layers
-from tensorflow.python.keras import models
-from tensorflow.python.keras import utils as keras_utils
+from tensorflow.keras import Model
+from tensorflow.keras import backend
+from tensorflow.keras import layers
+from tensorflow.keras import models
+from tensorflow.keras import utils as keras_utils
 from tensorflow_addons.layers import InstanceNormalization
-from tensorflow.python.keras.applications import imagenet_utils
-from tensorflow.python.util.tf_export import keras_export
 from ..inception_resnet_v2_unet_fix.layers import get_act_layer
 from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
 
@@ -50,14 +48,15 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
                               name=f'decoder_pointwise_{idx}')(x)
             x = InstanceNormalization(name=f'decoder_pointwise_IN_{idx}',
                                       epsilon=1e-3)(x)
-        x = tf.nn.depth_to_space(x, block_size=(2, 2))
-        dec_skip = conv2d_bn(skip, skip_channel_list[idx], (1, 1), (1, 1),
-                             padding="same", activation=base_act,
-                             name=f'feature_projection_{idx}')
+        x = tf.nn.depth_to_space(x, block_size=2)
+        dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
+                             padding="same", strides=(1, 1), activation=base_act,
+                             name=f'recon_feature_projection_{idx}')
         x = layers.Concatenate()([x, dec_skip])
-        x = conv2d_bn(x, block_size, (3, 3), (1, 1),
-                      padding="same", activation=base_act,
-                      name=f'feature_conv_{idx}')
+        x = conv2d_bn(x, block_size, 3, 3,
+                      padding="same", strides=(1, 1), activation=base_act,
+                      name=f'recon_feature_conv_{idx}')
+        return x
     # x.shape = [B, 16, 16, 1596]
     x = pixel_shuffle_mini_block(x, 384, skip5, 1)
     # x.shape = [B, 32, 32, 32]
@@ -76,7 +75,7 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
     return x
 
 
-def upsample_block(x, skip_list, base_act, last_act):
+def upsample_block(x, skip_list, base_act, last_act, class_num):
 
     # skip1.shape = [B 512, 512, 32]
     # skip2.shape = [B 256, 256, 32]
@@ -87,14 +86,16 @@ def upsample_block(x, skip_list, base_act, last_act):
 
     def upsample_mini_block(x, block_size, skip, idx):
         skip_channel_list = [64, 48, 36, 24, 12]
-        x = layers.UpSampling2D(size=(2, 2))
-        dec_skip = conv2d_bn(skip, skip_channel_list[idx], (1, 1), (1, 1),
-                             padding="same", activation=base_act,
-                             name=f'feature_projection_{idx}')
+        x = layers.UpSampling2D(size=(2, 2))(x)
+        dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
+                             padding="same", strides=(1, 1),
+                             activation=base_act,
+                             name=f'seg_feature_projection_{idx}')
         x = layers.Concatenate()([x, dec_skip])
-        x = conv2d_bn(x, block_size, (3, 3), (1, 1),
-                      padding="same", activation=base_act,
-                      name=f'feature_conv_{idx}')
+        x = conv2d_bn(x, block_size, 3, 3,
+                      padding="same", strides=(1, 1), activation=base_act,
+                      name=f'seg_feature_conv_{idx}')
+        return x
     # x.shape = [B, 16, 16, 1596]
     x = upsample_mini_block(x, 384, skip5, 1)
     # x.shape = [B, 32, 32, 32]
@@ -106,7 +107,7 @@ def upsample_block(x, skip_list, base_act, last_act):
     # x.shape = [B, 256, 256, 96]
     x = upsample_mini_block(x, 64, skip1, 5)
     # x.shape = [B, 512, 512, 64]
-    x = layers.Conv2D(SEG_OUTPUT_CHANNEL, (1, 1),
+    x = layers.Conv2D(class_num, (1, 1),
                       padding='same')(x)
     # img_input.shape = [B, 512, 512, 3]
     x = get_act_layer(last_act)(x)
@@ -148,7 +149,7 @@ def conv2d_bn(x,
     return x
 
 
-def InceptionV3(input_shape=(512, 512, 3),
+def InceptionV3(input_shape=(512, 512, 3), class_num=1,
                 base_act="gelu", image_last_act="tanh", last_act="sigmoid", multi_task=False):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
@@ -363,12 +364,11 @@ def InceptionV3(input_shape=(512, 512, 3),
     # skip5.shape = [B 32, 32, 768]
     skip_list = [skip1, skip2, skip3, skip4, skip5]
 
-    seg_output = upsample_block(x, skip_list, base_act, last_act)
+    seg_output = upsample_block(x, skip_list, base_act, last_act, class_num)
     if multi_task:
-        h_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        e_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        model = Model(img_input, [h_output, e_output,
-                      seg_output], name='inceptionv3')
+        he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
+        model = Model(img_input, [he_output, seg_output],
+                      name='inceptionv3')
     else:
         model = Model(img_input, seg_output, name='inceptionv3')
 

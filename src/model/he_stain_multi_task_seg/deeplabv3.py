@@ -194,14 +194,14 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
                    use_bias=False, name=f'decoder_pointwise_{idx}')(x)
         x = InstanceNormalization(name=f'decoder_pointwise_IN_{idx}',
                                   epsilon=1e-3)(x)
-        x = tf.nn.depth_to_space(x, block_size=(2, 2))
+        x = tf.nn.depth_to_space(x, block_size=2)
         dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], (1, 1), (1, 1),
                              padding="same", activation=base_act,
                              use_bias=False, name=f'feature_projection_{idx}')
         x = Concatenate()([x, dec_skip])
-        x = SepConv_BN(x, block_size, 'decoder_conv0',
+        x = SepConv_BN(x, block_size, f'decoder_conv_{idx}',
                        depth_activation=True, epsilon=1e-5)
-
+        return x
     # x.shape = [B, 32, 32, 256]
     x = pixel_shuffle_mini_block(x, 256, skip4, 1)
     # x.shape = [B, 64, 64, 256]
@@ -219,22 +219,21 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
     return x
 
 
-def upsample_block(x, skip_list, base_act, last_act):
+def upsample_block(x, skip_list, base_act, last_act, class_num):
 
     # skip1.shape = [B, 512, 512, 32]
     # skip2.shape = [B, 256, 256, 128]
     # skip3.shape = [B, 128, 128, 256]
     # skip4.shape = [B, 64, 64, 728]
     skip1, skip2, skip3, skip4 = skip_list
-
     x = UpSampling2D(size=(4, 4))(x)
     # x.shape = [B, 128, 128, 256]
-    dec_skip4 = conv2d_bn(skip4, 48, (1, 1), (1, 1),
+    dec_skip3 = conv2d_bn(skip3, 48, (1, 1), (1, 1),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection0')
 
     # dec_skip1.shape = [B, 128, 128, 48]
-    x = Concatenate()([x, dec_skip4])
+    x = Concatenate()([x, dec_skip3])
     # x.shape = [B, 128, 128, 304]
     x = SepConv_BN(x, 256, 'decoder_conv0',
                    depth_activation=True, epsilon=1e-5)
@@ -244,7 +243,7 @@ def upsample_block(x, skip_list, base_act, last_act):
     # x.shape = [B, 128, 128, 256]
     last_layer_name = 'logits_semantic'
 
-    x = Conv2D(SEG_OUTPUT_CHANNEL, (1, 1),
+    x = Conv2D(class_num, (1, 1),
                padding='same', name=last_layer_name)(x)
     # x.shape = [B, 128, 128, classes]
     # img_input.shape = [B, 512, 512, 3]
@@ -255,7 +254,7 @@ def upsample_block(x, skip_list, base_act, last_act):
     return x
 
 
-def Deeplabv3(input_shape=(512, 512, 3),
+def Deeplabv3(input_shape=(512, 512, 3), class_num=1,
               base_act="gelu", image_last_act="tanh", last_act="sigmoid", multi_task=False):
     """ Instantiates the Deeplabv3+ architecture
     Optionally loads weights pre-trained
@@ -301,30 +300,26 @@ def Deeplabv3(input_shape=(512, 512, 3),
                   padding="same", activation=base_act,
                   use_bias=False, name='entry_flow_conv1_1')
     skip1 = x
-    # skip1.shape = [B, 512, 512, 32]
     x = conv2d_bn(img_input, 32, (3, 3), (2, 2),
                   padding="same", activation=base_act,
-                  use_bias=False, name='entry_flow_conv1_1')
+                  use_bias=False, name='entry_flow_conv1_2')
     # x.shape = [B, 256, 256, 32]
-    x = _conv2d_same(x, 64, 'entry_flow_conv1_2', kernel_size=3, stride=1)
-    x = InstanceNormalization(name='entry_flow_conv1_2_BN')(x)
+    x = _conv2d_same(x, 64, 'entry_flow_conv1_3', kernel_size=3, stride=1)
+    x = InstanceNormalization(name='entry_flow_conv1_3_IN')(x)
     x = get_act_layer(base_act)(x)
     # x.shape = [B, 256, 256, 64]
     x, skip2 = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
                                skip_connection_type='conv', stride=2,
                                depth_activation=False, return_skip=True)
-    # skip2.shape = [B, 256, 256, 128]
     # x.shape = [B, 128, 128, 128]
     x, skip3 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
                                skip_connection_type='conv', stride=2,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 64, 64, 256]
-    # skip3.shape = [B, 128, 128, 256]
     x, skip4 = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
                                skip_connection_type='conv', stride=entry_block3_stride,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 32, 32, 728]
-    # skip4.shape = [B, 64, 64, 728]
     for i in range(16):
         x = _xception_block(x, [728, 728, 728], 'middle_flow_unit_{}'.format(i + 1),
                             skip_connection_type='sum', stride=1, rate=middle_block_rate,
@@ -384,13 +379,15 @@ def Deeplabv3(input_shape=(512, 512, 3),
     x = Dropout(0.1)(x)
     # DeepLab v.3+ decoder
     skip_list = [skip1, skip2, skip3, skip4]
-
-    seg_output = upsample_block(x, skip_list, base_act, last_act)
+    # skip1.shape = [B, 512, 512, 32]
+    # skip2.shape = [B, 256, 256, 128]
+    # skip3.shape = [B, 128, 128, 256]
+    # skip4.shape = [B, 64, 64, 728]
+    seg_output = upsample_block(x, skip_list, base_act, last_act, class_num)
     if multi_task:
-        h_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        e_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        model = Model(img_input, [h_output, e_output,
-                      seg_output], name='deeplabv3plus')
+        he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
+        model = Model(img_input, [he_output, seg_output],
+                      name='deeplabv3plus')
     else:
         model = Model(img_input, seg_output, name='deeplabv3plus')
     return model
