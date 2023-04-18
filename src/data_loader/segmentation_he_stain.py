@@ -33,24 +33,16 @@ To Be Done:
 
 def seg_collate_fn(data_object_list):
     batch_image_array = []
-    batch_image_h_array = []
-    batch_image_e_array = []
     batch_mask_array = []
     for single_data_dict in data_object_list:
         image_array = single_data_dict["image_array"]
-        image_h_array = single_data_dict["image_h_array"]
-        image_e_array = single_data_dict["image_e_array"]
         mask_array = single_data_dict["mask_array"]
         batch_image_array.append(image_array)
-        batch_image_h_array.append(image_h_array)
-        batch_image_e_array.append(image_e_array)
         batch_mask_array.append(mask_array)
     batch_image_array = np.stack(batch_image_array, axis=0)
-    batch_image_h_array = np.stack(batch_image_h_array, axis=0)
-    batch_image_e_array = np.stack(batch_image_e_array, axis=0)
     batch_mask_array = np.stack(batch_mask_array, axis=0)
 
-    return batch_image_array, (batch_image_h_array, batch_image_e_array, batch_mask_array)
+    return batch_image_array, batch_mask_array
 
 
 class SegDataGetter(BaseDataGetter):
@@ -128,22 +120,13 @@ class SegDataGetter(BaseDataGetter):
 
             image_array, mask_array = self.augmentation_method(image_array,
                                                                mask_array)
-            input_channel_num = 3
-            converted_channel_num = 2
-            image_h_array, image_e_array = get_seperated_image(image_array,
-                                                               input_channel_num, converted_channel_num,
-                                                               use_gpu=True, verbose=1)
-            image_array = self.image_preprocess_method(image_array)
-            image_h_array = self.image_preprocess_method(image_h_array)
-            image_e_array = self.image_preprocess_method(image_e_array)
+            # image_array = self.image_preprocess_method(image_array)
             mask_array = self.mask_preprocess_method(mask_array)
             if self.is_cached is False:
                 self.single_data_dict = deepcopy(self.single_data_dict)
                 self.is_cached = None not in self.data_on_ram_dict.values()
 
         self.single_data_dict["image_array"] = image_array
-        self.single_data_dict["image_h_array"] = image_h_array
-        self.single_data_dict["image_e_array"] = image_e_array
         self.single_data_dict["mask_array"] = mask_array
 
         return self.single_data_dict
@@ -262,17 +245,25 @@ class SegDataSequence(Sequence):
         start = i * self.batch_size
         end = min(start + self.batch_size, self.data_num)
 
-        batch_image_array = []
-        batch_mask_array = []
-        for total_index in range(start, end):
-            single_data_dict = self.data_getter[total_index]
+        data_list = [self.data_getter[total_index]
+                     for total_index in range(start, end)]
 
-            batch_image_array.append(single_data_dict["image_array"])
-            batch_mask_array.append(single_data_dict["mask_array"])
+        batch_image_array, batch_mask_array = seg_collate_fn(data_list)
         batch_image_array = np.stack(batch_image_array, axis=0)
         batch_mask_array = np.stack(batch_mask_array, axis=0)
+        input_channel_num = 3
+        converted_channel_num = 2
+        batch_image_h_array, batch_image_e_array = get_seperated_image(batch_image_array,
+                                                                       input_channel_num, converted_channel_num,
+                                                                       use_gpu=True, verbose=1)
+        batch_image_he_array = np.concatenate([batch_image_h_array, batch_image_e_array],
+                                              axis=-1)
+        batch_image_array = self.data_getter.image_preprocess_method(
+            batch_image_array)
+        batch_image_he_array = self.data_getter.image_preprocess_method(
+            batch_image_he_array)
 
-        return batch_image_array, batch_mask_array
+        return batch_image_array, [batch_image_he_array, batch_mask_array]
 
     def print_data_info(self):
         data_num = len(self.data_getter)
