@@ -14,6 +14,7 @@ base_augmentation_policy_dict = {
     "elastic": True,
     "randomcrop": False,
     "brightness_contrast": True,
+    "hist": False,
     "color": True,
     "to_jpeg": True
 }
@@ -26,14 +27,11 @@ positional_transform = A.OneOf([
 ], p=1)
 
 noise_transform = A.OneOf([
-    A.CLAHE(always_apply=False, p=0.5,
-            clip_limit=(1, 15), tile_grid_size=(8, 8)),
     A.GaussNoise(var_limit=(0.01, 5), p=1),
     A.Downscale(always_apply=False, p=0.5,
                 scale_min=0.699999988079071, scale_max=0.9900000095367432,
                 interpolation=2),
-    A.Equalize(always_apply=False, p=0.5,
-               mode='cv', by_channels=False),
+
 ], p=1)
 
 elastic_tranform = A.OneOf([A.ElasticTransform(always_apply=False, p=0.5,
@@ -52,6 +50,13 @@ brightness_contrast_transform = A.OneOf([
                                contrast_limit=(-brightness_value,
                                                brightness_value),
                                p=1),
+], p=1)
+
+hist_transform = A.OneOf([
+    A.CLAHE(always_apply=False, p=0.5,
+            clip_limit=(1, 15), tile_grid_size=(8, 8)),
+    # A.Equalize(always_apply=False, p=0.5,
+    #            mode='cv', by_channels=False),
 ], p=1)
 
 color_transform = A.OneOf([
@@ -249,6 +254,8 @@ class ClassifyaugmentationPolicy():
             final_transform_list.append(elastic_tranform)
         if augmentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
+        if augmentation_policy_dict["hist"] is True:
+            final_transform_list.append(hist_transform)
         if augmentation_policy_dict["color"] is True:
             final_transform_list.append(color_transform)
         if augmentation_policy_dict["to_jpeg"] is True:
@@ -300,8 +307,8 @@ class SegaugmentationPolicy():
 
         final_transform_list = []
         if augmentation_policy_dict["randomcrop"]:
-            randomcrop_transform = A.RandomCrop(
-                *augmentation_policy_dict["randomcrop"], p=1)
+            randomcrop_transform = A.RandomCrop(*augmentation_policy_dict["randomcrop"],
+                                                p=1)
             final_transform_list.append(randomcrop_transform)
         if augmentation_policy_dict["noise"] is True:
             final_transform_list.append(noise_transform)
@@ -309,6 +316,8 @@ class SegaugmentationPolicy():
             final_transform_list.append(elastic_tranform)
         if augmentation_policy_dict["brightness_contrast"] is True:
             final_transform_list.append(brightness_contrast_transform)
+        if augmentation_policy_dict["hist"] is True:
+            final_transform_list.append(hist_transform)
         if augmentation_policy_dict["color"] is True:
             final_transform_list.append(color_transform)
         if augmentation_policy_dict["to_jpeg"] is True:

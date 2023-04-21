@@ -5,6 +5,7 @@ import os
 import math
 # external module
 import numpy as np
+import cupy as cp
 import progressbar
 from tensorflow.keras.utils import Sequence
 
@@ -49,6 +50,7 @@ class SegDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  mask_path_list,
+                 tissue_mask_path_list,
                  on_memory,
                  augmentation_proba,
                  augmentation_policy_dict,
@@ -63,6 +65,8 @@ class SegDataGetter(BaseDataGetter):
                                 image_path in enumerate(image_path_list)}
         self.mask_path_dict = {index: mask_path for index,
                                mask_path in enumerate(mask_path_list)}
+        self.tissue_mask_path_dict = {index: tissue_mask_path for index,
+                                      tissue_mask_path in enumerate(tissue_mask_path_list)}
         self.data_on_ram_dict = {index: None for index, _
                                  in enumerate(image_path_list)}
         self.on_memory = on_memory
@@ -101,30 +105,26 @@ class SegDataGetter(BaseDataGetter):
 
         current_index = self.data_index_dict[i]
 
-        if self.on_memory:
-            image_array, mask_array = \
-                self.data_on_ram_dict[current_index].values()
-            image_array, mask_array = \
-                self.augmentation_method(image_array, mask_array)
-            image_array = self.image_preprocess_method(image_array)
-            mask_array = self.mask_preprocess_method(mask_array)
-        else:
-            image_path = self.image_path_dict[current_index]
-            mask_path = self.mask_path_dict[current_index]
+        image_path = self.image_path_dict[current_index]
+        mask_path = self.mask_path_dict[current_index]
+        tissue_mask_path = self.tissue_mask_path_dict[current_index]
 
-            image_array = imread(image_path, channel=self.image_channel)
-            mask_array = imread(mask_path, channel=self.mask_channel)
+        image_array = imread(image_path, channel=self.image_channel)
+        mask_array = imread(mask_path, channel=self.mask_channel)
+        tissue_mask_array = imread(tissue_mask_path, channel=self.mask_channel)
 
-            image_array = self.resize_method(image_array)
-            mask_array = self.resize_method(mask_array)
+        image_array = self.resize_method(image_array)
+        mask_array = self.resize_method(mask_array)
+        tissue_mask_array = self.resize_method(tissue_mask_array)
 
-            image_array, mask_array = self.augmentation_method(image_array,
-                                                               mask_array)
-            # image_array = self.image_preprocess_method(image_array)
-            mask_array = self.mask_preprocess_method(mask_array)
-            if self.is_cached is False:
-                self.single_data_dict = deepcopy(self.single_data_dict)
-                self.is_cached = None not in self.data_on_ram_dict.values()
+        mask_array = np.concatenate([mask_array, tissue_mask_array], axis=-1)
+        image_array, mask_array = self.augmentation_method(image_array,
+                                                           mask_array)
+        # image_array = self.image_preprocess_method(image_array)
+        mask_array = self.mask_preprocess_method(mask_array)
+        if self.is_cached is False:
+            self.single_data_dict = deepcopy(self.single_data_dict)
+            self.is_cached = None not in self.data_on_ram_dict.values()
 
         self.single_data_dict["image_array"] = image_array
         self.single_data_dict["mask_array"] = mask_array
@@ -137,6 +137,7 @@ class SegDataloader(BaseIterDataLoader):
     def __init__(self,
                  image_path_list=None,
                  mask_path_list=None,
+                 tissue_mask_path_list=None,
                  batch_size=None,
                  num_workers=1,
                  on_memory=False,
@@ -150,6 +151,7 @@ class SegDataloader(BaseIterDataLoader):
                  dtype="float32"):
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
+                                         tissue_mask_path_list=tissue_mask_path_list,
                                          on_memory=on_memory,
                                          augmentation_proba=augmentation_proba,
                                          augmentation_policy_dict=augmentation_policy_dict,
@@ -209,6 +211,7 @@ class SegDataSequence(Sequence):
     def __init__(self,
                  image_path_list=None,
                  mask_path_list=None,
+                 tissue_mask_path_list=None,
                  batch_size=None,
                  on_memory=False,
                  augmentation_proba=None,
@@ -222,6 +225,7 @@ class SegDataSequence(Sequence):
         super().__init__()
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
+                                         tissue_mask_path_list=tissue_mask_path_list,
                                          on_memory=on_memory,
                                          augmentation_proba=augmentation_proba,
                                          augmentation_policy_dict=augmentation_policy_dict,
@@ -253,10 +257,19 @@ class SegDataSequence(Sequence):
         batch_mask_array = np.stack(batch_mask_array, axis=0)
         input_channel_num = 3
         converted_channel_num = 2
+        # with cp.cuda.Device(0):
         batch_image_h_array, batch_image_e_array = get_seperated_image(batch_image_array,
                                                                        input_channel_num, converted_channel_num,
-                                                                       use_gpu=True, verbose=1)
-        batch_image_he_array = np.concatenate([batch_image_h_array, batch_image_e_array],
+                                                                       use_gpu=True, stop_ratio=0.95, verbose=0)
+        batch_image_h_r_sum = np.sum(batch_image_h_array[..., 0])
+        batch_image_e_r_sum = np.sum(batch_image_e_array[..., 0])
+        if batch_image_h_r_sum < batch_image_e_r_sum:
+            batch_image_he_array = [batch_image_h_array,
+                                    batch_image_e_array]
+        else:
+            batch_image_he_array = [batch_image_e_array,
+                                    batch_image_h_array]
+        batch_image_he_array = np.concatenate(batch_image_he_array,
                                               axis=-1)
         batch_image_array = self.data_getter.image_preprocess_method(
             batch_image_array)

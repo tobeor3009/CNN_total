@@ -18,8 +18,8 @@ base_image_loss_fn = MeanAbsoluteError()
 def base_class_loss_fn(y_true, y_pred):
     # Assuming class 0 uses MAE and class 1 uses Binary Cross-Entropy
     class_0_loss = backend.mean(backend.abs(y_true[:, 0] - y_pred[:, 0]))
-    class_1_loss = backend.mean(
-        backend.binary_crossentropy(y_true[:, 1], y_pred[:, 1]))
+    class_1_loss = backend.mean(backend.binary_crossentropy(y_true[:, 1], 
+    y_pred[:, 1]))
 
     return class_0_loss + class_1_loss
 

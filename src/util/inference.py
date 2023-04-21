@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 import pandas as pd
 import numpy as np
@@ -7,6 +8,19 @@ from functools import partial
 from .custom_loss import base_dice_loss
 from tensorflow.keras import backend as keras_backend
 from scipy.ndimage.measurements import label as scipy_get_label
+
+
+def get_latest_file(file_paths):
+    # get modification time for each file
+    file_times = [os.path.getmtime(path) for path in file_paths]
+
+    # get index of latest file
+    latest_index = file_times.index(max(file_times))
+
+    # get path of latest file
+    latest_path = file_paths[latest_index]
+
+    return latest_path
 
 
 def get_label(x):
@@ -150,9 +164,10 @@ def plot_best(csv_path, score_key, val_score_key, loss_key="loss", val_loss_key=
 def find_epoch_from_folder(folder_path, epoch, pad_digit=2):
     real_epoch = epoch + 1
     find_key = '_{:0{}}.hdf5'.format(int(real_epoch), pad_digit)
-    weight_path = [item for item in glob(
+    weight_path_list = [item for item in glob(
         f"{folder_path}/*.hdf5") if find_key in item]
-    return weight_path[0]
+    weight_path = get_latest_file(weight_path_list)
+    return weight_path
 
 
 def get_score(y_true, y_pred, threshold=0.5, axis=[1, 2, 3], use_remove_small_objects=False):

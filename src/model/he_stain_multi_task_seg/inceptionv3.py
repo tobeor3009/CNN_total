@@ -150,7 +150,7 @@ def conv2d_bn(x,
 
 
 def InceptionV3(input_shape=(512, 512, 3), class_num=1,
-                base_act="gelu", image_last_act="tanh", last_act="sigmoid", multi_task=False):
+                base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid", multi_task=False):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
 

@@ -219,6 +219,7 @@ class ClassifyDataSequence(Sequence):
                  class_mode="binary",
                  dtype="float32"
                  ):
+        super().__init__()
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
                                               imread_policy=imread_policy,
                                               label_policy=label_policy,
@@ -238,12 +239,6 @@ class ClassifyDataSequence(Sequence):
         self.dtype = dtype
         self.print_data_info()
         self.on_epoch_end()
-
-    def __iter__(self):
-        return lazy_cycle(self.data_pool)
-
-    def __next__(self):
-        return next(self.data_pool)
 
     def __len__(self):
         return math.ceil(self.data_num / self.batch_size)

@@ -36,8 +36,6 @@ from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import ZeroPadding2D
 from tensorflow.keras.layers import GlobalAveragePooling2D
 from tensorflow.keras.layers import UpSampling2D
-from tensorflow.python.keras.utils.layer_utils import get_source_inputs
-from tensorflow.python.keras.utils.data_utils import get_file
 from tensorflow.keras import backend as keras_backend
 from ..inception_resnet_v2_unet_fix.layers import get_act_layer
 from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
@@ -255,7 +253,7 @@ def upsample_block(x, skip_list, base_act, last_act, class_num):
 
 
 def Deeplabv3(input_shape=(512, 512, 3), class_num=1,
-              base_act="gelu", image_last_act="tanh", last_act="sigmoid", multi_task=False):
+              base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid", multi_task=False):
     """ Instantiates the Deeplabv3+ architecture
     Optionally loads weights pre-trained
     on PASCAL VOC or Cityscapes. This model is available for TensorFlow only.
