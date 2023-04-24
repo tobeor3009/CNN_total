@@ -131,6 +131,7 @@ def get_best_row(df, key, mode):
 
 
 def plot_best(csv_path, score_key, val_score_key, loss_key="loss", val_loss_key="val_loss", plot=True):
+    png_path = csv_path.replace(".csv", ".png")
     df = pd.read_csv(csv_path)
     loss_min_row = get_best_row(df, loss_key, "min")
     score_max_row = get_best_row(df, score_key, "max")
@@ -157,6 +158,7 @@ def plot_best(csv_path, score_key, val_score_key, loss_key="loss", val_loss_key=
         ax[1].legend([score_key, val_score_key,
                       f"{score_key}_max", f"{val_score_key}_max"])
         plt.show()
+        plt.savefig(png_path)
         plt.close()
     return loss_min_row, score_max_row, val_loss_min_row, val_score_max_row
 

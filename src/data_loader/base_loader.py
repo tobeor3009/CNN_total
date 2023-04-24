@@ -38,10 +38,10 @@ elastic_tranform = A.OneOf([A.ElasticTransform(always_apply=False, p=0.5,
                                                alpha=0.20000000298023224, sigma=3.359999895095825,
                                                alpha_affine=2.009999990463257, interpolation=1, border_mode=1,
                                                value=(0, 0, 0), mask_value=None, approximate=False),
-                            A.GridDistortion(always_apply=False, p=0.5, num_steps=1,
-                                             distort_limit=(-0.029999999329447746,
-                                                            0.05000000074505806),
-                                             interpolation=2, border_mode=0, value=(0, 0, 0), mask_value=None)
+                            # A.GridDistortion(always_apply=False, p=0.5, num_steps=1,
+                            #                  distort_limit=(-0.029999999329447746,
+                            #                                 0.05000000074505806),
+                            #                  interpolation=2, border_mode=0, value=(0, 0, 0), mask_value=None)
                             ])
 
 brightness_value = 0.02
@@ -53,7 +53,7 @@ brightness_contrast_transform = A.OneOf([
 ], p=1)
 
 hist_transform = A.OneOf([
-    A.CLAHE(always_apply=False, p=0.5,
+    A.CLAHE(always_apply=True, p=0.5,
             clip_limit=(1, 15), tile_grid_size=(8, 8)),
     # A.Equalize(always_apply=False, p=0.5,
     #            mode='cv', by_channels=False),
