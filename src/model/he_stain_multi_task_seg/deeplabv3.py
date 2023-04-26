@@ -179,35 +179,35 @@ def _xception_block(inputs, depth_list, prefix, skip_connection_type, stride,
 
 def pixel_shuffle_block(x, skip_list, base_act, last_act):
 
-    # skip1.shape = [B, 512, 512, 32]
-    # skip2.shape = [B, 256, 256, 128]
-    # skip3.shape = [B, 128, 128, 256]
-    # skip4.shape = [B, 64, 64, 728]
-    skip1, skip2, skip3, skip4 = skip_list
+    # skip1.shape = [B, 256, 256, 128]
+    # skip2.shape = [B, 128, 128, 256]
+    # skip3.shape = [B, 64, 64, 728]
+    skip1, skip2, skip3 = skip_list
 
     def pixel_shuffle_mini_block(x, block_size, skip, idx):
 
-        skip_channel_list = [48, 36, 24, 12]
+        skip_channel_list = [48, 36, 24]
         x = Conv2D(block_size * 4, (1, 1), padding='same',
                    use_bias=False, name=f'decoder_pointwise_{idx}')(x)
         x = InstanceNormalization(name=f'decoder_pointwise_IN_{idx}',
                                   epsilon=1e-3)(x)
         x = tf.nn.depth_to_space(x, block_size=2)
-        dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], (1, 1), (1, 1),
-                             padding="same", activation=base_act,
-                             use_bias=False, name=f'feature_projection_{idx}')
-        x = Concatenate()([x, dec_skip])
+        if skip is not None:
+            dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], (1, 1), (1, 1),
+                                 padding="same", activation=base_act,
+                                 use_bias=False, name=f'feature_projection_{idx}')
+            x = Concatenate()([x, dec_skip])
         x = SepConv_BN(x, block_size, f'decoder_conv_{idx}',
                        depth_activation=True, epsilon=1e-5)
         return x
     # x.shape = [B, 32, 32, 256]
-    x = pixel_shuffle_mini_block(x, 256, skip4, 1)
+    x = pixel_shuffle_mini_block(x, 256, skip3, 1)
     # x.shape = [B, 64, 64, 256]
-    x = pixel_shuffle_mini_block(x, 192, skip3, 2)
+    x = pixel_shuffle_mini_block(x, 192, skip2, 2)
     # x.shape = [B, 128, 128, 192]
-    x = pixel_shuffle_mini_block(x, 128, skip2, 3)
+    x = pixel_shuffle_mini_block(x, 128, skip1, 3)
     # x.shape = [B, 256, 256, 128]
-    x = pixel_shuffle_mini_block(x, 64, skip1, 4)
+    x = pixel_shuffle_mini_block(x, 64, None, 4)
     # x.shape = [B, 512, 512, 64]
     # x.shape = [B, 128, 128, 196]
     x = Conv2D(RGB_OUTPUT_CHANNEL, (1, 1),
@@ -219,19 +219,18 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
 
 def upsample_block(x, skip_list, base_act, last_act, class_num):
 
-    # skip1.shape = [B, 512, 512, 32]
-    # skip2.shape = [B, 256, 256, 128]
-    # skip3.shape = [B, 128, 128, 256]
-    # skip4.shape = [B, 64, 64, 728]
-    skip1, skip2, skip3, skip4 = skip_list
+    # skip1.shape = [B, 256, 256, 128]
+    # skip2.shape = [B, 128, 128, 256]
+    # skip3.shape = [B, 64, 64, 728]
+    skip1, skip2, skip3 = skip_list
     x = UpSampling2D(size=(4, 4))(x)
     # x.shape = [B, 128, 128, 256]
-    dec_skip3 = conv2d_bn(skip3, 48, (1, 1), (1, 1),
+    dec_skip2 = conv2d_bn(skip2, 48, (1, 1), (1, 1),
                           padding="same", activation=base_act,
                           use_bias=False, name='feature_projection0')
 
     # dec_skip1.shape = [B, 128, 128, 48]
-    x = Concatenate()([x, dec_skip3])
+    x = Concatenate()([x, dec_skip2])
     # x.shape = [B, 128, 128, 304]
     x = SepConv_BN(x, 256, 'decoder_conv0',
                    depth_activation=True, epsilon=1e-5)
@@ -294,27 +293,23 @@ def Deeplabv3(input_shape=(512, 512, 3), class_num=1,
     exit_block_rates = (1, 2)
     atrous_rates = (6, 12, 18)
     # img_input.shape = [B, 512, 512, 3]
-    x = conv2d_bn(img_input, 32, (3, 3), (1, 1),
-                  padding="same", activation=base_act,
-                  use_bias=False, name='entry_flow_conv1_1')
-    skip1 = x
     x = conv2d_bn(img_input, 32, (3, 3), (2, 2),
                   padding="same", activation=base_act,
-                  use_bias=False, name='entry_flow_conv1_2')
+                  use_bias=False, name='entry_flow_conv1')
     # x.shape = [B, 256, 256, 32]
     x = _conv2d_same(x, 64, 'entry_flow_conv1_3', kernel_size=3, stride=1)
     x = InstanceNormalization(name='entry_flow_conv1_3_IN')(x)
     x = get_act_layer(base_act)(x)
     # x.shape = [B, 256, 256, 64]
-    x, skip2 = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
+    x, skip1 = _xception_block(x, [128, 128, 128], 'entry_flow_block1',
                                skip_connection_type='conv', stride=2,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 128, 128, 128]
-    x, skip3 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
+    x, skip2 = _xception_block(x, [256, 256, 256], 'entry_flow_block2',
                                skip_connection_type='conv', stride=2,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 64, 64, 256]
-    x, skip4 = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
+    x, skip3 = _xception_block(x, [728, 728, 728], 'entry_flow_block3',
                                skip_connection_type='conv', stride=entry_block3_stride,
                                depth_activation=False, return_skip=True)
     # x.shape = [B, 32, 32, 728]
@@ -376,11 +371,10 @@ def Deeplabv3(input_shape=(512, 512, 3), class_num=1,
     # x.shape = [B, 32, 32, 256]
     x = Dropout(0.1)(x)
     # DeepLab v.3+ decoder
-    skip_list = [skip1, skip2, skip3, skip4]
-    # skip1.shape = [B, 512, 512, 32]
-    # skip2.shape = [B, 256, 256, 128]
-    # skip3.shape = [B, 128, 128, 256]
-    # skip4.shape = [B, 64, 64, 728]
+    skip_list = [skip1, skip2, skip3]
+    # skip1.shape = [B, 256, 256, 128]
+    # skip2.shape = [B, 128, 128, 256]
+    # skip3.shape = [B, 64, 64, 728]
     seg_output = upsample_block(x, skip_list, base_act, last_act, class_num)
     if multi_task:
         he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
