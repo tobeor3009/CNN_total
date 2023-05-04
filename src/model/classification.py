@@ -145,7 +145,9 @@ def get_inceptionv3_classification_model(input_shape, num_class,
     elif activation == "categorical_softmax":
         predictions = layers.Dense(
             num_class, activation='softmax', dtype=dense_dtype)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model(base_input, predictions)
     return model
@@ -223,7 +225,9 @@ def get_inceptionv3_classification_model_transformer(input_shape, num_class,
     elif activation == "categorical_softmax":
         predictions = layers.Dense(num_class, activation='softmax',
                                    dtype=dense_dtype, use_bias=False)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model(base_input, predictions)
     return model
@@ -300,7 +304,9 @@ def get_inception_resnet_v2_classification_model_transformer(input_shape, num_cl
     elif activation == "categorical_softmax":
         predictions = layers.Dense(num_class, activation='softmax',
                                    dtype=dense_dtype, use_bias=False)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model(base_input, predictions)
     return model
@@ -354,7 +360,9 @@ def get_classification_model(base_model, num_class,
     elif activation == "categorical_softmax":
         predictions = layers.Dense(
             num_class, activation='softmax', dtype=dense_dtype)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model(base_input, predictions)
     return model
@@ -411,7 +419,9 @@ def get_label_inject_classification_model(base_model, inject_num_class, num_clas
     elif activation == "categorical_softmax":
         predictions = layers.Dense(
             num_class, activation='softmax', dtype=dense_dtype)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model([base_input, inject_label_input], predictions)
     return model
@@ -446,7 +456,7 @@ def get_label_inject_classification_model_transformer(base_model, inject_num_cla
 
     x = tf.nn.depth_to_space(x, block_size=2)
     _, H, W, C = x.shape
-    
+
     x = layers.Reshape((H * W, C))(x)
     x = layers.Dense(feature_size)(x)
     x = get_act_layer("gelu")(x)
@@ -487,7 +497,9 @@ def get_label_inject_classification_model_transformer(base_model, inject_num_cla
     elif activation == "categorical_softmax":
         predictions = layers.Dense(num_class, activation='softmax',
                                    dtype=dense_dtype, use_bias=False)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model([base_input, inject_label_input], predictions)
 
@@ -562,7 +574,9 @@ def get_label_inject_classification_model_transformer_3d(base_model, inject_num_
     elif activation == "categorical_softmax":
         predictions = layers.Dense(num_class, activation='softmax',
                                    dtype=dense_dtype, use_bias=False)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model([base_input, inject_label_input], predictions)
     return model
@@ -629,7 +643,9 @@ def get_classification_model_transformer_3d(base_model, num_class,
     elif activation == "categorical_softmax":
         predictions = layers.Dense(num_class, activation='softmax',
                                    dtype=dense_dtype, use_bias=False)(x)
-
+    elif activation is None:
+        predictions = layers.Dense(num_class, activation=None,
+                                   dtype=dense_dtype, use_bias=False)(x)
     # this is the model we will train
     model = Model(base_input, predictions)
     return model
