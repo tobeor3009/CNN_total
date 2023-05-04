@@ -6,7 +6,7 @@ import numpy as np
 # this library module
 from .utils import imread, get_parent_dir_name
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, CategorizePolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, CategorizePolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 
@@ -68,13 +68,13 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.single_data_dict = {"image_array": None, "label": None}
         self.class_dict = {i: None for i in range(len(self))}
         if self.on_memory is True:
-            self.augmentation_method = SegaugmentationPolicy(
+            self.augmentation_method = SegAugmentationPolicy(
                 0, augmentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.mask_preprocess_method = PreprocessPolicy(None)
             self.get_data_on_ram()
 
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy("mask")

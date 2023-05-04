@@ -10,7 +10,7 @@ from tqdm import tqdm
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 """
@@ -74,7 +74,7 @@ class CycleGanDataGetter(BaseDataGetter):
         self.single_data_dict = \
             {"image_array": None, "target_image_array": None}
         if self.on_memory is True:
-            self.augmentation_method = SegaugmentationPolicy(
+            self.augmentation_method = SegAugmentationPolicy(
                 0, augmentation_policy_dict)
             self.image_preprocess_method = PreprocessPolicy(None)
             self.target_image_preprocess_method = PreprocessPolicy(
@@ -84,7 +84,7 @@ class CycleGanDataGetter(BaseDataGetter):
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.target_image_preprocess_method = PreprocessPolicy(
             target_preprocess_input)
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
 
     def __getitem__(self, i):

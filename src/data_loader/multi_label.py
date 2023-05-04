@@ -10,7 +10,7 @@ import progressbar
 # this library module
 from .utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 """
@@ -85,14 +85,14 @@ class MultiLabelDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             0, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(None)
         self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)

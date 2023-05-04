@@ -11,7 +11,7 @@ from tensorflow.keras.utils import Sequence
 # this library module
 from .utils import imread, SingleProcessPool, MultiProcessPool, lazy_cycle
 from .base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 """
@@ -48,10 +48,10 @@ class SegDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  mask_path_list,
+                 imread_policy_dict,
                  on_memory,
                  augmentation_proba,
                  augmentation_policy_dict,
-                 image_channel_dict,
                  preprocess_dict,
                  target_size,
                  interpolation
@@ -64,10 +64,8 @@ class SegDataGetter(BaseDataGetter):
                                mask_path in enumerate(mask_path_list)}
         self.data_on_ram_dict = {index: None for index, _
                                  in enumerate(image_path_list)}
+        self.imread_policy_dict = imread_policy_dict
         self.on_memory = on_memory
-
-        self.image_channel = image_channel_dict["image"]
-        self.mask_channel = image_channel_dict["mask"]
 
         self.target_size = target_size
         self.interpolation = interpolation
@@ -77,15 +75,15 @@ class SegDataGetter(BaseDataGetter):
         self.is_cached = False
         self.data_index_dict = {i: i for i in range(len(self))}
         self.single_data_dict = {"image_array": None, "mask_array": None}
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             0, augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(None)
         self.mask_preprocess_method = PreprocessPolicy(None)
         if self.on_memory is True:
             self.get_data_on_ram()
 
-        self.augmentation_method = SegaugmentationPolicy(
-            augmentation_proba, augmentation_policy_dict)
+        self.augmentation_method = SegAugmentationPolicy(augmentation_proba,
+                                                         augmentation_policy_dict)
         self.image_preprocess_method = PreprocessPolicy(
             preprocess_dict["image"])
         self.mask_preprocess_method = PreprocessPolicy(preprocess_dict["mask"])
@@ -111,9 +109,10 @@ class SegDataGetter(BaseDataGetter):
             image_path = self.image_path_dict[current_index]
             mask_path = self.mask_path_dict[current_index]
 
-            image_array = imread(image_path, channel=self.image_channel)
-            mask_array = imread(mask_path, channel=self.mask_channel)
-
+            image_array = imread(image_path, channel=None,
+                                 policy=self.imread_policy_dict["image"])
+            mask_array = imread(mask_path, channel=None,
+                                policy=self.imread_policy_dict["mask"])
             image_array = self.resize_method(image_array)
             mask_array = self.resize_method(mask_array)
 
@@ -139,10 +138,10 @@ class SegDataloader(BaseIterDataLoader):
                  mask_path_list=None,
                  batch_size=None,
                  num_workers=1,
+                 imread_policy_dict={"image": None, "mask": None},
                  on_memory=False,
                  augmentation_proba=None,
                  augmentation_policy_dict=base_augmentation_policy_dict,
-                 image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_dict={"image": "-1~1", "mask": "mask"},
                  target_size=None,
                  interpolation="bilinear",
@@ -150,10 +149,10 @@ class SegDataloader(BaseIterDataLoader):
                  dtype="float32"):
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
+                                         imread_policy_dict=imread_policy_dict,
                                          on_memory=on_memory,
                                          augmentation_proba=augmentation_proba,
                                          augmentation_policy_dict=augmentation_policy_dict,
-                                         image_channel_dict=image_channel_dict,
                                          preprocess_dict=preprocess_dict,
                                          target_size=target_size,
                                          interpolation=interpolation
@@ -219,10 +218,10 @@ class SegDataSequence(Sequence):
                  image_path_list=None,
                  mask_path_list=None,
                  batch_size=None,
+                 imread_policy_dict={"image": None, "mask": None},
                  on_memory=False,
                  augmentation_proba=None,
                  augmentation_policy_dict=base_augmentation_policy_dict,
-                 image_channel_dict={"image": "rgb", "mask": None},
                  preprocess_dict={"image": "-1~1", "mask": "mask"},
                  target_size=None,
                  interpolation="bilinear",
@@ -231,10 +230,10 @@ class SegDataSequence(Sequence):
         super().__init__()
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
+                                         imread_policy_dict=imread_policy_dict,
                                          on_memory=on_memory,
                                          augmentation_proba=augmentation_proba,
                                          augmentation_policy_dict=augmentation_policy_dict,
-                                         image_channel_dict=image_channel_dict,
                                          preprocess_dict=preprocess_dict,
                                          target_size=target_size,
                                          interpolation=interpolation

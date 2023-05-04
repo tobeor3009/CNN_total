@@ -142,9 +142,15 @@ class PoseDataGetter(BaseDataGetter):
                                                                self.augmentation_proba)
         image_array = self.preprocess_method(image_array)
         keypoint_array = np.reshape(keypoint_array, (-1))
+        heatmap_array = np.zeros((17, 72, 96))
+        for idx in range(17):
+            x = min(int(round(keypoint_array[2 * idx] * 96)), 95)
+            y = min(int(round(keypoint_array[2 * idx + 1] * 72)), 71)
+            if x + y != 0:
+                heatmap_array[idx, y, x] = 6912 / 2
         self.single_data_dict = deepcopy(self.single_data_dict)
         self.single_data_dict["image"] = image_array
-        self.single_data_dict["keypoints"] = keypoint_array
+        self.single_data_dict["keypoints"] = heatmap_array
         self.single_data_dict["label"] = label_array
 
         return self.single_data_dict
@@ -197,7 +203,7 @@ class PoseDataloader(BaseIterDataLoader):
                                               shuffle=self.shuffle
                                               )
 
-        self.print_data_info()
+        # self.print_data_info()
         self.on_epoch_end()
 
     def __iter__(self):

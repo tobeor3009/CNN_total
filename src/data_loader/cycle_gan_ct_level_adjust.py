@@ -10,7 +10,7 @@ from glob import glob
 # this library module
 from .utils import imread, get_parent_dir_name, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 """
@@ -75,7 +75,7 @@ class CycleGanDataGetter(BaseDataGetter):
         self.image_preprocess_method = PreprocessPolicy(preprocess_input)
         self.target_image_preprocess_method = PreprocessPolicy(
             target_preprocess_input)
-        self.augmentation_method = SegaugmentationPolicy(
+        self.augmentation_method = SegAugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
 
     def __getitem__(self, i):

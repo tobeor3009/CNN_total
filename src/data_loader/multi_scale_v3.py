@@ -11,7 +11,7 @@ import random
 # this library module
 from .utils import imread, LazyDict, get_array_dict_lazy, get_npy_array
 from .base_loader import BaseDataGetter, BaseDataLoader, \
-    ResizePolicy, PreprocessPolicy, SegaugmentationPolicy, \
+    ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
 
@@ -70,7 +70,7 @@ class MultiScaleDataGetter(BaseDataGetter):
         if not use_multi_scale:
             self.image_name_list_1 = self.image_name_list_1[-1:]
             self.image_name_list_2 = self.image_name_list_2[-1:]
-        self.augmentation_method = SegaugmentationPolicy(augmentation_proba,
+        self.augmentation_method = SegAugmentationPolicy(augmentation_proba,
                                                          augmentation_policy_dict)
 
     def getitem(self, idx, downscale):
