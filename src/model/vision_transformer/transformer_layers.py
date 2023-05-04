@@ -342,17 +342,14 @@ class PatchExpanding(layers.Layer):
         self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
 
-        self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
-                                                  interpolation="bilinear")
-        self.upsample_linear_trans = Conv2DLayer(embed_dim // 2,
-                                                 kernel_size=1, use_bias=False, use_sn=use_sn,
-                                                 name='{}_upsample_linear_trans'.format(name))
+        name = f"{name}_" if name != '' else name
+
         self.pixel_shuffle_linear_trans = Conv2DLayer(upsample_rate * embed_dim,
                                                       kernel_size=1, use_bias=False, use_sn=use_sn,
-                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
+                                                      name='{}pixel_shuffle_linear_trans'.format(name))
         self.concat_linear_trans = Conv2DLayer(embed_dim // 2,
                                                kernel_size=1, use_bias=False, use_sn=use_sn,
-                                               name='{}_concat_linear_trans'.format(name))
+                                               name='{}concat_linear_trans'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -364,15 +361,10 @@ class PatchExpanding(layers.Layer):
 
         x = tf.reshape(x, (-1, H, W, C))
 
-        upsample = self.upsample_layer(x)
-        upsample = self.upsample_linear_trans(upsample)
-
-        pixel_shuffle = self.pixel_shuffle_linear_trans(x)
+        x = self.pixel_shuffle_linear_trans(x)
         # rearange depth to number of patches
-        pixel_shuffle = tf.nn.depth_to_space(pixel_shuffle, self.upsample_rate,
-                                             data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
-        x = tf.concat([upsample, pixel_shuffle], axis=-1)
-
+        x = tf.nn.depth_to_space(x, self.upsample_rate,
+                                 data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
         if self.swin_v2:
             x = self.concat_linear_trans(x)
             x = self.norm(x)
@@ -399,13 +391,12 @@ class PatchExpandingSimple(layers.Layer):
         self.return_vector = return_vector
         self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
-
-        self.pixel_shuffle_linear_trans = Conv2DLayer(upsample_rate * embed_dim,
-                                                      kernel_size=1, use_bias=False, use_sn=use_sn,
-                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
+        name = f"{name}_" if name != '' else name
+        self.upsample_layer = layers.UpSampling2D(size=upsample_rate,
+                                                  interpolation="bilinear")
         self.linear_trans = Conv2DLayer(embed_dim // 2,
                                         kernel_size=1, use_bias=False, use_sn=use_sn,
-                                        name='{}_concat_linear_trans'.format(name))
+                                        name='{}concat_linear_trans'.format(name))
         self.prefix = name
 
     def call(self, x):
@@ -417,10 +408,7 @@ class PatchExpandingSimple(layers.Layer):
 
         x = tf.reshape(x, (-1, H, W, C))
 
-        x = self.pixel_shuffle_linear_trans(x)
-        # rearange depth to number of patches
-        x = tf.nn.depth_to_space(x, self.upsample_rate,
-                                 data_format='NHWC', name='{}_d_to_space'.format(self.prefix))
+        x = self.upsample_layer(x)
         if self.swin_v2:
             x = self.linear_trans(x)
             x = self.norm(x)

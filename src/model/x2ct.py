@@ -28,90 +28,8 @@ from tensorflow.keras import layers
 from tensorflow.keras import models
 from tensorflow.keras import utils as keras_utils
 from tensorflow_addons.layers import InstanceNormalization
-from ..inception_resnet_v2_unet_fix.layers import get_act_layer
+from .inception_resnet_v2_unet_fix.layers import get_act_layer
 from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
-
-
-def pixel_shuffle_block(x, skip_list, base_act, last_act):
-
-    # skip1.shape = [B 256, 256, 32]
-    # skip2.shape = [B 128, 128, 64]
-    # skip3.shape = [B 64, 64, 192]
-    # skip4.shape = [B 32, 32, 768]
-    skip1, skip2, skip3, skip4 = skip_list
-
-    def pixel_shuffle_mini_block(x, block_size, skip, idx):
-        skip_channel_list = [64, 48, 36, 24, 12]
-        if idx > 1:
-            x = layers.Conv2D(block_size * 4, (1, 1), padding='same',
-                              name=f'decoder_pointwise_{idx}')(x)
-            x = InstanceNormalization(name=f'decoder_pointwise_IN_{idx}',
-                                      epsilon=1e-3)(x)
-        x = tf.nn.depth_to_space(x, block_size=2)
-        if skip is not None:
-            dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
-                                 padding="same", strides=(1, 1), activation=base_act,
-                                 name=f'recon_feature_projection_{idx}')
-            x = layers.Concatenate()([x, dec_skip])
-        x = conv2d_bn(x, block_size, 3, 3,
-                      padding="same", strides=(1, 1), activation=base_act,
-                      name=f'recon_feature_conv_{idx}')
-        return x
-    # x.shape = [B, 16, 16, 1596]
-    x = pixel_shuffle_mini_block(x, 384, skip4, 1)
-    # x.shape = [B, 32, 32, 32]
-    x = pixel_shuffle_mini_block(x, 192, skip3, 2)
-    # x.shape = [B, 64, 64, 192]
-    x = pixel_shuffle_mini_block(x, 128, skip2, 3)
-    # x.shape = [B, 128, 128, 128]
-    x = pixel_shuffle_mini_block(x, 96, skip1, 4)
-    # x.shape = [B, 256, 256, 96]
-    x = pixel_shuffle_mini_block(x, 64, None, 5)
-    # x.shape = [B, 512, 512, 64]
-    x = layers.Conv2D(RGB_OUTPUT_CHANNEL, (1, 1),
-                      padding='same')(x)
-    # img_input.shape = [B, 512, 512, 3]
-    x = get_act_layer(last_act)(x)
-    return x
-
-
-def upsample_block(x, skip_list, base_act, last_act, class_num):
-
-    # skip1.shape = [B 256, 256, 32]
-    # skip2.shape = [B 128, 128, 64]
-    # skip3.shape = [B 64, 64, 192]
-    # skip4.shape = [B 32, 32, 768]
-    skip1, skip2, skip3, skip4 = skip_list
-
-    def upsample_mini_block(x, block_size, skip, idx):
-        skip_channel_list = [64, 48, 36, 24, 12]
-        x = layers.UpSampling2D(size=(2, 2))(x)
-        if skip is not None:
-            dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
-                                 padding="same", strides=(1, 1),
-                                 activation=base_act,
-                                 name=f'seg_feature_projection_{idx}')
-            x = layers.Concatenate()([x, dec_skip])
-        x = conv2d_bn(x, block_size, 3, 3,
-                      padding="same", strides=(1, 1), activation=base_act,
-                      name=f'seg_feature_conv_{idx}')
-        return x
-    # x.shape = [B, 16, 16, 1596]
-    x = upsample_mini_block(x, 384, skip4, 1)
-    # x.shape = [B, 32, 32, 32]
-    x = upsample_mini_block(x, 192, skip3, 2)
-    # x.shape = [B, 64, 64, 192]
-    x = upsample_mini_block(x, 128, skip2, 3)
-    # x.shape = [B, 128, 128, 128]
-    x = upsample_mini_block(x, 96, skip1, 4)
-    # x.shape = [B, 256, 256, 96]
-    x = upsample_mini_block(x, 64, None, 5)
-    # x.shape = [B, 512, 512, 64]
-    x = layers.Conv2D(class_num, (1, 1),
-                      padding='same')(x)
-    # img_input.shape = [B, 512, 512, 3]
-    x = get_act_layer(last_act)(x)
-    return x
 
 
 def get_submodules():
@@ -149,27 +67,25 @@ def conv2d_bn(x,
     return x
 
 
-def InceptionV3(input_shape=(512, 512, 3), class_num=1,
-                base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid", multi_task=False):
+def inceptionv3(input_tensor):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
-
-    img_input = layers.Input(shape=input_shape)
 
     if backend.image_data_format() == 'channels_first':
         channel_axis = 1
     else:
         channel_axis = 3
 
-    x = conv2d_bn(img_input, 32, 3, 3, strides=(2, 2),
+    x = conv2d_bn(input_tensor, 32, 3, 3, strides=(2, 2),
                   padding='same', name='pooling1')
     x = conv2d_bn(x, 64, 3, 3, padding='same')
+    # skip1.shape = [B 256 256 64]
     skip1 = x
-    x = layers.MaxPooling2D((3, 3), strides=(2, 2),
+    # previous: strides=(2, 2)
+    x = layers.MaxPooling2D((3, 3), strides=(1, 1),
                             padding='same', name='pooling2')(x)
     x = conv2d_bn(x, 80, 1, 1, padding='same')
     x = conv2d_bn(x, 192, 3, 3, padding='same')
-    skip2 = x
     x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
 
     # mixed 0: 35 x 35 x 256
@@ -228,7 +144,8 @@ def InceptionV3(input_shape=(512, 512, 3), class_num=1,
         [branch1x1, branch5x5, branch3x3dbl, branch_pool],
         axis=channel_axis,
         name='mixed2')
-    skip3 = x
+    # skip2.shape = [B, 128, 128, ?]
+    skip2 = x
     # mixed 3: 17 x 17 x 768
     branch3x3 = conv2d_bn(x, 384, 3, 3, strides=(2, 2), padding='same')
 
@@ -243,7 +160,6 @@ def InceptionV3(input_shape=(512, 512, 3), class_num=1,
         [branch3x3, branch3x3dbl, branch_pool],
         axis=channel_axis,
         name='mixed3')
-    skip5 = x
     # mixed 4: 17 x 17 x 768
     branch1x1 = conv2d_bn(x, 192, 1, 1)
 
@@ -309,7 +225,8 @@ def InceptionV3(input_shape=(512, 512, 3), class_num=1,
         [branch1x1, branch7x7, branch7x7dbl, branch_pool],
         axis=channel_axis,
         name='mixed7')
-    skip4 = x
+    # skip3.shape = [B, 64, 64, ?]
+    skip3 = x
     # mixed 8: 8 x 8 x 1280
     branch3x3 = conv2d_bn(x, 192, 1, 1)
     branch3x3 = conv2d_bn(branch3x3, 320, 3, 3,
@@ -354,19 +271,19 @@ def InceptionV3(input_shape=(512, 512, 3), class_num=1,
             [branch1x1, branch3x3, branch3x3dbl, branch_pool],
             axis=channel_axis,
             name='mixed' + str(9 + i))
-    # x.shape = [B, 16, 16, 32]
+    # x.shape = [B, 32, 32, 32]
     # skip1.shape = [B 256, 256, 64]
-    # skip2.shape = [B 128, 128, 192]
-    # skip3.shape = [B 64, 64, 288]
-    # skip4.shape = [B 32, 32, 768]
-    skip_list = [skip1, skip2, skip3, skip4]
+    # skip2.shape = [B 128, 128, ?]
+    # skip3.shape = [B 64, 64, ?]
+    skip_list = [skip3, skip2, skip1]
 
-    seg_output = upsample_block(x, skip_list, base_act, last_act, class_num)
-    if multi_task:
-        he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        model = Model(img_input, [he_output, seg_output],
-                      name='inceptionv3')
-    else:
-        model = Model(img_input, seg_output, name='inceptionv3')
+    return x, skip_list
 
-    return model
+
+def x2ct_model(input_shape):
+    model_input = layers.Input(input_shape)
+    
+    encoded, skip_list = inceptionv3(model_input)
+    len_decode = len(skip_list)
+    for idx in range(len_decode + 1):
+         

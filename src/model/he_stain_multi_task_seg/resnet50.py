@@ -1,4 +1,94 @@
 
+import tensorflow as tf
+from .inceptionv3 import conv2d_bn
+from tensorflow_addons.layers import InstanceNormalization
+from tensorflow.keras import Model
+from ..inception_resnet_v2_unet_fix.layers import get_act_layer
+from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
+
+
+def pixel_shuffle_block(x, skip_list, base_act, last_act):
+
+    # skip1.shape = [B 256, 256, 32]
+    # skip2.shape = [B 128, 128, 64]
+    # skip3.shape = [B 64, 64, 192]
+    # skip4.shape = [B 32, 32, 768]
+    skip1, skip2, skip3, skip4 = skip_list
+
+    def pixel_shuffle_mini_block(x, block_size, skip, idx):
+        skip_channel_list = [64, 48, 36, 24, 12]
+        if idx > 1:
+            x = layers.Conv2D(block_size * 4, (1, 1), padding='same',
+                              name=f'decoder_pointwise_{idx}')(x)
+            x = InstanceNormalization(name=f'decoder_pointwise_IN_{idx}',
+                                      epsilon=1e-3)(x)
+        x = tf.nn.depth_to_space(x, block_size=2)
+        if skip is not None:
+            dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
+                                 padding="same", strides=(1, 1), activation=base_act,
+                                 name=f'recon_feature_projection_{idx}')
+            x = layers.Concatenate()([x, dec_skip])
+        x = conv2d_bn(x, block_size, 3, 3,
+                      padding="same", strides=(1, 1), activation=base_act,
+                      name=f'recon_feature_conv_{idx}')
+        return x
+    # x.shape = [B, 16, 16, 1596]
+    x = pixel_shuffle_mini_block(x, 384, skip4, 1)
+    # x.shape = [B, 32, 32, 32]
+    x = pixel_shuffle_mini_block(x, 192, skip3, 2)
+    # x.shape = [B, 64, 64, 192]
+    x = pixel_shuffle_mini_block(x, 128, skip2, 3)
+    # x.shape = [B, 128, 128, 128]
+    x = pixel_shuffle_mini_block(x, 96, skip1, 4)
+    # x.shape = [B, 256, 256, 96]
+    x = pixel_shuffle_mini_block(x, 64, None, 5)
+    # x.shape = [B, 512, 512, 64]
+    x = layers.Conv2D(RGB_OUTPUT_CHANNEL, (1, 1),
+                      padding='same')(x)
+    # img_input.shape = [B, 512, 512, 3]
+    x = get_act_layer(last_act)(x)
+    return x
+
+
+def upsample_block(x, skip_list, base_act, last_act, class_num):
+
+    # skip1.shape = [B 256, 256, 32]
+    # skip2.shape = [B 128, 128, 64]
+    # skip3.shape = [B 64, 64, 192]
+    # skip4.shape = [B 32, 32, 768]
+    skip1, skip2, skip3, skip4 = skip_list
+
+    def upsample_mini_block(x, block_size, skip, idx):
+        skip_channel_list = [64, 48, 36, 24, 12]
+        x = layers.UpSampling2D(size=(2, 2))(x)
+        if skip is not None:
+            dec_skip = conv2d_bn(skip, skip_channel_list[idx - 1], 1, 1,
+                                 padding="same", strides=(1, 1),
+                                 activation=base_act,
+                                 name=f'seg_feature_projection_{idx}')
+            x = layers.Concatenate()([x, dec_skip])
+        x = conv2d_bn(x, block_size, 3, 3,
+                      padding="same", strides=(1, 1), activation=base_act,
+                      name=f'seg_feature_conv_{idx}')
+        return x
+    # x.shape = [B, 16, 16, 1596]
+    x = upsample_mini_block(x, 384, skip4, 1)
+    # x.shape = [B, 32, 32, 32]
+    x = upsample_mini_block(x, 192, skip3, 2)
+    # x.shape = [B, 64, 64, 192]
+    x = upsample_mini_block(x, 128, skip2, 3)
+    # x.shape = [B, 128, 128, 128]
+    x = upsample_mini_block(x, 96, skip1, 4)
+    # x.shape = [B, 256, 256, 96]
+    x = upsample_mini_block(x, 64, None, 5)
+    # x.shape = [B, 512, 512, 64]
+    x = layers.Conv2D(class_num, (1, 1),
+                      padding='same')(x)
+    # img_input.shape = [B, 512, 512, 3]
+    x = get_act_layer(last_act)(x)
+    return x
+
+
 ############################################
 ################## NOTIFY ##################
 ############################################
@@ -295,13 +385,27 @@ resnet50_skip_connect_shape = [(None, 32, 32, 1024), (None, 64, 64, 512),
                                (None, 128, 128, 256), (None, 256, 256, 64)]
 
 
-def ResNet50(input_shape=None, input_tensor=None, weights=None, classes=1000, include_top=True, **kwargs):
-    return ResNet(
-        MODELS_PARAMS['resnet50'],
-        input_shape=input_shape,
-        input_tensor=input_tensor,
-        include_top=include_top,
-        classes=classes,
-        weights=weights,
-        **kwargs
-    )
+def ResNet50(input_shape=(512, 512, 3), class_num=1,
+             base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid", multi_task=False):
+    model_encoder = ResNet(MODELS_PARAMS['resnet50'],
+                           input_shape=input_shape,
+                           input_tensor=None,
+                           include_top=False,
+                           classes=1,
+                           weights=None)
+
+    model_input = model_encoder.input
+    model_output = model_encoder.output
+    skip_list = [model_encoder.get_layer(layer_name).output
+                 for layer_name in resnet50_skip_connect_name[::-1]]
+
+    seg_output = upsample_block(
+        model_output, skip_list, base_act, last_act, class_num)
+    if multi_task:
+        he_output = pixel_shuffle_block(
+            model_output, skip_list, base_act, image_last_act)
+        model = Model(model_input, [he_output, seg_output],
+                      name='resnet50')
+    else:
+        model = Model(model_input, seg_output, name='resnet50')
+    return model

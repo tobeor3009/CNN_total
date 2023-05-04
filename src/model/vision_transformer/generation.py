@@ -429,11 +429,13 @@ def swin_class_gen_2d_base_v3(input_tensor, class_tensor, filter_num_begin, dept
                                   swin_v2=swin_v2,
                                   use_sn=use_sn,
                                   name='{}_swin_down'.format(name))
-    X_skip.append(X)
 
     # Downsampling blocks
     for i in range(depth_ - 1):
         # Patch merging
+        if i > 0:
+            # Store tensors for concat
+            X_skip.append(X)
         if "encode" in add_class_info_position:
             X = tile_concat_1d(X, class_tensor)
         X = transformer_layers.PatchMerging((num_patch_x, num_patch_y),
@@ -461,8 +463,7 @@ def swin_class_gen_2d_base_v3(input_tensor, class_tensor, filter_num_begin, dept
                                       use_sn=use_sn,
                                       name='{}_swin_down{}'.format(name, i + 1))
 
-        # Store tensors for concat
-        X_skip.append(X)
+        
 
     # reverse indexing encoded tensors and hyperparams
     X_skip = X_skip[::-1]
@@ -491,12 +492,13 @@ def swin_class_gen_2d_base_v3(input_tensor, class_tensor, filter_num_begin, dept
         embed_dim = embed_dim // 2
         num_patch_x = num_patch_x * 2
         num_patch_y = num_patch_y * 2
-
-        # Concatenation and linear projection
-        X = layers.concatenate([X, X_decode[i]], axis=-1,
-                               name='{}_concat_{}'.format(name, i))
-        X = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
-                       name='{}_concat_linear_proj_{}'.format(name, i))(X)
+        
+        if i < depth_decode - 1:
+            # Concatenation and linear projection
+            X = layers.concatenate([X, X_decode[i]], axis=-1,
+                                name='{}_concat_{}'.format(name, i))
+            X = DenseLayer(embed_dim, use_bias=False, use_sn=use_sn,
+                        name='{}_concat_linear_proj_{}'.format(name, i))(X)
 
         # Swin Transformer stacks
         X = swin_transformer_stack_2d(X,
