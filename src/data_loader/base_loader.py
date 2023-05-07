@@ -300,7 +300,7 @@ class ClassifyaugmentationPolicy():
         return image_transformed_array
 
 
-class SegaugmentationPolicy():
+class SegAugmentationPolicy():
     def __init__(self,
                  augmentation_proba,
                  augmentation_policy_dict):
