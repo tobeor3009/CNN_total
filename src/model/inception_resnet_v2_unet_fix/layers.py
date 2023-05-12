@@ -34,15 +34,15 @@ def to_pad_tuple(int_or_list_or_tuple):
 
 
 def get_norm_layer(norm, axis=-1, name=None):
-    if norm == "layer":
+    if norm is None:
+        norm_layer = layers.Lambda(lambda x: x)
+    elif norm == "layer":
         norm_layer = layers.LayerNormalization(axis=axis)
     elif norm == "batch":
         norm_layer = layers.BatchNormalization(axis=axis,
                                                scale=False)
     elif norm == "instance":
         norm_layer = InstanceNormalization(axis=axis)
-    elif norm is None:
-        def norm_layer(x): return x
     return norm_layer
 
 

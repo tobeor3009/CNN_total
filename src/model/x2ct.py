@@ -20,16 +20,15 @@ Reference:
       http://arxiv.org/abs/1512.00567) (CVPR 2016)
 """
 import os
-
+import math
 import tensorflow as tf
-from tensorflow.keras import Model
+from tensorflow.keras import Model, Sequential
 from tensorflow.keras import backend
 from tensorflow.keras import layers
 from tensorflow.keras import models
 from tensorflow.keras import utils as keras_utils
-from tensorflow_addons.layers import InstanceNormalization
-from .inception_resnet_v2_unet_fix.layers import get_act_layer
-from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
+from tensorflow_addons.layers import InstanceNormalization, AdaptiveAveragePooling2D
+from .inception_resnet_v2_unet_fix.layers import get_act_layer, get_norm_layer
 
 
 def get_submodules():
@@ -43,7 +42,7 @@ def conv2d_bn(x,
               padding='same',
               strides=(1, 1),
               normliazation="LayerNormalization",
-              activation=BASE_ACT,
+              activation="gelu",
               name=None):
     if name is not None:
         normalization_name = name + '_in'
@@ -280,10 +279,204 @@ def inceptionv3(input_tensor):
     return x, skip_list
 
 
-def x2ct_model(input_shape):
+class Pixelshuffle3D(layers.Layer):
+    def __init__(self, kernel_size=2):
+        super().__init__()
+        self.kernel_size = self.to_tuple(kernel_size)
+
+    # k: kernel, r: resized, o: original
+    def call(self, x):
+        _, o_h, o_w, o_z, o_c = backend.int_shape(x)
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (k_h * k_w * k_z)
+
+        r_x = layers.Reshape((o_h, o_w, o_z, r_c, k_h, k_w, k_z))(x)
+        r_x = layers.Permute((1, 5, 2, 6, 3, 7, 4))(r_x)
+        r_x = layers.Reshape((r_h, r_w, r_z, r_c))(r_x)
+
+        return r_x
+
+    def compute_output_shape(self, input_shape):
+        _, o_h, o_w, o_z, o_c = input_shape
+        k_h, k_w, k_z = self.kernel_size
+        r_h, r_w, r_z = o_h * k_h, o_w * k_w, o_z * k_z
+        r_c = o_c // (r_h * r_w * r_z)
+
+        return (r_h, r_w, r_z, r_c)
+
+    def to_tuple(self, int_or_tuple):
+        if isinstance(int_or_tuple, int):
+            convert_tuple = (int_or_tuple, int_or_tuple, int_or_tuple)
+        else:
+            convert_tuple = int_or_tuple
+        return convert_tuple
+
+
+class SkipUpsample3DProgressive(layers.Layer):
+    def __init__(self, filters, out_filters, z,
+                 norm="instance", activation="gelu"):
+        super().__init__()
+        self.act_layer = get_act_layer(activation)
+        self.norm_layer = get_norm_layer(norm)
+        self.upsample_z_num = int(math.log(z, 2))
+        for idx in range(self.upsample_z_num):
+
+            if idx == 0:
+                conv_kernel_size = (1, 3, 3)
+            elif idx < self.upsample_z_num - 3:
+                conv_kernel_size = 1
+            elif idx < self.upsample_z_num - 1:
+                conv_kernel_size = (3, 1, 1)
+            elif idx == self.upsample_z_num - 1:
+                conv_kernel_size = 3
+
+            if idx in [0, self.upsample_z_num - 1]:
+                upsample_block = Pixelshuffle3D(kernel_size=(2, 1, 1))
+            else:
+                upsample_block = layers.UpSampling3D(size=(2, 1, 1))
+            conv_block = layers.Conv3D(filters, conv_kernel_size, padding="same",
+                                       use_bias=False)
+            setattr(self, f"upsample_{idx}", upsample_block)
+            setattr(self, f"conv_{idx}", conv_block)
+        self.last_conv = layers.Conv3D(out_filters, 1, padding="same",
+                                       use_bias=False)
+
+    def build(self, input_shape):
+        _, self.H, self.W, self.C = input_shape
+
+    def call(self, x):
+        # x.shape = [B, ct_size, ct_size, C]
+        x = x[:, None]
+        # x.shape = [B, 1, ct_size, ct_size, C]
+        for idx in range(self.upsample_z_num):
+            x = getattr(self, f"upsample_{idx}")(x)
+            x = getattr(self, f"conv_{idx}")(x)
+            x = self.norm_layer(x)
+            x = self.act_layer(x)
+        x = self.last_conv(x)
+        return x
+
+
+class SkipUpsample3DTile(layers.Layer):
+    def __init__(self, filters, out_filters, z,
+                 norm="instance", activation="gelu"):
+        super().__init__()
+        self.z = z
+        compress_layer_list = [
+            layers.Conv2D(filters, kernel_size=1, padding="same",
+                          strides=1, use_bias=False),
+            get_norm_layer(norm),
+            get_act_layer(activation)
+        ]
+        self.compress_block = Sequential(compress_layer_list)
+        self.conv_block = Sequential([
+            layers.Conv3D(out_filters, kernel_size=3, padding="same",
+                          strides=1, use_bias=False)
+        ])
+
+    def build(self, input_shape):
+        _, self.H, self.W, self.C = input_shape
+
+    def call(self, input_tensor):
+        conv = self.compress_block(input_tensor)
+        # shape: [B H W 1 C]
+        conv = backend.expand_dims(conv, axis=1)
+        # shape: [B H W Z C]
+        conv = backend.repeat_elements(conv, rep=self.z, axis=1)
+        conv = self.conv_block(conv)
+        return conv
+
+
+class SkipUpsample3DDetail(layers.Layer):
+    def __init__(self, filters, out_filters, z,
+                 norm="instance", activation="gelu"):
+        super().__init__()
+        self.block_2d_3d_progressive = SkipUpsample3DProgressive(filters, out_filters,
+                                                                 z, norm, activation)
+        self.block_2d_3d_tile = SkipUpsample3DTile(filters, out_filters,
+                                                   z, norm, activation)
+
+    def build(self, input_shape):
+        _, self.H, self.W, self.C = input_shape
+
+    def call(self, input_tensor):
+        tensor_2d_3d_progressive = self.block_2d_3d_progressive(input_tensor)
+        tensor_2d_3d_tile = self.block_2d_3d_tile(input_tensor)
+        return backend.concatenate([tensor_2d_3d_progressive,
+                                    tensor_2d_3d_tile], axis=-1)
+
+
+def x2ct_model(input_shape, last_act, last_channel_num=1,
+               block_2d_3d="progressive", decode_filter_list=[512, 256, 128, 64]):
     model_input = layers.Input(input_shape)
-    
+
     encoded, skip_list = inceptionv3(model_input)
-    len_decode = len(skip_list)
-    for idx in range(len_decode + 1):
-         
+    len_decode = len(skip_list) + 1
+    _, h, w, filters = backend.int_shape(encoded)
+
+    if block_2d_3d == "progressive":
+        get_block_2d_3d = SkipUpsample3DProgressive
+    elif block_2d_3d == "tile":
+        get_block_2d_3d = SkipUpsample3DTile
+    elif block_2d_3d == "detail":
+        get_block_2d_3d = SkipUpsample3DDetail
+
+    decoded = get_block_2d_3d(filters, filters, h)(encoded)
+
+    for idx in range(len_decode):
+        decode_filter = decode_filter_list[idx]
+        if idx < len_decode - 1:
+            skip = skip_list[idx]
+            _, h, w, skip_filters = backend.int_shape(skip)
+            skip = get_block_2d_3d(skip_filters, decode_filter // 2, h)(skip)
+            decoded = layers.UpSampling3D(size=(2, 2, 2))(decoded)
+            decoded = layers.Concatenate(axis=-1)([decoded, skip])
+            norm = "instance"
+            act = "gelu"
+        else:
+            decoded = Pixelshuffle3D(kernel_size=(2, 2, 2))(decoded)
+            norm = None
+            act = None
+        decoded = layers.Conv3D(decode_filter, 3, 1, padding="same",
+                                use_bias=False)(decoded)
+        decoded = get_norm_layer(norm)(decoded)
+        decoded = get_act_layer(act)(decoded)
+    decoded = layers.Conv3D(last_channel_num, 3, 1, padding="same",
+                            use_bias=False)(decoded)
+    decoded = get_act_layer(last_act)(decoded)
+
+    return Model(model_input, decoded)
+
+
+def disc_model(input_shape, last_act):
+    model_input = layers.Input(input_shape)
+
+    encoded, skip_list = inceptionv3(model_input)
+
+    _, h, w, encoded_filter = backend.int_shape(encoded)
+    len_skip = len(skip_list)
+    skip_list = skip_list[::-1]
+    for idx, skip in enumerate(skip_list):
+        encoded_filter //= 2
+        if idx < len_skip - 1:
+            norm = "instance"
+            act = "gelu"
+        else:
+            norm = None
+            act = None
+        _, _, _, skip_filter = backend.int_shape(skip)
+        skip = AdaptiveAveragePooling2D((h, w))(skip)
+        skip = layers.Conv2D(encoded_filter // 2, 1, use_bias=False)(skip)
+        encoded = layers.Concatenate(axis=-1)([encoded, skip])
+        encoded = layers.Conv2D(encoded_filter, 3, 1, padding="same",
+                                use_bias=False)(encoded)
+        encoded = get_norm_layer(norm)(encoded)
+        encoded = get_act_layer(act)(encoded)
+
+    encoded_filter //= 2
+    encoded = layers.Conv2D(encoded_filter, 3, 1, use_bias=False)(encoded)
+    encoded = layers.Conv2D(1, 1, 1, use_bias=False)(encoded)
+    encoded = get_act_layer(last_act)(encoded)
+
+    return Model(model_input, encoded)
