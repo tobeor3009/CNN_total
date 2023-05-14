@@ -23,7 +23,7 @@ This repository contains a collection of various libraries and utility functions
   - util
     - pathology
       - vahadane
-        - seprated h and e
+        - seperate h and e
         - stain normalization
       - xray_ct
         - ct_resizing
