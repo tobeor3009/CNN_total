@@ -9,6 +9,7 @@ datasets/
 images/
 temp/
 
+*/__pycache__
 *.pyc
 *.ipynb
 *.hdf5
@@ -17,20 +18,14 @@ temp/
 *.ink
 *.db
 *.h5
+*.hdf5
 *.png
+*.ipynb*
+*.npy
+*.txt
 
-temp.py
+*temp*
 config.json
+./*.py
 
-!AnoGan_custom_gpu_0.ipynb
-!cycle_gan_resnet_block_gpu_0.ipynb
-!cycle_gan_inceptionv3_gpu_0.ipynb
-!cycle_gan_custom_gpu_0.ipynb
-!classification_inceptionv3_gpu_0.ipynb
-!classification_custom_gpu_0.ipynb
-!segmenation_inceptionv3_unet_gpu_0.ipynb
-!segmenation_deeplabv3_gpu_0.ipynb
-!segmenation_auto_curation_inceptionv3_unet_gpu_0.ipynb
-!star_gan_inceptionv3_gpu_0.ipynb
-!check_augmentations.ipynb
-!multi_label_incetpionv3_gpu_0.ipynb
+!./requirements.txt
