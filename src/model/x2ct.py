@@ -392,9 +392,9 @@ class SkipUpsample3DDetail(layers.Layer):
     def __init__(self, filters, out_filters, z,
                  norm="instance", activation="gelu"):
         super().__init__()
-        self.block_2d_3d_progressive = SkipUpsample3DProgressive(filters, out_filters,
+        self.block_2d_3d_progressive = SkipUpsample3DProgressive(filters, out_filters // 2,
                                                                  z, norm, activation)
-        self.block_2d_3d_tile = SkipUpsample3DTile(filters, out_filters,
+        self.block_2d_3d_tile = SkipUpsample3DTile(filters, out_filters // 2,
                                                    z, norm, activation)
 
     def build(self, input_shape):
@@ -408,28 +408,42 @@ class SkipUpsample3DDetail(layers.Layer):
 
 
 def x2ct_model(input_shape, last_act, last_channel_num=1,
-               block_2d_3d="progressive", decode_filter_list=[512, 256, 128, 64]):
+               block_2d_3d=["progressive", "tile"],
+               decode_init_filters=512, decode_filter_list=[512, 256, 128, 64]):
     model_input = layers.Input(input_shape)
 
     encoded, skip_list = inceptionv3(model_input)
     len_decode = len(skip_list) + 1
     _, h, w, filters = backend.int_shape(encoded)
 
-    if block_2d_3d == "progressive":
+    if block_2d_3d[0] == "progressive":
         get_block_2d_3d = SkipUpsample3DProgressive
-    elif block_2d_3d == "tile":
+    elif block_2d_3d[0] == "tile":
         get_block_2d_3d = SkipUpsample3DTile
-    elif block_2d_3d == "detail":
+    elif block_2d_3d[0] == "detail":
         get_block_2d_3d = SkipUpsample3DDetail
 
-    decoded = get_block_2d_3d(filters, filters, h)(encoded)
+    if block_2d_3d[1] == "progressive":
+        get_skip_block_2d_3d = SkipUpsample3DProgressive
+    elif block_2d_3d[1] == "tile":
+        get_skip_block_2d_3d = SkipUpsample3DTile
+    elif block_2d_3d[1] == "detail":
+        get_skip_block_2d_3d = SkipUpsample3DDetail
+
+    decoded = layers.Conv2D(decode_init_filters, 1,
+                            padding="same")(encoded)
+    decoded = get_block_2d_3d(decode_init_filters,
+                              decode_init_filters, h)(decoded)
 
     for idx in range(len_decode):
         decode_filter = decode_filter_list[idx]
         if idx < len_decode - 1:
             skip = skip_list[idx]
             _, h, w, skip_filters = backend.int_shape(skip)
-            skip = get_block_2d_3d(skip_filters, decode_filter // 2, h)(skip)
+
+            skip = layers.Conv2D(decode_filter // 2, 1, padding="same")(skip)
+            skip = get_skip_block_2d_3d(skip_filters,
+                                        decode_filter // 2, h)(skip)
             decoded = layers.UpSampling3D(size=(2, 2, 2))(decoded)
             decoded = layers.Concatenate(axis=-1)([decoded, skip])
             norm = "instance"
@@ -467,8 +481,9 @@ def disc_model(input_shape, last_act):
             act = None
         _, _, _, skip_filter = backend.int_shape(skip)
         skip = AdaptiveAveragePooling2D((h, w))(skip)
-        skip = layers.Conv2D(encoded_filter // 2, 1, use_bias=False)(skip)
-        encoded = layers.Concatenate(axis=-1)([encoded, skip])
+        encoded = layers.Conv2D(skip_filter,
+                                1, use_bias=False)(encoded)
+        encoded = layers.Add()([encoded, skip])
         encoded = layers.Conv2D(encoded_filter, 3, 1, padding="same",
                                 use_bias=False)(encoded)
         encoded = get_norm_layer(norm)(encoded)
@@ -476,6 +491,40 @@ def disc_model(input_shape, last_act):
 
     encoded_filter //= 2
     encoded = layers.Conv2D(encoded_filter, 3, 1, use_bias=False)(encoded)
+    encoded = layers.Conv2D(1, 1, 1, use_bias=False)(encoded)
+    encoded = get_act_layer(last_act)(encoded)
+
+    return Model(model_input, encoded)
+
+
+def disc_model(input_shape, last_act):
+    model_input = layers.Input(input_shape)
+
+    encoded, skip_list = inceptionv3(model_input)
+
+    _, h, w, encoded_filter = backend.int_shape(encoded)
+    len_skip = len(skip_list)
+    skip_list = skip_list[::-1]
+    for idx, skip in enumerate(skip_list):
+        encoded_filter //= 2
+        if idx < len_skip - 1:
+            norm = "instance"
+            act = "gelu"
+        else:
+            norm = None
+            act = None
+        _, _, _, skip_filter = backend.int_shape(skip)
+        skip = AdaptiveAveragePooling2D((h, w))(skip)
+        encoded = layers.Conv2D(skip_filter,
+                                1, use_bias=False)(encoded)
+        encoded = layers.Add()([encoded, skip])
+        encoded = layers.Conv2D(skip_filter, 3, 1, padding="same",
+                                use_bias=False)(encoded)
+        encoded = get_norm_layer(norm)(encoded)
+        encoded = get_act_layer(act)(encoded)
+
+    encoded_filter //= 2
+    encoded = layers.Conv2D(skip_filter, 3, 1, use_bias=False)(encoded)
     encoded = layers.Conv2D(1, 1, 1, use_bias=False)(encoded)
     encoded = get_act_layer(last_act)(encoded)
 
