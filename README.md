@@ -35,3 +35,10 @@ But The files under the 'src/model' directory should be easy to use as they retu
 
 ## Why should you use this repository?
 If you become proficient in handling this code, you can quickly carry out various tasks or experiments just by adjusting parameters.
+
+## Limitation
+I am considering creating a web page for documentation because the current documentation for this repository is not well-organized.
+
+## To BE Done
+- Make DocString.
+- Create Document Page for this repository.
