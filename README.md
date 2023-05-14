@@ -26,7 +26,6 @@ This repository contains a collection of various libraries and utility functions
         - seperate h and e
         - stain normalization
       - xray_ct
-        - ct_resizing
         - fastmarching filter
 
 ## Installation Or How to use it.
