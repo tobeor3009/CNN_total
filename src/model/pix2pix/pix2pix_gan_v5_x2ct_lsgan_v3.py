@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.models import Model
+from tensorflow.keras import backend
 from tensorflow.keras.losses import MeanAbsoluteError
 
 from ..util.binary_crossentropy import to_real_loss, to_fake_loss
@@ -14,12 +15,16 @@ class Pix2PixGan(Model):
         self,
         generator,
         discriminator,
+        to_real_loss=to_real_loss,
+        to_fake_loss=to_fake_loss,
         lambda_image=10.0,
         lambda_disc=0.1
     ):
         super(Pix2PixGan, self).__init__()
         self.generator = generator
         self.discriminator = discriminator
+        self.to_real_loss = to_real_loss
+        self.to_fake_loss = to_fake_loss
         self.lambda_image = lambda_image
         self.lambda_disc = lambda_disc
 
@@ -71,30 +76,31 @@ class Pix2PixGan(Model):
         #                             1. Preprocess input data                                #
         # =================================================================================== #
         real_x, real_y = batch_data
-        real_x = [real_x[..., 0:1], real_x[..., 1:]]
-        # disc_real_input = backend.concatenate([real_y, real_y])
-
-        # disc_real_ratio = 0.8 - disc_real_acc
-        # disc_real_ratio = tf.clip_by_value(disc_real_ratio, 0, 1)
-        # disc_fake_ratio = 0.8 - disc_fake_acc
-        # disc_fake_ratio = tf.clip_by_value(disc_fake_ratio, 0, 1)
+        real_ap_y = backend.mean(real_y, axis=2)
+        real_lat_y = backend.mean(real_y, axis=3)
+        real_disc_y = backend.concatenate([real_ap_y,
+                                           real_lat_y], axis=-1)
         # =================================================================================== #
         #                             2. Train the discriminator                              #
         # =================================================================================== #
         with tf.GradientTape(persistent=True) as tape:
             # another domain mapping
             fake_y = self.generator(real_x, training=True)
+            fake_ap_y = backend.mean(fake_y, axis=2)
+            fake_lat_y = backend.mean(fake_y, axis=3)
+            fake_disc_y = backend.concatenate([fake_ap_y,
+                                               fake_lat_y], axis=-1)
             # discriminator loss
-            disc_real_y = self.discriminator(real_y, training=True)
-            disc_fake_y = self.discriminator(fake_y, training=True)
+            disc_real_y = self.discriminator(real_disc_y, training=True)
+            disc_fake_y = self.discriminator(fake_disc_y, training=True)
 
-            disc_real_loss = to_real_loss(disc_real_y)
-            disc_fake_loss = to_fake_loss(disc_fake_y)
+            disc_real_loss = self.to_real_loss(disc_real_y)
+            disc_fake_loss = self.to_fake_loss(disc_fake_y)
             disc_loss = (disc_real_loss + disc_fake_loss) / 2
 
             gen_loss_in_real_y = self.image_loss(real_y, fake_y)
-            gen_disc_fake_y = self.discriminator(fake_y, training=False)
-            gen_adverserial_loss = to_real_loss(gen_disc_fake_y)
+            gen_disc_fake_y = self.discriminator(fake_disc_y, training=False)
+            gen_adverserial_loss = self.to_real_loss(gen_disc_fake_y)
             total_generator_loss = gen_loss_in_real_y * self.lambda_image + \
                 gen_adverserial_loss * self.lambda_disc
 

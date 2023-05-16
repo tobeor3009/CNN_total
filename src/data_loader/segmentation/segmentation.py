@@ -127,7 +127,8 @@ class SegDataloader(BaseIterDataLoader):
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
-                 dtype="float32"):
+                 dtype="float32",
+                 verbose=False):
         self.data_getter = SegDataGetter(image_path_list=image_path_list,
                                          mask_path_list=mask_path_list,
                                          imread_policy_dict=imread_policy_dict,
@@ -154,16 +155,16 @@ class SegDataloader(BaseIterDataLoader):
                                               batch_size=self.batch_size,
                                               num_workers=num_workers,
                                               collate_fn=seg_collate_fn,
-                                              shuffle=self.shuffle
+                                              shuffle=self.shuffle,
+                                              verbose=verbose
                                               )
         self.print_data_info()
         self.on_epoch_end()
 
     def __iter__(self):
-        return lazy_cycle(self.data_pool)
-
-    def __next__(self):
-        return next(self.data_pool)
+        while True:
+            for data in self.data_pool:
+                yield data
 
     def __len__(self):
         return math.ceil(self.data_num / self.batch_size)

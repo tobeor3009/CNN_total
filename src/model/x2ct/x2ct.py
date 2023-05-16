@@ -26,7 +26,7 @@ from tensorflow.keras import layers
 from tensorflow.keras import models
 from tensorflow.keras import utils as keras_utils
 from tensorflow_addons.layers import InstanceNormalization, AdaptiveAveragePooling2D
-from ..inception_resnet_v2_unet_fix.layers import get_act_layer
+from ..inception_resnet_v2_unet_fix.layers import get_act_layer, get_norm_layer
 
 
 def get_submodules():

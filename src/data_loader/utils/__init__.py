@@ -145,17 +145,18 @@ def default_collate_fn(data_object_list):
     return batch_image_array, batch_label_array
 
 
-def consumer_fn(data_getter, idx_queue, output_queue):
+def consumer_fn(data_getter, idx_queue, output_queue, batch_size):
     inter_idx = 0
     while True:
         inter_idx += 1
         try:
+            if output_queue.qsize() > batch_size * 10:
+                sleep(WAIT_TIME)
+                continue
             idx = idx_queue.get(timeout=0)
         except Empty:
             sleep(WAIT_TIME)
             continue
-        if idx is None:
-            break
         data = (idx, data_getter[idx])
         output_queue.put(data)
 
@@ -167,10 +168,14 @@ class BaseProcessPool():
         self.reset_states()
         return self
 
+    def put_idx_to_queue(self):
+        for idx in self.idx_list:
+            self.idx_queue.put(idx)
+
     def reset_states(self):
         self.batch_idx = 0
-        self.batch_idx_list = None
         self.shuffle_idx()
+        self.put_idx_to_queue()
 
     def shuffle_idx(self):
         if self.shuffle:
@@ -185,29 +190,26 @@ class SingleProcessPool(BaseProcessPool):
         self.shuffle = shuffle
         self.data_num = len(data_getter)
         self.idx_list = list(range(self.data_num))
-        self.shuffle_idx()
         self.batch_num = math.ceil(self.data_num / batch_size)
         self.batch_size = batch_size
+
         self.batch_idx = 0
-        self.batch_idx_list = None
+        self.shuffle_idx()
 
-    def __next__(self):
-        if self.batch_idx == self.batch_num:
-            self.reset_states()
-            raise StopIteration
-        start_idx = self.batch_size * self.batch_idx
-        end_idx = min(start_idx + self.batch_size, self.data_num)
-        batch_idx_list = self.idx_list[start_idx: end_idx]
+    def __iter__(self):
+        while self.batch_idx < self.batch_num:
+            start_idx = self.batch_size * self.batch_idx
+            end_idx = min(start_idx + self.batch_size, self.data_num)
+            batch_idx_list = self.idx_list[start_idx: end_idx]
 
-        data_object_list = []
-        for batch_idx in batch_idx_list:
-            data_object = self.data_getter[batch_idx]
-            data_object_list.append(data_object)
-        batch_data_tuple = self.collate_fn(data_object_list)
+            data_object_list = []
+            for batch_idx in batch_idx_list:
+                data_object = self.data_getter[batch_idx]
+                data_object_list.append(data_object)
 
-        self.batch_idx_list = batch_idx_list
-        self.batch_idx += 1
-        return batch_data_tuple
+            batch_data_tuple = self.collate_fn(data_object_list)
+            self.batch_idx += 1
+            yield batch_data_tuple
 
     def __len__(self):
         return self.batch_num
@@ -215,57 +217,66 @@ class SingleProcessPool(BaseProcessPool):
 
 class MultiProcessPool(BaseProcessPool):
     def __init__(self, data_getter, batch_size, num_workers,
-                 collate_fn=default_collate_fn, shuffle=False):
+                 collate_fn=default_collate_fn, shuffle=False, verbose=False):
         self.data_getter = data_getter
         self.collate_fn = collate_fn
         self.shuffle = shuffle
         self.data_num = len(data_getter)
         self.idx_list = list(range(self.data_num))
-        self.shuffle_idx()
         self.batch_num = math.ceil(self.data_num / batch_size)
         self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.verbose = verbose
 
-        self.batch_idx = 0
-        self.batch_idx_list = None
+    def __iter__(self):
+        self.start_process()
+        try:
+            while self.batch_idx < self.batch_num:
+                start_idx = self.batch_size * self.batch_idx
+                end_idx = min(start_idx + self.batch_size, self.data_num)
+                current_batch_size = end_idx - start_idx
+                data_object_list = []
+                for _ in range(current_batch_size):
+                    while len(data_object_list) < current_batch_size:
+                        try:
+                            batch_idx, data_object = self.output_queue.get(
+                                timeout=0)
+                            data_object_list.append(data_object)
+                            if self.verbose:
+                                print(batch_idx)
+                        except Empty:
+                            sleep(WAIT_TIME)
+                            continue
 
+                batch_data_tuple = self.collate_fn(data_object_list)
+
+                self.batch_idx += 1
+                yield batch_data_tuple
+        finally:
+            self.terminate_process()
+
+    def start_process(self):
         self.idx_queue = mp.Queue()
         self.output_queue = mp.Queue()
+        self.reset_states()
         self.process_list = []
-        for _ in range(num_workers):
+        for _ in range(self.num_workers):
             process = mp.Process(target=consumer_fn, args=(self.data_getter,
                                                            self.idx_queue,
-                                                           self.output_queue))
+                                                           self.output_queue,
+                                                           self.batch_size))
             process.daemon = True
             process.start()
             self.process_list.append(process)
-
-    def __next__(self):
-        if self.batch_idx == self.batch_num:
-            self.reset_states()
-            raise StopIteration
-        start_idx = self.batch_size * self.batch_idx
-        end_idx = min(start_idx + self.batch_size, self.data_num)
-        current_batch_size = end_idx - start_idx
-        batch_idx_list = self.idx_list[start_idx: end_idx]
-        for batch_idx in batch_idx_list:
-            self.idx_queue.put(batch_idx)
-
-        data_object_list = []
-        for idx in range(current_batch_size):
-            while True:
-                try:
-                    batch_idx, data_object = self.output_queue.get(timeout=0)
-                    break
-                except Empty:
-                    sleep(WAIT_TIME)
-                    continue
-            data_object_list.append(data_object)
-
-        batch_data_tuple = self.collate_fn(data_object_list)
-
-        self.batch_idx_list = batch_idx_list
-        self.batch_idx += 1
-        return batch_data_tuple
-
+        if self.verbose:
+            print("process_start")
+    def terminate_process(self):
+        for process in self.process_list:
+            process.terminate()
+            process.join()
+        self.idx_queue.close()
+        self.output_queue.close()
+        if self.verbose:
+            print("process_terminate")
     def __len__(self):
         return self.batch_num
