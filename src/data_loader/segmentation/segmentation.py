@@ -162,9 +162,19 @@ class SegDataloader(BaseIterDataLoader):
         self.on_epoch_end()
 
     def __iter__(self):
-        while True:
-            for data in self.data_pool:
-                yield data
+        for element in self.data_pool:
+            yield element
+
+    def __next__(self):
+        try:
+            # Get next item from the data_pool
+            return next(self.data_pool)
+        except StopIteration:
+            # If there are no more items, raise an exception to end the iteration
+            raise StopIteration
+        except:
+            self.data_pool.terminate_process()
+            raise
 
     def __len__(self):
         return math.ceil(self.data_num / self.batch_size)

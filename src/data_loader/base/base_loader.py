@@ -156,7 +156,7 @@ class BaseDataLoader(tensorflow.keras.utils.Sequence):
         pass
 
 
-class BaseIterDataLoader(tensorflow.keras.utils.Sequence):
+class BaseIterDataLoader():
 
     def __len__(self):
         return len(self.data_getter) // self.batch_size
