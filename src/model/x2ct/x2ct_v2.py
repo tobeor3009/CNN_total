@@ -323,9 +323,9 @@ class SkipUpsample3DProgressive(layers.Layer):
             if idx == 0:
                 conv_kernel_size = (1, 3, 3)
             elif idx < self.upsample_z_num - 3:
-                conv_kernel_size = 1
+                conv_kernel_size = (2, 3, 3)
             elif idx < self.upsample_z_num - 1:
-                conv_kernel_size = (3, 1, 1)
+                conv_kernel_size = (3, 3, 3)
             elif idx == self.upsample_z_num - 1:
                 conv_kernel_size = 3
 
@@ -333,7 +333,7 @@ class SkipUpsample3DProgressive(layers.Layer):
                 if idx in [0, self.upsample_z_num - 1]:
                     upsample_block = Pixelshuffle3D(kernel_size=(2, 1, 1))
                 else:
-                    upsample_block = layers.UpSampling3D(size=(2, 1, 1))
+                    upsample_block = Pixelshuffle3D(kernel_size=(2, 1, 1))
             else:
                 upsample_block = Pixelshuffle3D(kernel_size=(2, 1, 1))
 

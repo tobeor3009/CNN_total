@@ -162,8 +162,7 @@ class SegDataloader(BaseIterDataLoader):
         self.on_epoch_end()
 
     def __iter__(self):
-        for element in self.data_pool:
-            yield element
+        return lazy_cycle(self.data_pool)
 
     def __next__(self):
         try:

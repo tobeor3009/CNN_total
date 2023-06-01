@@ -55,8 +55,6 @@ brightness_contrast_transform = A.OneOf([
 hist_transform = A.OneOf([
     A.CLAHE(always_apply=True, p=0.5,
             clip_limit=(1, 15), tile_grid_size=(8, 8)),
-    # A.Equalize(always_apply=False, p=0.5,
-    #            mode='cv', by_channels=False),
 ], p=1)
 
 color_transform = A.OneOf([

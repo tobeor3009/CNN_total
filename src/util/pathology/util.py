@@ -295,7 +295,7 @@ def get_seperated_image(image_array, input_channel_num, converted_channel_num, u
     source_w, tissue_h = get_basis_concentraion_matrix(image_array, tissue_mask,
                                                        input_channel_num, converted_channel_num,
                                                        stop_ratio=stop_ratio, max_iter=200,
-                                                       h_lambda=1e-1, use_gpu=use_gpu,
+                                                       h_lambda=1e-2, use_gpu=use_gpu,
                                                        verbose=verbose)
     image_h = get_concentraion_matrix(image_array, source_w, input_channel_num,
                                       stop_ratio=stop_ratio, max_iter=200,

@@ -201,7 +201,6 @@ class ClassifyDataSequence(Sequence):
                  interpolation="bilinear",
                  shuffle=True,
                  class_mode="binary",
-                 dtype="float32"
                  ):
         super().__init__()
         self.data_getter = ClassifyDataGetter(image_path_list=image_path_list,
@@ -215,12 +214,10 @@ class ClassifyDataSequence(Sequence):
                                               target_size=target_size,
                                               interpolation=interpolation,
                                               class_mode=class_mode,
-                                              dtype=dtype
                                               )
         self.data_num = len(self.data_getter)
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.dtype = dtype
         self.print_data_info()
         self.on_epoch_end()
 

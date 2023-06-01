@@ -8,6 +8,7 @@ import SimpleITK as sitk
 import nibabel as nib
 
 
+
 def imread(img_path, channel=None, policy=None):
     extension = os.path.splitext(img_path)[1]
 
@@ -126,8 +127,9 @@ WAIT_TIME = 0.05
 
 
 def lazy_cycle(iterable):
-    for element in iterable:
-        yield element
+    while True:
+        for element in iterable:
+            yield element
 
 
 def default_collate_fn(data_object_list):
@@ -194,6 +196,8 @@ class SingleProcessPool(BaseProcessPool):
         self.shuffle_idx()
 
     def __iter__(self):
+        self.batch_idx = 0
+        self.shuffle_idx()
         while self.batch_idx < self.batch_num:
             start_idx = self.batch_size * self.batch_idx
             end_idx = min(start_idx + self.batch_size, self.data_num)
