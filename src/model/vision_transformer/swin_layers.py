@@ -705,13 +705,14 @@ class WindowAttention3D(layers.Layer):
 class SwinTransformerBlock(layers.Layer):
     def __init__(self, dim, num_patch, num_heads, window_size=7, shift_size=0, num_mlp=1024, act="gelu", norm="layer",
                  qkv_bias=True, qk_scale=None, mlp_drop=0, attn_drop=0, proj_drop=0, drop_path_prob=0,
-                 swin_v2=False, use_sn=False, name=''):
+                 swin_v2=False, use_sn=False, fit_dim=False, name=''):
         super().__init__()
 
         self.dim = dim  # number of input dimensions
         # number of embedded patches; a tuple of  (heigh, width)
         self.num_patch = num_patch
         self.num_heads = num_heads  # number of attention heads
+        self.fit_dim = fit_dim
         if isinstance(window_size, int):
             self.window_size = (window_size, window_size)  # size of window
         else:
@@ -726,6 +727,9 @@ class SwinTransformerBlock(layers.Layer):
 
         norm = None if swin_v2 else norm
         # Layers
+        if self.fit_dim:
+            self.fit_conv = layers.Conv1D(dim, 1, 1,
+                                          padding="same", use_bias=False)
         self.norm1 = get_norm_layer(norm, name='{}_norm1'.format(self.prefix))
         self.attn = WindowAttention(dim, window_size=self.window_size, num_heads=num_heads,
                                     qkv_bias=qkv_bias, qk_scale=qk_scale,
@@ -788,6 +792,8 @@ class SwinTransformerBlock(layers.Layer):
 
     def call(self, x):
         H, W = self.num_patch
+        if self.fit_dim:
+            x = self.fit_conv(x)
         B, L, C = x.get_shape().as_list()
         num_window_elements = np.prod(self.window_size)
         # Checking num_path and tensor sizes

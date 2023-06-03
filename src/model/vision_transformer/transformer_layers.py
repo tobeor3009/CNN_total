@@ -462,17 +462,10 @@ class PatchExpanding3D(layers.Layer):
         self.return_vector = return_vector
         self.norm = get_norm_layer(norm)
         self.swin_v2 = swin_v2
-        self.upsample_layer = layers.UpSampling3D(size=upsample_rate)
-        self.upsample_linear_trans = Conv3DLayer(embed_dim // 2,
-                                                 kernel_size=1, use_bias=False, use_sn=use_sn,
-                                                 name='{}_upsample_linear_trans'.format(name))
-        self.pixel_shuffle_linear_trans = Conv3DLayer((np.prod(upsample_rate) ** 2) * embed_dim,
-                                                      kernel_size=1, use_bias=False, use_sn=use_sn,
-                                                      name='{}_pixel_shuffle_linear_trans'.format(name))
         self.pixel_shuffle_3d = Pixelshuffle3D(kernel_size=upsample_rate)
-        self.concat_linear_trans = Conv3DLayer(embed_dim // 2,
-                                               kernel_size=1, use_bias=False, use_sn=use_sn,
-                                               name='{}_concat_linear_trans'.format(name))
+        self.linear_trans = Conv3DLayer(embed_dim // 2,
+                                        kernel_size=1, use_bias=False, use_sn=use_sn,
+                                        name='{}_pixel_shuffle_linear_trans'.format(name))
 
         self.prefix = name
 
@@ -484,20 +477,14 @@ class PatchExpanding3D(layers.Layer):
         assert (L == H * W * Z), 'input feature has wrong size'
 
         x = tf.reshape(x, (-1, Z, H, W, C))
-
-        upsample = self.upsample_linear_trans(x)
-        upsample = self.upsample_layer(upsample)
-
-        pixel_shuffle = self.pixel_shuffle_linear_trans(x)
         # rearange depth to number of patches
-        pixel_shuffle = self.pixel_shuffle_3d(pixel_shuffle)
-        x = tf.concat([upsample, pixel_shuffle], axis=-1)
+        x = self.pixel_shuffle_3d(x)
         if self.swin_v2:
-            x = self.concat_linear_trans(x)
+            x = self.linear_trans(x)
             x = self.norm(x)
         else:
             x = self.norm(x)
-            x = self.concat_linear_trans(x)
+            x = self.linear_trans(x)
 
         if self.return_vector:
             # Convert aligned patches to a patch sequence
