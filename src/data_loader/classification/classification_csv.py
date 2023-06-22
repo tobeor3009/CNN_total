@@ -138,7 +138,6 @@ class ClassifyDataloader(BaseIterDataLoader):
         self.data_num = len(self.data_getter)
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.dtype = dtype
         if num_workers == 1:
             self.data_pool = SingleProcessPool(data_getter=self.data_getter,
                                                batch_size=self.batch_size,

@@ -398,18 +398,18 @@ def inceptionv3(input_tensor, block_size,
     num_patch_y //= 2
 
     # mixed 9: 8 x 8 x 2048
-    for layer_idx, idx in enumerate(range(25, 26)):
-        branch1x1 = swin_layers.SwinTransformerBlock(block_size * 20, (num_patch_x, num_patch_y), num_heads=8,
+    for layer_idx, idx in enumerate(range(25, 28)):
+        branch1x1 = swin_layers.SwinTransformerBlock(block_size * 40, (num_patch_x, num_patch_y), num_heads=8,
                                                      window_size=2, shift_size=1, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                      swin_v2=swin_v2, fit_dim=True, name=f"depth_4_{idx}_1")(x)
 
-        branch3x3 = swin_layers.SwinTransformerBlock(block_size * 24, (num_patch_x, num_patch_y), num_heads=8,
+        branch3x3 = swin_layers.SwinTransformerBlock(block_size * 48, (num_patch_x, num_patch_y), num_heads=8,
                                                      window_size=2, shift_size=1, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                      swin_v2=swin_v2, fit_dim=True, name=f"depth_4_{idx}_2")(x)
-        branch3x3_1 = swin_layers.SwinTransformerBlock(block_size * 24, (num_patch_x, num_patch_y), num_heads=4,
+        branch3x3_1 = swin_layers.SwinTransformerBlock(block_size * 48, (num_patch_x, num_patch_y), num_heads=4,
                                                        window_size=4, shift_size=2, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                        swin_v2=swin_v2, name=f"depth_4_{idx}_3")(branch3x3)
-        branch3x3_2 = swin_layers.SwinTransformerBlock(block_size * 24, (num_patch_x, num_patch_y), num_heads=16,
+        branch3x3_2 = swin_layers.SwinTransformerBlock(block_size * 48, (num_patch_x, num_patch_y), num_heads=16,
                                                        window_size=4, shift_size=2, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                        swin_v2=swin_v2, name=f"depth_4_{idx}_4")(branch3x3)
         branch3x3 = layers.concatenate(
@@ -417,23 +417,23 @@ def inceptionv3(input_tensor, block_size,
             axis=-1,
             name='mixed9_' + str(idx))
 
-        branch3x3dbl = swin_layers.SwinTransformerBlock(block_size * 28, (num_patch_x, num_patch_y), num_heads=8,
+        branch3x3dbl = swin_layers.SwinTransformerBlock(block_size * 56, (num_patch_x, num_patch_y), num_heads=8,
                                                         window_size=2, shift_size=1, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                         swin_v2=swin_v2, fit_dim=True, name=f"depth_4_{idx}_5")(x)
-        branch3x3dbl = swin_layers.SwinTransformerBlock(block_size * 28, (num_patch_x, num_patch_y), num_heads=8,
+        branch3x3dbl = swin_layers.SwinTransformerBlock(block_size * 56, (num_patch_x, num_patch_y), num_heads=8,
                                                         window_size=4, shift_size=2, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                         swin_v2=swin_v2, name=f"depth_4_{idx}_6")(branch3x3dbl)
-        branch3x3dbl_1 = swin_layers.SwinTransformerBlock(block_size * 28, (num_patch_x, num_patch_y), num_heads=4,
+        branch3x3dbl_1 = swin_layers.SwinTransformerBlock(block_size * 56, (num_patch_x, num_patch_y), num_heads=4,
                                                           window_size=4, shift_size=2, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                           swin_v2=swin_v2, name=f"depth_4_{idx}_7")(branch3x3dbl)
-        branch3x3dbl_2 = swin_layers.SwinTransformerBlock(block_size * 28, (num_patch_x, num_patch_y), num_heads=16,
+        branch3x3dbl_2 = swin_layers.SwinTransformerBlock(block_size * 56, (num_patch_x, num_patch_y), num_heads=16,
                                                           window_size=4, shift_size=2, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                           swin_v2=swin_v2, name=f"depth_4_{idx}_8")(branch3x3dbl)
         branch3x3dbl = layers.concatenate([branch3x3dbl_1,
                                            branch3x3dbl_2], axis=-1)
 
         branch_pool = avg_pool(x, (num_patch_x, num_patch_y), strides=1)
-        branch_pool = swin_layers.SwinTransformerBlock(block_size * 12, (num_patch_x, num_patch_y), num_heads=4,
+        branch_pool = swin_layers.SwinTransformerBlock(block_size * 24, (num_patch_x, num_patch_y), num_heads=4,
                                                        window_size=2, shift_size=1, num_mlp=num_mlp, act=act, norm=NORM_LAYER,
                                                        swin_v2=swin_v2, fit_dim=True, name=f"depth_4_{idx}_9")(x)
         x = layers.concatenate(

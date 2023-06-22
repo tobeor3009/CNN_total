@@ -48,7 +48,7 @@ def get_norm_layer(norm, axis=-1, name=None):
 
 def get_act_layer(activation, name=None):
     if activation is None:
-        def act_layer(x): return x
+        act_layer = InstanceNormalization(axis=-1, name=name)
     elif activation == 'relu':
         act_layer = layers.Activation(tf.nn.relu6, name=name)
     elif activation == 'leakyrelu':

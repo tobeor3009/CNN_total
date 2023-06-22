@@ -64,7 +64,7 @@ def conv2d_bn(x,
     return x
 
 
-def inceptionv3(input_tensor):
+def inceptionv3(input_tensor, block_size=16):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
 
@@ -73,7 +73,7 @@ def inceptionv3(input_tensor):
     else:
         channel_axis = 3
 
-    x = conv2d_bn(input_tensor, 32, 3, 3, strides=(2, 2),
+    x = conv2d_bn(input_tensor, block_size * 2, 3, 3, strides=(2, 2),
                   padding='same', name='pooling1')
     x = conv2d_bn(x, 64, 3, 3, padding='same')
     # skip1.shape = [B 256 256 64]
@@ -86,57 +86,57 @@ def inceptionv3(input_tensor):
     x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
 
     # mixed 0: 35 x 35 x 256
-    branch1x1 = conv2d_bn(x, 64, 1, 1)
+    branch1x1 = conv2d_bn(x, block_size * 4, 1, 1)
 
-    branch5x5 = conv2d_bn(x, 48, 1, 1)
-    branch5x5 = conv2d_bn(branch5x5, 64, 5, 5)
+    branch5x5 = conv2d_bn(x, block_size * 3, 1, 1)
+    branch5x5 = conv2d_bn(branch5x5, block_size * 4, 5, 5)
 
-    branch3x3dbl = conv2d_bn(x, 64, 1, 1)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
+    branch3x3dbl = conv2d_bn(x, block_size * 4, 1, 1)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
 
     branch_pool = layers.AveragePooling2D((3, 3),
                                           strides=(1, 1),
                                           padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 32, 1, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 2, 1, 1)
     x = layers.concatenate(
         [branch1x1, branch5x5, branch3x3dbl, branch_pool],
         axis=channel_axis,
         name='mixed0')
 
     # mixed 1: 35 x 35 x 288
-    branch1x1 = conv2d_bn(x, 64, 1, 1)
+    branch1x1 = conv2d_bn(x, block_size * 4, 1, 1)
 
-    branch5x5 = conv2d_bn(x, 48, 1, 1)
-    branch5x5 = conv2d_bn(branch5x5, 64, 5, 5)
+    branch5x5 = conv2d_bn(x, block_size * 3, 1, 1)
+    branch5x5 = conv2d_bn(branch5x5, block_size * 4, 5, 5)
 
-    branch3x3dbl = conv2d_bn(x, 64, 1, 1)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
+    branch3x3dbl = conv2d_bn(x, block_size * 4, 1, 1)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
 
     branch_pool = layers.AveragePooling2D((3, 3),
                                           strides=(1, 1),
                                           padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 64, 1, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 4, 1, 1)
     x = layers.concatenate(
         [branch1x1, branch5x5, branch3x3dbl, branch_pool],
         axis=channel_axis,
         name='mixed1')
 
     # mixed 2: 35 x 35 x 288
-    branch1x1 = conv2d_bn(x, 64, 1, 1)
+    branch1x1 = conv2d_bn(x, block_size * 4, 1, 1)
 
-    branch5x5 = conv2d_bn(x, 48, 1, 1)
-    branch5x5 = conv2d_bn(branch5x5, 64, 5, 5)
+    branch5x5 = conv2d_bn(x, block_size * 3, 1, 1)
+    branch5x5 = conv2d_bn(branch5x5, block_size * 4, 5, 5)
 
-    branch3x3dbl = conv2d_bn(x, 64, 1, 1)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
+    branch3x3dbl = conv2d_bn(x, block_size * 4, 1, 1)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
 
     branch_pool = layers.AveragePooling2D((3, 3),
                                           strides=(1, 1),
                                           padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 64, 1, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 4, 1, 1)
     x = layers.concatenate(
         [branch1x1, branch5x5, branch3x3dbl, branch_pool],
         axis=channel_axis,
@@ -144,36 +144,37 @@ def inceptionv3(input_tensor):
     # skip2.shape = [B, 128, 128, ?]
     skip2 = x
     # mixed 3: 17 x 17 x 768
-    branch3x3 = conv2d_bn(x, 384, 3, 3, strides=(2, 2), padding='same')
+    branch3x3 = conv2d_bn(x, block_size * 24, 3, 3,
+                          strides=(2, 2), padding='same')
 
-    branch3x3dbl = conv2d_bn(x, 64, 1, 1)
-    branch3x3dbl = conv2d_bn(branch3x3dbl, 96, 3, 3)
-    branch3x3dbl = conv2d_bn(
-        branch3x3dbl, 96, 3, 3, strides=(2, 2), padding='same')
+    branch3x3dbl = conv2d_bn(x, block_size * 4, 1, 1)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3)
+    branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 6, 3, 3,
+                             strides=(2, 2), padding='same')
 
-    branch_pool = layers.MaxPooling2D(
-        (3, 3), strides=(2, 2), padding='same')(x)
+    branch_pool = layers.MaxPooling2D((3, 3), strides=(2, 2),
+                                      padding='same')(x)
     x = layers.concatenate(
         [branch3x3, branch3x3dbl, branch_pool],
         axis=channel_axis,
         name='mixed3')
     # mixed 4: 17 x 17 x 768
-    branch1x1 = conv2d_bn(x, 192, 1, 1)
+    branch1x1 = conv2d_bn(x, block_size * 12, 1, 1)
 
-    branch7x7 = conv2d_bn(x, 128, 1, 1)
-    branch7x7 = conv2d_bn(branch7x7, 128, 1, 7)
-    branch7x7 = conv2d_bn(branch7x7, 192, 7, 1)
+    branch7x7 = conv2d_bn(x, block_size * 8, 1, 1)
+    branch7x7 = conv2d_bn(branch7x7, block_size * 8, 1, 7)
+    branch7x7 = conv2d_bn(branch7x7, block_size * 12, 7, 1)
 
-    branch7x7dbl = conv2d_bn(x, 128, 1, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 128, 7, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 128, 1, 7)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 128, 7, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 1, 7)
+    branch7x7dbl = conv2d_bn(x, block_size * 8, 1, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 8, 7, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 8, 1, 7)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 8, 7, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 1, 7)
 
     branch_pool = layers.AveragePooling2D((3, 3),
                                           strides=(1, 1),
                                           padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 192, 1, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 12, 1, 1)
     x = layers.concatenate(
         [branch1x1, branch7x7, branch7x7dbl, branch_pool],
         axis=channel_axis,
@@ -181,43 +182,43 @@ def inceptionv3(input_tensor):
 
     # mixed 5, 6: 17 x 17 x 768
     for i in range(2):
-        branch1x1 = conv2d_bn(x, 192, 1, 1)
+        branch1x1 = conv2d_bn(x, block_size * 12, 1, 1)
 
-        branch7x7 = conv2d_bn(x, 160, 1, 1)
-        branch7x7 = conv2d_bn(branch7x7, 160, 1, 7)
-        branch7x7 = conv2d_bn(branch7x7, 192, 7, 1)
+        branch7x7 = conv2d_bn(x, block_size * 10, 1, 1)
+        branch7x7 = conv2d_bn(branch7x7, block_size * 10, 1, 7)
+        branch7x7 = conv2d_bn(branch7x7, block_size * 12, 7, 1)
 
-        branch7x7dbl = conv2d_bn(x, 160, 1, 1)
-        branch7x7dbl = conv2d_bn(branch7x7dbl, 160, 7, 1)
-        branch7x7dbl = conv2d_bn(branch7x7dbl, 160, 1, 7)
-        branch7x7dbl = conv2d_bn(branch7x7dbl, 160, 7, 1)
-        branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 1, 7)
+        branch7x7dbl = conv2d_bn(x, block_size * 10, 1, 1)
+        branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 10, 7, 1)
+        branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 10, 1, 7)
+        branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 10, 7, 1)
+        branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 1, 7)
 
-        branch_pool = layers.AveragePooling2D(
-            (3, 3), strides=(1, 1), padding='same')(x)
-        branch_pool = conv2d_bn(branch_pool, 192, 1, 1)
+        branch_pool = layers.AveragePooling2D((3, 3), strides=(1, 1),
+                                              padding='same')(x)
+        branch_pool = conv2d_bn(branch_pool, block_size * 12, 1, 1)
         x = layers.concatenate(
             [branch1x1, branch7x7, branch7x7dbl, branch_pool],
             axis=channel_axis,
             name='mixed' + str(5 + i))
 
     # mixed 7: 17 x 17 x 768
-    branch1x1 = conv2d_bn(x, 192, 1, 1)
+    branch1x1 = conv2d_bn(x, block_size * 12, 1, 1)
 
-    branch7x7 = conv2d_bn(x, 192, 1, 1)
-    branch7x7 = conv2d_bn(branch7x7, 192, 1, 7)
-    branch7x7 = conv2d_bn(branch7x7, 192, 7, 1)
+    branch7x7 = conv2d_bn(x, block_size * 12, 1, 1)
+    branch7x7 = conv2d_bn(branch7x7, block_size * 12, 1, 7)
+    branch7x7 = conv2d_bn(branch7x7, block_size * 12, 7, 1)
 
-    branch7x7dbl = conv2d_bn(x, 192, 1, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 7, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 1, 7)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 7, 1)
-    branch7x7dbl = conv2d_bn(branch7x7dbl, 192, 1, 7)
+    branch7x7dbl = conv2d_bn(x, block_size * 12, 1, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 7, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 1, 7)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 7, 1)
+    branch7x7dbl = conv2d_bn(branch7x7dbl, block_size * 12, 1, 7)
 
     branch_pool = layers.AveragePooling2D((3, 3),
                                           strides=(1, 1),
                                           padding='same')(x)
-    branch_pool = conv2d_bn(branch_pool, 192, 1, 1)
+    branch_pool = conv2d_bn(branch_pool, block_size * 12, 1, 1)
     x = layers.concatenate(
         [branch1x1, branch7x7, branch7x7dbl, branch_pool],
         axis=channel_axis,
@@ -225,18 +226,18 @@ def inceptionv3(input_tensor):
     # skip3.shape = [B, 64, 64, ?]
     skip3 = x
     # mixed 8: 8 x 8 x 1280
-    branch3x3 = conv2d_bn(x, 192, 1, 1)
-    branch3x3 = conv2d_bn(branch3x3, 320, 3, 3,
+    branch3x3 = conv2d_bn(x, block_size * 12, 1, 1)
+    branch3x3 = conv2d_bn(branch3x3, block_size * 20, 3, 3,
                           strides=(2, 2), padding='same')
 
-    branch7x7x3 = conv2d_bn(x, 192, 1, 1)
-    branch7x7x3 = conv2d_bn(branch7x7x3, 192, 1, 7)
-    branch7x7x3 = conv2d_bn(branch7x7x3, 192, 7, 1)
-    branch7x7x3 = conv2d_bn(
-        branch7x7x3, 192, 3, 3, strides=(2, 2), padding='same')
+    branch7x7x3 = conv2d_bn(x, block_size * 12, 1, 1)
+    branch7x7x3 = conv2d_bn(branch7x7x3, block_size * 12, 1, 7)
+    branch7x7x3 = conv2d_bn(branch7x7x3, block_size * 12, 7, 1)
+    branch7x7x3 = conv2d_bn(branch7x7x3, block_size * 12, 3, 3,
+                            strides=(2, 2), padding='same')
 
-    branch_pool = layers.MaxPooling2D(
-        (3, 3), strides=(2, 2), padding='same')(x)
+    branch_pool = layers.MaxPooling2D((3, 3), strides=(2, 2),
+                                      padding='same')(x)
     x = layers.concatenate(
         [branch3x3, branch7x7x3, branch_pool],
         axis=channel_axis,
@@ -244,30 +245,31 @@ def inceptionv3(input_tensor):
 
     # mixed 9: 8 x 8 x 2048
     for i in range(2):
-        branch1x1 = conv2d_bn(x, 320, 1, 1)
+        branch1x1 = conv2d_bn(x, block_size * 20, 1, 1)
 
-        branch3x3 = conv2d_bn(x, 384, 1, 1)
-        branch3x3_1 = conv2d_bn(branch3x3, 384, 1, 3)
-        branch3x3_2 = conv2d_bn(branch3x3, 384, 3, 1)
+        branch3x3 = conv2d_bn(x, block_size * 24, 1, 1)
+        branch3x3_1 = conv2d_bn(branch3x3, block_size * 24, 1, 3)
+        branch3x3_2 = conv2d_bn(branch3x3, block_size * 24, 3, 1)
         branch3x3 = layers.concatenate(
             [branch3x3_1, branch3x3_2],
             axis=channel_axis,
             name='mixed9_' + str(i))
 
-        branch3x3dbl = conv2d_bn(x, 448, 1, 1)
-        branch3x3dbl = conv2d_bn(branch3x3dbl, 384, 3, 3)
-        branch3x3dbl_1 = conv2d_bn(branch3x3dbl, 384, 1, 3)
-        branch3x3dbl_2 = conv2d_bn(branch3x3dbl, 384, 3, 1)
-        branch3x3dbl = layers.concatenate(
-            [branch3x3dbl_1, branch3x3dbl_2], axis=channel_axis)
+        branch3x3dbl = conv2d_bn(x, block_size * 28, 1, 1)
+        branch3x3dbl = conv2d_bn(branch3x3dbl, block_size * 24, 3, 3)
+        branch3x3dbl_1 = conv2d_bn(branch3x3dbl, block_size * 24, 1, 3)
+        branch3x3dbl_2 = conv2d_bn(branch3x3dbl, block_size * 24, 3, 1)
+        branch3x3dbl = layers.concatenate([branch3x3dbl_1,
+                                           branch3x3dbl_2],
+                                          axis=channel_axis)
 
-        branch_pool = layers.AveragePooling2D(
-            (3, 3), strides=(1, 1), padding='same')(x)
-        branch_pool = conv2d_bn(branch_pool, 192, 1, 1)
-        x = layers.concatenate(
-            [branch1x1, branch3x3, branch3x3dbl, branch_pool],
-            axis=channel_axis,
-            name='mixed' + str(9 + i))
+        branch_pool = layers.AveragePooling2D((3, 3), strides=(1, 1),
+                                              padding='same')(x)
+        branch_pool = conv2d_bn(branch_pool, block_size * 12, 1, 1)
+        x = layers.concatenate([branch1x1, branch3x3,
+                                branch3x3dbl, branch_pool],
+                               axis=channel_axis,
+                               name='mixed' + str(9 + i))
     # x.shape = [B, 32, 32, 32]
     # skip1.shape = [B 256, 256, 64]
     # skip2.shape = [B 128, 128, ?]
@@ -409,12 +411,12 @@ class SkipUpsample3DDetail(layers.Layer):
                                     tensor_2d_3d_tile], axis=-1)
 
 
-def x2ct_model(input_shape, last_act, last_channel_num=1,
+def x2ct_model(input_shape, block_size=16, last_act="gelu", last_channel_num=1,
                block_2d_3d=["progressive", "tile"],
                decode_init_filters=512, decode_filter_list=[512, 256, 128, 64]):
     model_input = layers.Input(input_shape)
 
-    encoded, skip_list = inceptionv3(model_input)
+    encoded, skip_list = inceptionv3(model_input, block_size=block_size)
     len_decode = len(skip_list) + 1
     _, h, w, filters = backend.int_shape(encoded)
 
@@ -436,7 +438,6 @@ def x2ct_model(input_shape, last_act, last_channel_num=1,
                             padding="same")(encoded)
     decoded = get_block_2d_3d(decode_init_filters,
                               decode_init_filters, h, naive=False)(decoded)
-
     for idx in range(len_decode):
         decode_filter = decode_filter_list[idx]
         if idx < len_decode - 1:

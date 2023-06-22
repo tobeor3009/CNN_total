@@ -20,7 +20,6 @@ Reference:
       http://arxiv.org/abs/1512.00567) (CVPR 2016)
 """
 import os
-
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras import backend
@@ -32,7 +31,24 @@ from ..inception_resnet_v2_unet_fix.layers import get_act_layer
 from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
 
 
-def pixel_shuffle_block(x, skip_list, base_act, last_act):
+def classification_block(x, skip_list, base_act, last_act, class_num):
+    x = layers.GlobalAveragePooling2D()(x)
+
+    for skip in skip_list:
+        skip_channel = skip.shape[-1]
+        skip = layers.GlobalAveragePooling2D()(skip)
+        skip = layers.Dense(skip_channel // 2)(skip)
+        skip = get_act_layer(base_act)(skip)
+        x = layers.Concatenate(axis=-1)([x, skip])
+    channel = x.shape.as_list()[-1]
+    x = layers.Dense(channel // 2)(x)
+    x = get_act_layer(base_act)(x)
+    x = layers.Dense(class_num)(x)
+    x = get_act_layer(last_act, name="classification_output")(x)
+    return x
+
+
+def pixel_shuffle_block(x, skip_list, base_act, last_act, class_num):
 
     # skip1.shape = [B 256, 256, 32]
     # skip2.shape = [B 128, 128, 64]
@@ -68,10 +84,10 @@ def pixel_shuffle_block(x, skip_list, base_act, last_act):
     # x.shape = [B, 256, 256, 96]
     x = pixel_shuffle_mini_block(x, 64, None, 5)
     # x.shape = [B, 512, 512, 64]
-    x = layers.Conv2D(RGB_OUTPUT_CHANNEL, (1, 1),
+    x = layers.Conv2D(class_num, (1, 1),
                       padding='same')(x)
     # img_input.shape = [B, 512, 512, 3]
-    x = get_act_layer(last_act)(x)
+    x = get_act_layer(last_act, name="pixel_shuffle_output")(x)
     return x
 
 
@@ -110,8 +126,21 @@ def upsample_block(x, skip_list, base_act, last_act, class_num):
     x = layers.Conv2D(class_num, (1, 1),
                       padding='same')(x)
     # img_input.shape = [B, 512, 512, 3]
-    x = get_act_layer(last_act)(x)
+    x = get_act_layer(last_act, name="upsample_output")(x)
     return x
+
+
+def consistency_block(class_pred, seg_pred):
+    seg_pred = layers.MaxPooling2D(pool_size=(32, 32),
+                                   strides=(32, 32),
+                                   padding="valid")(seg_pred)
+    seg_pred = layers.AveragePooling2D(pool_size=(16, 16),
+                                       strides=(16, 16),
+                                       padding="valid")(seg_pred)
+    seg_pred = seg_pred[:, 0, 0]
+    consistency = tf.keras.layers.Subtract(name="consistency_output")([class_pred,
+                                                                       seg_pred])
+    return consistency
 
 
 def get_submodules():
@@ -149,8 +178,10 @@ def conv2d_bn(x,
     return x
 
 
-def InceptionV3(input_shape=(512, 512, 3), class_num=1,
-                base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid", multi_task=False):
+def InceptionV3(input_shape=(512, 512, 3),
+                recon_class_num=3, seg_class_num=1, classification_class_num=1,
+                base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid",
+                multi_task=False, classification=False, check_consistency=False):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
 
@@ -361,12 +392,23 @@ def InceptionV3(input_shape=(512, 512, 3), class_num=1,
     # skip4.shape = [B 32, 32, 768]
     skip_list = [skip1, skip2, skip3, skip4]
 
-    seg_output = upsample_block(x, skip_list, base_act, last_act, class_num)
-    if multi_task:
-        he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act)
-        model = Model(img_input, [he_output, seg_output],
-                      name='inceptionv3')
-    else:
-        model = Model(img_input, seg_output, name='inceptionv3')
+    seg_output = upsample_block(x, skip_list, base_act, last_act,
+                                seg_class_num)
 
-    return model
+    if multi_task:
+        he_output = pixel_shuffle_block(x, skip_list, base_act, image_last_act,
+                                        recon_class_num)
+        model_output = [he_output, seg_output]
+    else:
+        model_output = [seg_output]
+
+    if classification:
+        classification_output = classification_block(x, skip_list, base_act, "softmax",
+                                                     classification_class_num)
+        model_output.append(classification_output)
+
+    if check_consistency:
+        consistency = consistency_block(classification_output, seg_output)
+        model_output.append(consistency)
+    return Model(img_input, model_output,
+                 name='inceptionv3')

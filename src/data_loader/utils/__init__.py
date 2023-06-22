@@ -8,7 +8,6 @@ import SimpleITK as sitk
 import nibabel as nib
 
 
-
 def imread(img_path, channel=None, policy=None):
     extension = os.path.splitext(img_path)[1]
 
@@ -307,7 +306,7 @@ class MultiProcessPool(BaseProcessPool):
                                                            self.idx_queue,
                                                            self.output_queue,
                                                            self.batch_size))
-            # process.daemon = True
+            process.daemon = True
             process.start()
             self.process_list.append(process)
         if self.verbose:

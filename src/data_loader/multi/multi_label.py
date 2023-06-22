@@ -6,10 +6,10 @@ import math
 # external module
 import numpy as np
 import progressbar
-
+from tensorflow.keras.utils import Sequence
 # this library module
-from .utils.utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
-from .base.base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
+from ..utils import imread, get_parent_dir_name, SingleProcessPool, MultiProcessPool, lazy_cycle
+from ..base.base_loader import BaseDataGetter, BaseDataLoader, BaseIterDataLoader, \
     ResizePolicy, PreprocessPolicy, SegAugmentationPolicy, \
     base_augmentation_policy_dict
 
@@ -51,14 +51,13 @@ class MultiLabelDataGetter(BaseDataGetter):
     def __init__(self,
                  image_path_list,
                  mask_path_list,
-                 label_to_index_dict,
-                 label_level,
+                 imread_policy_dict,
+                 label_policy,
                  on_memory,
                  augmentation_proba,
                  augmentation_policy_dict,
                  image_channel_dict,
-                 preprocess_input,
-                 mask_preprocess_input,
+                 preprocess_dict,
                  target_size,
                  interpolation
                  ):
@@ -70,8 +69,8 @@ class MultiLabelDataGetter(BaseDataGetter):
                                mask_path in enumerate(mask_path_list)}
         self.data_on_ram_dict = {index: None for index, _
                                  in enumerate(image_path_list)}
-        self.label_to_index_dict = label_to_index_dict
-        self.label_level = label_level
+        self.imread_policy_dict = imread_policy_dict
+        self.label_policy = label_policy
         self.on_memory = on_memory
 
         self.image_channel = image_channel_dict["image"]
@@ -94,8 +93,9 @@ class MultiLabelDataGetter(BaseDataGetter):
 
         self.augmentation_method = SegAugmentationPolicy(
             augmentation_proba, augmentation_policy_dict)
-        self.image_preprocess_method = PreprocessPolicy(preprocess_input)
-        self.mask_preprocess_method = PreprocessPolicy(mask_preprocess_input)
+        self.image_preprocess_method = PreprocessPolicy(
+            preprocess_dict["image"])
+        self.mask_preprocess_method = PreprocessPolicy(preprocess_dict["mask"])
 
         assert len(image_path_list) == len(mask_path_list), \
             f"image_num = f{len(image_path_list)}, mask_num = f{len(mask_path_list)}"
@@ -117,11 +117,12 @@ class MultiLabelDataGetter(BaseDataGetter):
         else:
             image_path = self.image_path_dict[current_index]
             mask_path = self.mask_path_dict[current_index]
-            label_str = get_parent_dir_name(image_path, self.label_level)
 
-            image_array = imread(image_path, channel=self.image_channel)
-            mask_array = imread(mask_path, channel=self.mask_channel)
-            label_array = self.label_to_index_dict[label_str]
+            image_array = imread(image_path, channel=self.image_channel,
+                                 policy=self.imread_policy_dict["image"])
+            mask_array = imread(mask_path, channel=self.mask_channel,
+                                policy=self.imread_policy_dict["mask"])
+            label_array = self.label_policy(image_path)
 
             image_array = self.resize_method(image_array)
             mask_array = self.resize_method(mask_array)
@@ -147,30 +148,28 @@ class MultiLabelDataloader(BaseIterDataLoader):
     def __init__(self,
                  image_path_list=None,
                  mask_path_list=None,
-                 label_to_index_dict=None,
-                 label_level=1,
+                 imread_policy_dict=None,
+                 label_policy=None,
                  batch_size=4,
                  num_workers=1,
                  on_memory=False,
                  augmentation_proba=None,
                  augmentation_policy_dict=base_augmentation_policy_dict,
                  image_channel_dict={"image": "rgb", "mask": None},
-                 preprocess_input="-1~1",
-                 mask_preprocess_input="mask",
+                 preprocess_dict={"image": "-1~1", "mask": "mask"},
                  target_size=None,
                  interpolation="bilinear",
                  shuffle=True,
                  dtype="float32"):
         self.data_getter = MultiLabelDataGetter(image_path_list=image_path_list,
                                                 mask_path_list=mask_path_list,
-                                                label_to_index_dict=label_to_index_dict,
-                                                label_level=label_level,
+                                                imread_policy_dict=imread_policy_dict,
+                                                label_policy=label_policy,
                                                 on_memory=on_memory,
                                                 augmentation_proba=augmentation_proba,
                                                 augmentation_policy_dict=augmentation_policy_dict,
                                                 image_channel_dict=image_channel_dict,
-                                                preprocess_input=preprocess_input,
-                                                mask_preprocess_input=mask_preprocess_input,
+                                                preprocess_dict=preprocess_dict,
                                                 target_size=target_size,
                                                 interpolation=interpolation
                                                 )
@@ -219,13 +218,79 @@ class MultiLabelDataloader(BaseIterDataLoader):
         batch_label_array = np.stack(batch_label_array, axis=0)
         batch_mask_array = np.stack(batch_mask_array, axis=0)
 
-        return (batch_image_array, batch_label_array), batch_mask_array
+        return batch_image_array, (batch_label_array, batch_mask_array)
 
     def __len__(self):
         return math.ceil(self.data_num / self.batch_size)
 
     def change_batch_size(self, batch_size):
         self.batch_size = batch_size
+
+    def print_data_info(self):
+        data_num = len(self.data_getter)
+        print(f"Total data num {data_num}")
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            self.data_getter.shuffle()
+
+
+class MultiLabelDataSequence(Sequence):
+
+    def __init__(self,
+                 image_path_list=None,
+                 mask_path_list=None,
+                 imread_policy_dict=None,
+                 label_policy=None,
+                 batch_size=4,
+                 on_memory=False,
+                 augmentation_proba=None,
+                 augmentation_policy_dict=base_augmentation_policy_dict,
+                 image_channel_dict={"image": "rgb", "mask": None},
+                 preprocess_dict={"image": "-1~1", "mask": "mask"},
+                 target_size=None,
+                 interpolation="bilinear",
+                 shuffle=True,
+                 dtype="float32"):
+        self.data_getter = MultiLabelDataGetter(image_path_list=image_path_list,
+                                                mask_path_list=mask_path_list,
+                                                imread_policy_dict=imread_policy_dict,
+                                                label_policy=label_policy,
+                                                on_memory=on_memory,
+                                                augmentation_proba=augmentation_proba,
+                                                augmentation_policy_dict=augmentation_policy_dict,
+                                                image_channel_dict=image_channel_dict,
+                                                preprocess_dict=preprocess_dict,
+                                                target_size=target_size,
+                                                interpolation=interpolation
+                                                )
+        self.batch_size = batch_size
+        self.data_num = len(self.data_getter)
+        self.shuffle = shuffle
+        self.dtype = dtype
+
+    def __getitem__(self, i):
+        start = i * self.batch_size
+        end = min(start + self.batch_size, self.data_num)
+
+        batch_image_array = []
+        batch_label_array = []
+        batch_mask_array = []
+        for total_index in range(start, end):
+            single_data_dict = self.data_getter[total_index]
+
+            batch_image_array.append(single_data_dict["image_array"])
+            batch_label_array.append(single_data_dict["label_array"])
+            batch_mask_array.append(single_data_dict["mask_array"])
+
+        batch_image_array = np.stack(batch_image_array, axis=0)
+        batch_label_array = np.stack(batch_label_array, axis=0)
+        batch_mask_array = np.stack(batch_mask_array, axis=0)
+
+        return batch_image_array, (batch_label_array, batch_mask_array)
+
+    def __len__(self):
+        return math.ceil(self.data_num / self.batch_size)
 
     def print_data_info(self):
         data_num = len(self.data_getter)
