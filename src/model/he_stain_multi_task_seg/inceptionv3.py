@@ -31,7 +31,7 @@ from ..inception_resnet_v2_unet_fix.layers import get_act_layer
 from .util import BASE_ACT, RGB_OUTPUT_CHANNEL, SEG_OUTPUT_CHANNEL
 
 
-def classification_block(x, skip_list, base_act, last_act, class_num):
+def classification_block(x, skip_list, base_act, last_act, class_num, grad_cam):
     x = layers.GlobalAveragePooling2D()(x)
 
     for skip in skip_list:
@@ -43,7 +43,13 @@ def classification_block(x, skip_list, base_act, last_act, class_num):
     channel = x.shape.as_list()[-1]
     x = layers.Dense(channel // 2)(x)
     x = get_act_layer(base_act)(x)
-    x = layers.Dense(class_num)(x)
+    if grad_cam:
+        # x *= 1e-1
+        backend.set_floatx('float64')
+        dense_dtype = "float64"
+    else:
+        dense_dtype = "float32"
+    x = layers.Dense(class_num, dtype=dense_dtype)(x)
     x = get_act_layer(last_act, name="classification_output")(x)
     return x
 
@@ -181,7 +187,8 @@ def conv2d_bn(x,
 def InceptionV3(input_shape=(512, 512, 3),
                 recon_class_num=3, seg_class_num=1, classification_class_num=1,
                 base_act=BASE_ACT, image_last_act="tanh", last_act="sigmoid",
-                multi_task=False, classification=False, check_consistency=False):
+                multi_task=False, classification=False, check_consistency=False,
+                grad_cam=False):
     global backend, layers, models, keras_utils
     backend, layers, models, keras_utils = get_submodules()
 
@@ -404,7 +411,7 @@ def InceptionV3(input_shape=(512, 512, 3),
 
     if classification:
         classification_output = classification_block(x, skip_list, base_act, "softmax",
-                                                     classification_class_num)
+                                                     classification_class_num, grad_cam)
         model_output.append(classification_output)
 
     if check_consistency:
