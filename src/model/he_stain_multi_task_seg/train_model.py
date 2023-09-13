@@ -5,33 +5,6 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.losses import MeanAbsoluteError
 from tensorflow.python.keras.losses import CategoricalCrossentropy
 
-# Loss function for evaluating adversarial loss
-adv_loss_fn = MeanAbsoluteError()
-base_image_loss_fn = MeanAbsoluteError()
-base_class_loss_fn = CategoricalCrossentropy(label_smoothing=0.01)
-
-
-# Define the loss function for the generators
-def base_generator_loss_deceive_discriminator(fake_img):
-    return -tf.reduce_mean(fake_img)
-
-
-# Define the loss function for the discriminators
-def base_discriminator_loss_arrest_generator(real_img, fake_img):
-    real_loss = tf.reduce_mean(real_img)
-    fake_loss = tf.reduce_mean(fake_img)
-
-    return fake_loss - real_loss
-
-
-def compute_l2_norm(tensor):
-
-    squared = keras_backend.square(tensor)
-    l2_norm = keras_backend.sum(squared)
-    l2_norm = keras_backend.sqrt(l2_norm)
-
-    return l2_norm
-
 
 class ConsistencyModel(Model):
     def __init__(
@@ -116,7 +89,8 @@ class ConsistencyModel(Model):
         gt_mask, gt_label = gt_info
         pred_mask, pred_label = pred_info
 
-        dice_score = self.get_dice_score(gt_mask, pred_mask)
+        dice_score = self.get_dice_score(gt_mask,
+                                         pred_mask * pred_label[:, None, None, :])
         acc = self.get_acc(gt_label, pred_label)
 
         return dice_score, acc

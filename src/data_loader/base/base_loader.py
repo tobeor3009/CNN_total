@@ -67,7 +67,6 @@ color_transform = A.OneOf([
 to_jpeg_transform = A.ImageCompression(quality_lower=10,
                                        quality_upper=25, p=1)
 
-
 def identity_fn(any):
     return any
 
